@@ -28,9 +28,9 @@ export const DUE_CHECK_INTERVAL_MS = 15 * 60_000
 
 /**
  * The WebView's own `fetch` as an {@link UpdateFetch}: without cookies, a `Referer` or the HTTP
- * cache. GitHub's API answers every origin (`Access-Control-Allow-Origin: *`). An app that wires
- * the native HTTP (stage 2.9) may pass `updateFetchFromNative` instead, once `api.github.com` is
- * on its host list.
+ * cache. GitHub's API answers every origin (`Access-Control-Allow-Origin: *`). Once
+ * `api.github.com` is on the platform's host list, the app may pass `updateFetchFromNative` with
+ * the Android app's native HTTP instead.
  */
 export const webUpdateFetch: UpdateFetch = (url, init) =>
   unpatchedFetch()(url, { ...init, cache: 'no-store', referrerPolicy: 'no-referrer' })

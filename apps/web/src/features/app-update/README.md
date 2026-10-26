@@ -22,7 +22,7 @@ The Android app's check for new versions of itself (stage 6.6). The APKs on GitH
 
 It runs ten seconds after the app starts, then whenever one is due (looked at every 15 minutes while the app is in the foreground, when it comes back to it and when the device goes online): a day after the last successful check, an hour after a failed one, or later if GitHub's rate limit says so (60 requests an hour per address without a token). Offline, it asks nothing. One check runs at a time, and "Check now" in Settings joins the one under way. `CLEAN-ROOM.md` lists the facts about GitHub's API this relies on.
 
-**The request.** It goes through the WebView's own `fetch` (`webUpdateFetch`, with `unpatchedFetch` from `@fxm/platform`), which GitHub's API allows from any origin. So GitHub sees the app's IP address and the WebView's `User-Agent`, as for any download from GitHub. The check takes any `UpdateFetch`: once the app's composition (stage 2.9) wires the native HTTP and `api.github.com` is on its host list, `updateFetchFromNative` of `@fxm/platform` sends it with the native client's reduced `User-Agent` and no `Origin`. The site's privacy page names the check.
+**The request.** It goes through the WebView's own `fetch` (`webUpdateFetch`, with `unpatchedFetch` from `@fxm/platform`), which GitHub's API allows from any origin. So GitHub sees the app's IP address and the WebView's `User-Agent`, as for any download from GitHub. The check takes any `UpdateFetch`: once `api.github.com` is on the platform's host list (`packages/platform/src/hosts.ts`, which the native HTTP enforces too), `updateFetchFromNative` of `@fxm/platform` over the Android app's native HTTP sends it with the native client's reduced `User-Agent` and no `Origin`. The site's privacy page names the check.
 
 ## What the user sees
 
@@ -37,8 +37,9 @@ It runs ten seconds after the app starts, then whenever one is due (looked at ev
 
 ## Tests
 
-`releases.test.ts` (parsing, versions, links, the request, 404 before the first release, rate limits, errors, the time limit), `checks.test.ts` (the schedule with fake timers, offline, failures, one check at a time, the stored state), `support.test.ts` (which builds check, the build flag), `app-update-toast.test.tsx` and `app-update-setting.test.tsx` (each state, focus, Escape, the web app showing neither). `testing.ts` has the fakes: GitHub's answers, a fake `UpdateFetch` and a store of its own.
+`releases.test.ts` (parsing, versions, links, the request, 404 before the first release, rate limits, errors, the time limit), `checks.test.ts` (the schedule with fake timers, offline, failures, one check at a time, the stored state), `support.test.ts` (which builds check, the build flag), `app-update-toast.test.tsx` and `app-update-setting.test.tsx` (each state, focus, Escape, the web app showing neither). `testing.ts` has the fakes: GitHub's answers, a fake `UpdateFetch` and a store of its own. `live.test.ts` (`make live-smoke`) asks GitHub once, as the app does, and reads the answer.
 
 ```sh
 scripts/run.sh pnpm vitest run apps/web/src/features/app-update
+FXM_LIVE=1 scripts/run.sh pnpm vitest run apps/web/src/features/app-update/live.test.ts
 ```

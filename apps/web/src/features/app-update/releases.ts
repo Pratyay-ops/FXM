@@ -126,12 +126,10 @@ export async function fetchLatestRelease(
       redirect: 'error',
       signal: controller.signal,
     })
-    if (response.status === 404) {
-      await response.body?.cancel().catch(() => {})
-      return undefined
-    }
     if (!response.ok) {
-      await response.body?.cancel().catch(() => {})
+      // GitHub's error answers are a few bytes of JSON: read them, so the connection is done.
+      await response.text().catch(() => '')
+      if (response.status === 404) return undefined
       throw httpError(response, now())
     }
     answer = await response.json().catch((cause: unknown) => {
