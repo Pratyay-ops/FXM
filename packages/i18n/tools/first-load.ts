@@ -100,16 +100,21 @@ export interface Placement {
   readonly pulledIn: readonly Message[]
 }
 
-/** Splits the web app's messages in `counts` (the inventory) by the first load's `modules`. */
-export function placement(counts: readonly AreaCount[], modules: readonly string[]): Placement {
-  const first = new Set(modules)
-  const messages = counts
+/** The web app's messages in `counts` (the inventory): everything but thrown errors. */
+export function webMessages(counts: readonly AreaCount[]): Message[] {
+  return counts
     .filter((entry) => entry.app === 'web')
     .flatMap((entry) =>
       entry.findings
         .filter((finding) => finding.category !== 'error')
         .map((finding) => ({ area: entry.area, file: finding.file, text: finding.text })),
     )
+}
+
+/** Splits the web app's messages in `counts` (the inventory) by the first load's `modules`. */
+export function placement(counts: readonly AreaCount[], modules: readonly string[]): Placement {
+  const first = new Set(modules)
+  const messages = webMessages(counts)
   const firstLoad = messages.filter((message) => first.has(message.file))
   const shared = new Set(firstLoad.map((message) => message.area))
   const pulledIn = messages.filter(
@@ -287,6 +292,20 @@ export function keyCost(
   return brotliSize(`${catalogs}${uses}`) - brotliSize(before)
 }
 
+/**
+ * Brotli bytes of `messages` as a locale's catalog chunk holds them, a JSON object per namespace
+ * of key to message, with the English standing in for the translation.
+ */
+export function catalogSize(messages: readonly Message[]): number {
+  const keys = keysOf(messages, 3)
+  const catalog: Record<string, Record<string, string>> = {}
+  for (const message of messages) {
+    const namespace = namespaceOf(message.area)
+    catalog[namespace] = { ...catalog[namespace], [keys.get(message) as string]: message.text }
+  }
+  return brotliSize(`export default ${JSON.stringify(catalog)}`)
+}
+
 /** Everything the summary prints. */
 export interface FirstLoadReport extends Placement {
   /** Characters of text in {@link Placement.firstLoad} and {@link Placement.pulledIn}. */
@@ -299,6 +318,8 @@ export interface FirstLoadReport extends Placement {
   readonly perFolder: number
   /** The pulled-in messages by folder, most first. */
   readonly folders: readonly { readonly area: string; readonly messages: number }[]
+  /** A locale's catalog chunk ({@link catalogSize}): the first load's part, and the whole app's. */
+  readonly catalog: { readonly firstLoad: number; readonly all: number }
 }
 
 /** Measures the first load of the repository at `root`. */
@@ -311,7 +332,8 @@ export function firstLoadReport(root: string): FirstLoadReport {
     }
     return cache.get(path)
   }
-  const placed = placement(inventory(root), firstLoadModules(read))
+  const counts = inventory(root)
+  const placed = placement(counts, firstLoadModules(read))
   const characters = (messages: readonly Message[]) =>
     messages.reduce((total, message) => total + message.text.length, 0)
   const averageKey = (words: number) => {
@@ -336,6 +358,7 @@ export function firstLoadReport(root: string): FirstLoadReport {
     folders: [...folders]
       .map(([area, messages]) => ({ area, messages }))
       .sort((a, b) => b.messages - a.messages || a.area.localeCompare(b.area)),
+    catalog: { firstLoad: catalogSize(placed.firstLoad), all: catalogSize(webMessages(counts)) },
   }
 }
 
@@ -360,6 +383,8 @@ export function summary(report: FirstLoadReport): string {
     '',
     `With one namespace per feature folder, those folders' lazy code adds ${n(report.pulledIn.length)} messages, ${n(report.characters.pulledIn)} characters: ${n(report.perFolder)} B more.`,
     ...report.folders.map(({ area, messages }) => `  ${area.padEnd(24)} ${n(messages)}`),
+    '',
+    `A locale's catalog, with the English standing in: ${n(report.catalog.all)} B for the whole app, ${n(report.catalog.firstLoad)} B for the first load's namespaces.`,
     '',
   ].join('\n')
 }

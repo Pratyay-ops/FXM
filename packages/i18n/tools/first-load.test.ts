@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  catalogSize,
   firstLoadModules,
   keyCost,
   keyFor,
@@ -102,6 +103,15 @@ describe('placement', () => {
     const placed = placement(counts, ['apps/web/src/features/library/format.ts'])
     expect(placed.firstLoad.map((message) => message.text)).toEqual(['{} songs'])
     expect(placed.pulledIn.map((message) => message.text)).toEqual(['Your library'])
+  })
+})
+
+describe('catalogSize', () => {
+  it('measures a catalog chunk, larger for more messages', () => {
+    const one: Message = { area: 'features/library', file: 'a.tsx', text: 'Your library is empty' }
+    const two: Message = { area: 'features/local-files', file: 'b.tsx', text: 'Add a folder' }
+    expect(catalogSize([one])).toBeGreaterThan(0)
+    expect(catalogSize([one, two])).toBeGreaterThan(catalogSize([one]))
   })
 })
 
