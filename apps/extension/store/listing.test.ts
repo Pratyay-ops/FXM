@@ -88,18 +88,19 @@ describe('store description', () => {
     )
   })
 
-  it("ties radio to the web app's home feed, and marks song radio as coming in a later version", () => {
+  it("ties radio to the web app's home feed and endless radio, which are both out", () => {
     // The home feed (stages 3.2 and 3.3) uses YouTube Music's and Spotify's radio and Last.fm's
-    // stations; song radio (3.4) is still to come.
+    // stations; endless radio (3.4) YouTube Music's and Spotify's radio.
     const texts = [...description.split('\n'), ...Object.values(PERMISSION_JUSTIFICATIONS)]
     const mentions = texts.filter((line) => /radio/i.test(line))
     expect(mentions.length).toBeGreaterThan(0)
     for (const line of mentions) {
       expect(line).toContain('home feed')
-      expect(line).not.toMatch(/(?<!song )radio in a later FXM version|recommendations in a later/)
-      if (/song radio/i.test(line)) expect(line).toContain('song radio in a later FXM version')
+      expect(line).not.toMatch(/radio in a later FXM version|recommendations in a later/)
     }
-    expect(description).toContain('song radio in a later FXM version')
+    expect(description).toContain(
+      "the radio the web app's home feed and endless radio are made from",
+    )
   })
 
   it("describes the opt-in Spotify bridge, Spotify's terms and the account link plainly", () => {

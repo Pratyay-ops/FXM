@@ -14,6 +14,9 @@
  * registry's `interactive` priority); classifying a Last.fm station's items draws at `prefetch`,
  * within what the budget has left above the interactive reserve.
  *
+ * Autoplay (stage 3.4, `features/autoplay/`) reads the same services: its radio asks `sources`
+ * for a context at the `prefetch` priority and gives `recommendations` a deadline.
+ *
  * @module
  */
 
@@ -222,7 +225,8 @@ const MAX_ARTWORK_LOOKUPS = 8
 /**
  * Home's recommendation sources: the collector, loaded with Home's first build, with covers
  * filled in for the few candidate tracks that come without one (the Cover Art Archive, through
- * ListenBrainz's lookup of the track's release).
+ * ListenBrainz's lookup of the track's release). They serve autoplay's radio too (stage 3.4),
+ * whose `deadlineMs` the collector keeps: it answers by then with what its sources found.
  */
 export function appHomeRecommendations(
   collector: Loader<
@@ -237,6 +241,7 @@ export function appHomeRecommendations(
           ? {}
           : { parts: options.parts as readonly CandidatePart[] }),
         ...(options?.limit === undefined ? {} : { limit: options.limit }),
+        ...(options?.deadlineMs === undefined ? {} : { deadlineMs: options.deadlineMs }),
       }
       const collection = await loaded.collect(seed, ctx, call)
       let lookups = 0

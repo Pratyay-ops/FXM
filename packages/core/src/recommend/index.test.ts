@@ -5,8 +5,10 @@ describe('the recommendation engine in the @fxm/core entry point', () => {
   it.each([
     ['identity', ['artistKeyOf', 'songIdentity', 'trackKeys', 'seedKey', 'recSeedOf']],
     ['taste', ['indexTaste', 'pickContributions', 'likedEnough', 'MIN_TASTE_ARTISTS']],
+    ['taste helpers', ['mostlySkipped', 'MIN_LIKED_SCORE', 'PICK_WEIGHT']],
     ['pooling', ['poolCandidates', 'combineStrengths', 'fitsMode', 'DEFAULT_EVIDENCE_WEIGHTS']],
     ['scoring', ['scoreSongs', 'scoreTerms', 'SCORE_PRESETS', 'DEFAULT_SCORE_WEIGHTS']],
+    ['scoring helpers', ['welcomeSongs', 'weighTerms', 'byScore']],
     ['history', ['filterHistory', 'passesHistory']],
     ['diversity', ['diversify', 'createPicker', 'songSimilarity', 'DEFAULT_PER_ARTIST_CAP']],
     ['seeds', ['planSeeds', 'seedWeight']],
@@ -14,6 +16,8 @@ describe('the recommendation engine in the @fxm/core entry point', () => {
     ['periods', ['periodKey', 'seededRandomFor']],
     ['home', ['buildHome', 'DEFAULT_HOME_OPTIONS', 'resolveHomeOptions', 'familiarCandidates']],
     ['stable lists', ['sanitizeStableShelves', 'sanitizeTrack', 'NO_STABLE_SHELVES']],
+    ['radio', ['radioShortfall', 'planRadioSeeds', 'nextRadioSeed', 'buildRadioBatch']],
+    ['radio tuning', ['DEFAULT_RADIO_OPTIONS', 'resolveRadioOptions', 'playsUnattended']],
   ])('re-exports the %s', (_part, names) => {
     for (const name of names) expect(core).toHaveProperty(name)
   })

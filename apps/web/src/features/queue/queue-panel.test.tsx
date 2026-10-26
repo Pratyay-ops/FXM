@@ -117,6 +117,41 @@ describe('queue panel', () => {
     for (const row of nextUp()) expect(row.style.transform).toBe('')
   })
 
+  it('keeps a drag going while songs come in below, as autoplay adds them', async () => {
+    const { player } = setupTestPlayback()
+    await player.setQueue(testTracks('a', 'b', 'c', 'd'), { autoplay: false })
+    await renderQueue()
+    layOutRows()
+    const handle = screen.getByRole('button', { name: 'Move b' })
+
+    fireEvent.pointerDown(handle, { pointerId: 1, button: 0, clientY: 30 })
+    fireEvent.pointerMove(handle, { pointerId: 1, clientY: 100 })
+    act(() => player.addToQueue(testTracks('e', 'f')))
+
+    expect(nextUp()).toHaveLength(5)
+    expect(nextUp()[0]).toHaveStyle({ transform: 'translateY(70px)' })
+    fireEvent.pointerMove(handle, { pointerId: 1, clientY: 160 })
+    fireEvent.pointerUp(handle, { pointerId: 1, clientY: 160 })
+
+    expect(titles(player.getState().queue.items)).toEqual(['a', 'c', 'd', 'b', 'e', 'f'])
+  })
+
+  it('drops a drag when the songs around it change', async () => {
+    const { player } = setupTestPlayback()
+    await player.setQueue(testTracks('a', 'b', 'c', 'd'), { autoplay: false })
+    await renderQueue()
+    layOutRows()
+    const handle = screen.getByRole('button', { name: 'Move b' })
+
+    fireEvent.pointerDown(handle, { pointerId: 1, button: 0, clientY: 30 })
+    fireEvent.pointerMove(handle, { pointerId: 1, clientY: 100 })
+    act(() => player.remove(3))
+
+    for (const row of nextUp()) expect(row.style.transform).toBe('')
+    fireEvent.pointerUp(handle, { pointerId: 1, clientY: 160 })
+    expect(titles(player.getState().queue.items)).toEqual(['a', 'b', 'c'])
+  })
+
   it('moves a song with one tap per step, from the buttons its handle shows', async () => {
     const { player } = setupTestPlayback()
     await player.setQueue(testTracks('a', 'b', 'c', 'd'), { autoplay: false })

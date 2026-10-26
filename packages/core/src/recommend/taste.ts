@@ -43,6 +43,17 @@ export function likedEnough(taste: { readonly score: number; readonly skips: num
   return taste.score >= MIN_LIKED_SCORE && taste.skips < taste.score
 }
 
+/**
+ * Whether the user mostly skips a track or an artist: at least one whole skip, and twice as much
+ * skipping as listening. Recommendations never hold such a track, nor a track by such an
+ * artist. `false` for `undefined`: what the user never did anything with.
+ */
+export function mostlySkipped(
+  taste: { readonly score: number; readonly skips: number } | undefined,
+): boolean {
+  return taste !== undefined && taste.skips >= 1 && taste.skips > 2 * Math.max(0, taste.score)
+}
+
 /** Plays of an artist after which the user counts as knowing them well. */
 const FAMILIAR_PLAYS = 5
 

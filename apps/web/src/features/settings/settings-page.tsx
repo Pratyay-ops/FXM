@@ -6,6 +6,7 @@ import { LogoMark } from '../../components/ui/logo'
 import { PageTitle } from '../../components/ui/page'
 import { SegmentedControl } from '../../components/ui/segmented-control'
 import { AudioEffectsSection, SOUND_SETTINGS_ID } from '../audio-effects/effects-section'
+import { AutoplaySetting } from '../autoplay/autoplay-setting'
 import { DiagnosticsSection } from '../connect/diagnostics'
 import { ConnectSettingsEntry } from '../connect/settings-entry'
 import { ExternalLink as ExternalTextLink, standaloneLinkClasses } from '../connect/ui'
@@ -76,6 +77,7 @@ export function SettingsPage() {
           />
         </SettingRow>
         <AutoMatchSetting />
+        <AutoplaySetting />
         <SponsorBlockSetting />
       </SettingsSection>
 

@@ -11,6 +11,7 @@ import type { ArtistRef, Track, TrackKind } from '../model'
 import { AffinityIndex } from '../signals/affinity'
 import type { ListeningSignal } from '../signals/signals'
 import { recSeedOf } from './identity'
+import { skippedEarly } from './radio'
 import type { RecCandidate, RecentPlay, RecSeed, RecTrackCandidate, TasteProfile } from './types'
 
 /** Monday 2026-10-26, 12:00 UTC: the "now" of the tests. */
@@ -119,7 +120,7 @@ export function like(track: Track, ago: number): ListeningSignal {
 
 /**
  * The taste profile a history makes: the affinity stage 3.1 computes from `signals`, every
- * track's metadata, and the plays as recent plays.
+ * track's metadata, and the plays as recent plays, with whether the user skipped each.
  */
 export function profileOf(
   signals: readonly ListeningSignal[],
@@ -129,13 +130,18 @@ export function profileOf(
   index.add(signals)
   const tracks = new Map<string, Track>()
   for (const signal of signals) tracks.set(entityKey(signal.track.id), signal.track as Track)
-  const recent: RecentPlay[] = signals
-    .filter((signal) => signal.type === 'play')
-    .map((signal) => ({
-      trackId: signal.track.id,
-      playedAt: signal.at,
-      track: signal.track as Track,
-    }))
+  const recent: RecentPlay[] = signals.flatMap((signal) =>
+    signal.type === 'play'
+      ? [
+          {
+            trackId: signal.track.id,
+            playedAt: signal.at,
+            track: signal.track as Track,
+            ...(skippedEarly(signal) ? { skipped: true } : {}),
+          },
+        ]
+      : [],
+  )
   return {
     tracks: index.entries('track').map((entry) => {
       const track = tracks.get(entry.key)

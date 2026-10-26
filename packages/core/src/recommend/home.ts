@@ -38,7 +38,7 @@ import {
   type PooledSong,
   poolCandidates,
 } from './pool'
-import { byScore, SCORE_PRESETS, type ScoredSong, scoreSongs } from './score'
+import { byScore, SCORE_PRESETS, type ScoredSong, scoreSongs, welcomeSongs } from './score'
 import { type PlannedSeed, planSeeds, seedWeight } from './seeds'
 import { NO_STABLE_SHELVES, type StableEntry, type StableShelves } from './stable'
 import { indexTaste, likedEnough, type TasteIndex, type TrackTaste } from './taste'
@@ -368,25 +368,12 @@ function suggested(song: PooledSong): boolean {
   return song.evidence.some((one) => one.strength > 0)
 }
 
-/** Whether the user mostly skips it: at least one whole skip, and twice as much as they listen. */
-function disliked(taste: { readonly score: number; readonly skips: number } | undefined): boolean {
-  return taste !== undefined && taste.skips >= 1 && taste.skips > 2 * Math.max(0, taste.score)
-}
-
-/**
- * The scored songs a list of recommendations may hold: a positive score, and neither the track
- * nor its main artist one the user mostly skips.
- */
+/** The scored songs a list of recommendations may hold (see `welcomeSongs`). */
 function welcome<T extends { readonly song: PooledSong; readonly score: number }>(
   build: Build,
   items: readonly T[],
 ): T[] {
-  return items.filter(
-    ({ song, score }) =>
-      score > 0 &&
-      !disliked(build.taste.track(song.keys)) &&
-      !disliked(build.taste.artist(song.artistKeys[0])),
-  )
+  return welcomeSongs(items, build.taste)
 }
 
 /** The pooled song of a profile track, if it has one. */

@@ -6,6 +6,9 @@ import { afterEach, vi } from 'vitest'
 import { resetLibrary } from '../db/repo'
 import { useAudioEffectsStore } from '../features/audio-effects/effects-store'
 import { useSoundDialogStore } from '../features/audio-effects/sound-dialog-store'
+import { useAutoplayActivity } from '../features/autoplay/autoplay-activity'
+import { useAutoplayMarks } from '../features/autoplay/autoplay-marks'
+import { useAutoplayStore } from '../features/autoplay/autoplay-store'
 import { resetDownloads } from '../features/downloads/runtime'
 import { setConverter, setDeviceSaver } from '../features/downloads/save/save'
 import { useLibraryViewStore } from '../features/library/view-store'
@@ -48,6 +51,9 @@ afterEach(async () => {
   usePwaStore.setState(usePwaStore.getInitialState(), true)
   useAudioEffectsStore.setState(useAudioEffectsStore.getInitialState(), true)
   useSoundDialogStore.setState(useSoundDialogStore.getInitialState(), true)
+  useAutoplayStore.setState(useAutoplayStore.getInitialState(), true)
+  useAutoplayMarks.setState(useAutoplayMarks.getInitialState(), true)
+  useAutoplayActivity.setState(useAutoplayActivity.getInitialState(), true)
   if (playerStore === undefined) return
   localStorage.clear()
   sessionStorage.clear()

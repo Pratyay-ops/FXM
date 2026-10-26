@@ -39,6 +39,7 @@ import {
   playContextOf,
   type QueueContext,
   type RandomSource,
+  skippedEarly,
   type Track,
 } from '@fxm/core'
 import { Dexie } from 'dexie'
@@ -197,6 +198,11 @@ export interface PlaylistView {
 export interface RecentRow extends TrackRow {
   /** When it last played. */
   playedAt: number
+  /**
+   * Whether the user skipped that last play before hearing half of it (`skippedEarly` in
+   * `@fxm/core`): the autoplay radio grows from none such (stage 3.4).
+   */
+  skipped?: boolean
 }
 
 /**
@@ -1296,7 +1302,10 @@ export function createLibraryRepo(db: FxmDatabase, deps: Partial<RepoDeps> = {})
 
     recordPlays,
 
-    /** The most recently played distinct tracks, most recent first. */
+    /**
+     * The most recently played distinct tracks, most recent first, each with when it last
+     * played and whether the user skipped that play.
+     */
     async recentlyPlayed(limit = 50): Promise<RecentRow[]> {
       const seen = new Set<string>()
       const entries: HistoryRecord[] = []
@@ -1312,7 +1321,11 @@ export function createLibraryRepo(db: FxmDatabase, deps: Partial<RepoDeps> = {})
         })
       const order = entries.map((entry) => entry.trackId)
       const rows = await rowsFor(order, () => undefined)
-      return rows.map((row, index) => ({ ...row, playedAt: entries[index]?.playedAt ?? 0 }))
+      return rows.map((row, index) => {
+        const entry = entries[index]
+        const skipped = entry !== undefined && skippedEarly(entry)
+        return { ...row, playedAt: entry?.playedAt ?? 0, skipped }
+      })
     },
 
     /** Every history entry, oldest first. */

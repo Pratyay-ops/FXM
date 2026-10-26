@@ -128,9 +128,9 @@ const LOCAL_PASS: HomeOptionsInput = {
 
 /**
  * The taste profile the library holds, with the onboarding picks: the top of the affinity, and
- * the recent plays with theirs. A song the user skips at once has no affinity, only skips, so it
- * never makes the top: its recent plays bring it in, with its metadata, so other sources'
- * listings of it count as skipped too.
+ * the recent plays with theirs and whether the user skipped each. A song the user skips at once
+ * has no affinity, only skips, so it never makes the top: its recent plays bring it in, with its
+ * metadata, so other sources' listings of it count as skipped too.
  */
 export async function loadTasteProfile(
   repo: LibraryRepo,
@@ -167,11 +167,13 @@ export async function loadTasteProfile(
     if (entry === undefined) return
     profileTracks.push(row.track === undefined ? { entry } : { entry, track: row.track })
   })
-  const recentPlays: RecentPlay[] = recent.map((row) =>
-    row.track === undefined
-      ? { trackId: row.id, playedAt: row.playedAt }
-      : { trackId: row.id, playedAt: row.playedAt, track: row.track },
-  )
+  const recentPlays: RecentPlay[] = recent.map((row) => ({
+    trackId: row.id,
+    playedAt: row.playedAt,
+    ...(row.track === undefined ? {} : { track: row.track }),
+    // The autoplay radio grows from no play the user skipped (stage 3.4).
+    ...(row.skipped === true ? { skipped: true } : {}),
+  }))
   return {
     tracks: profileTracks,
     artists: artists.map(({ entry }) => entry),
@@ -279,7 +281,11 @@ export function createCollectionCache(ttlMs = COLLECTION_TTL_MS, size = 64): Col
  */
 const appCollections = new WeakMap<HomeRecommendations, CollectionCache>()
 
-function collectionsOf(recommendations: HomeRecommendations): CollectionCache {
+/**
+ * The app's cache of the collections of `recommendations`: Home's, which the autoplay radio
+ * (stage 3.4) shares, so a recent play's radio is fetched once for both.
+ */
+export function collectionsOf(recommendations: HomeRecommendations): CollectionCache {
   let cache = appCollections.get(recommendations)
   if (cache === undefined) {
     cache = createCollectionCache()
@@ -461,7 +467,11 @@ async function mapLimit<T, R>(
  * The cache key of a seed's collection: the seed (with the artist found for it, if any), its
  * parts and what the sources could reach.
  */
-function collectionKey(seed: PlannedSeed, mode: CatalogMode, reach: HomeSourcesSnapshot): string {
+export function collectionKey(
+  seed: PlannedSeed,
+  mode: CatalogMode,
+  reach: HomeSourcesSnapshot,
+): string {
   const { youtube, spotify, mediaBytes } = reach.capabilities
   const artistId = isTrackSeed(seed.seed) ? '' : (seed.seed.id ?? '')
   const parts = seed.parts.join('+')
@@ -516,8 +526,11 @@ async function withYouTubeArtists(run: Run, seeds: readonly PlannedSeed[]): Prom
   })
 }
 
-/** Whether an outcome says YouTube Music's radio skipped the seed. */
-function skipsRadio(outcome: HomeSourceOutcome): boolean {
+/**
+ * Whether an outcome says YouTube Music's radio skipped the seed. The autoplay radio (stage 3.4)
+ * keeps its collections in Home's cache with the same mark.
+ */
+export function skipsRadio(outcome: HomeSourceOutcome): boolean {
   return outcome.source === 'ytm' && outcome.part === 'radio' && outcome.status === 'skipped'
 }
 

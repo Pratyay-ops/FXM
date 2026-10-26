@@ -83,8 +83,14 @@ export const AVAILABLE: Readonly<Record<Feature, boolean>> = {
    * `radio` (3.4).
    */
   homeFeed: true,
-  /** Song radio from YouTube Music and Spotify, in the app: stages 3.3 and 3.4 (M2) */
-  radio: false,
+  /**
+   * Song radio from YouTube Music and Spotify, in the app: stages 3.3 and 3.4, wired into the app
+   * by 2.9b. Endless radio is autoplay, which keeps the queue going with songs like the last
+   * plays. On since autoplay kept a queue going in the Lite tier of the composed app, in Chromium,
+   * on 2026-10-26 (scripts/build-dist/README.md, "Autoplay in the Lite tier", which says how to
+   * check again).
+   */
+  radio: true,
   /** A read-only sync of a Spotify account's recommendations, likes and playlists: 3.5 (M2) */
   spotifyAccount: true,
   /**

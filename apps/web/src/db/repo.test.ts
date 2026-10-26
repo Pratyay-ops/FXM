@@ -600,6 +600,36 @@ describe('history', () => {
     expect(await repo.recentlyPlayed()).toEqual([])
   })
 
+  it('says whether the user skipped each track’s last play before hearing half of it', async () => {
+    const repo = testRepo()
+    const play = (
+      n: number,
+      playedAt: number,
+      playedMs: number,
+      outcome: 'end' | 'skip' | 'stop',
+    ) =>
+      repo.recordPlay({
+        track: track(n),
+        playedAt,
+        playedMs,
+        durationMs: 200_000,
+        completed: outcome === 'end',
+        skipped: outcome === 'skip',
+      })
+    await play(1, 1000, 200_000, 'end')
+    // Skipped at once: the last play is what counts.
+    await play(1, 2000, 4_000, 'skip')
+    // Skipped near the end: a listen.
+    await play(2, 3000, 190_000, 'skip')
+    await play(3, 4000, 4_000, 'stop')
+    const recent = await repo.recentlyPlayed()
+    expect(recent.map((row) => [row.id, row.skipped])).toEqual([
+      [track(3).id, false],
+      [track(2).id, false],
+      [track(1).id, true],
+    ])
+  })
+
   it('tells when the history starts, which only forgetting or older plays change', async () => {
     const repo = testRepo()
     const play = (n: number, playedAt: number) =>
