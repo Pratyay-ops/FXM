@@ -39,6 +39,12 @@ export interface Service {
    * hosts out of the policies (offeredServices).
    */
   readonly requires?: string
+  /**
+   * The embed contacts it too: it is the service of a source the embed plays (`WIRED_SOURCES`
+   * in apps/web/src/embed/wired.ts, which a test keeps in step). The `/embed/*` policy allows
+   * these services' `connect` and `img` hosts only.
+   */
+  readonly embed?: true
 }
 
 /**
@@ -100,6 +106,10 @@ const SPOTIFY_COVER_HOSTS = ['https://i.scdn.co'] as const
  * them in saved files; Internet Archive's and Jamendo's covers come from hosts it reaches
  * already. Those hosts send `Access-Control-Allow-Origin: *` (checked 2026-10-26).
  *
+ * The embed (5.2) plays YouTube Music, YouTube and Internet Archive, and loads nothing else:
+ * no Spotify, matching, lyrics, scrobbling, recommendations or sync (apps/web/src/embed/
+ * integration.ts). Those two services are `embed`, and its policy allows nothing else.
+ *
  * Audio needs no entry: `media-src https:` covers googlevideo, Internet Archive's and Jamendo's
  * storage hosts and a user's Invidious proxy, and page script can't read media responses.
  */
@@ -109,6 +119,7 @@ export const APP_SERVICES: readonly Service[] = [
     connect: [...INNERTUBE_HOSTS, 'https://*.googlevideo.com'],
     img: YOUTUBE_IMAGE_HOSTS,
     appConnect: YOUTUBE_COVER_HOSTS,
+    embed: true,
   },
   {
     // Built in and on by default (Decision 1, option A). The secret source goes through the
@@ -127,6 +138,7 @@ export const APP_SERVICES: readonly Service[] = [
     privacyName: 'Internet Archive',
     connect: ['https://archive.org', 'https://*.archive.org'],
     img: ['https://archive.org', 'https://*.archive.org'],
+    embed: true,
   },
   // 1.6: only in a build with FXM's public Jamendo client_id, which the deploy passes from the
   // repository variable FXM_JAMENDO_CLIENT_ID (README.md, "Jamendo"). The web app registers Jamendo
@@ -219,14 +231,16 @@ const COMMON_DOCUMENT_DIRECTIVES: readonly Directive[] = [
  * row also allows `blob:`; a stage that needs a worker from a `blob:` URL adds it here, with why.
  * Stage 8.3's plugin workers don't: the isolated evaluator's document starts them from `blob:`
  * URLs under its own policy (`eval.html` in {@link SANDBOX_DOCUMENTS}), never the app's page.
+ * The embed starts no worker at all, so its policy allows none.
  */
 export const WORKER_SOURCES: readonly string[] = [SELF]
 
 /**
- * The web app's policy (`/app/*`), or the embed's (`/embed/*`): the same without
- * `frame-ancestors`, because any site may embed the player, and without what only the app
- * needs (`scriptExtras`, `appConnect`): the embed converts and saves nothing. Its hosts are those
- * of the services this build offers (offeredServices) unless `services` says otherwise.
+ * The web app's policy (`/app/*`), or the embed's (`/embed/*`): the embed's has no
+ * `frame-ancestors`, because any site may embed the player, nothing only the app needs
+ * (`scriptExtras`, `appConnect`: the embed converts and saves nothing), no worker, and only the
+ * hosts of the services the embed plays from (`embed`). The hosts are those of the services
+ * this build offers (offeredServices) unless `services` says otherwise.
  */
 export function appPolicy(
   scriptHashes: readonly string[],
@@ -236,14 +250,16 @@ export function appPolicy(
     scriptExtras?: readonly string[]
   } = {},
 ): Policy {
-  const services = options.services ?? offeredServices()
+  const app = !options.embeddable
+  const services = (options.services ?? offeredServices()).filter(
+    (service) => app || service.embed === true,
+  )
   const extras = options.scriptExtras ?? APP_SCRIPT_EXTRAS
   for (const source of extras) {
     if (source === UNSAFE_EVAL || source === UNSAFE_INLINE) {
       throw new Error(`the web app's script-src must never allow ${source}`)
     }
   }
-  const app = !options.embeddable
   const connect = unique(
     services.flatMap((service) => [
       ...(service.connect ?? []),
@@ -254,7 +270,7 @@ export function appPolicy(
   return [
     ['default-src', [SELF]],
     ['script-src', unique([SELF, ...scriptHashes, ...(app ? extras : [])])],
-    ['worker-src', [...WORKER_SOURCES]],
+    ['worker-src', app ? [...WORKER_SOURCES] : [NONE]],
     ['style-src', [SELF, UNSAFE_INLINE]],
     ['img-src', [SELF, 'data:', 'blob:', ...img]],
     ['media-src', [SELF, 'blob:', 'https:']],

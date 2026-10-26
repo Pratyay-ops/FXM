@@ -22,7 +22,7 @@ try {
   log(`Third-party packages (${packages.length}): ${packages.join(', ') || 'none'}`)
   log(
     `${relative(ROOT, PAGES_DIR)}: ${result.built.join(', ')}; ${result.files} files, ${size} MiB, ` +
-      `${result.rules} header rules, in ${((Date.now() - started) / 1000).toFixed(1)} s`,
+      `${result.rules} header rules, ${result.redirects} rewrites, in ${((Date.now() - started) / 1000).toFixed(1)} s`,
   )
   if (result.skipped.length > 0) log(`Not built yet: ${result.skipped.join(', ')}`)
 } catch (error) {

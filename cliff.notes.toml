@@ -50,12 +50,24 @@ commit_preprocessors = [
 commit_parsers = [
   { field = "merge_commit", pattern = "^true$", skip = true },
   { message = '^Merge ', skip = true },
+  # Commits whose subjects slipped past the rules below, each named by its full hash: a merge's
+  # fix that names no merge, and plumbing written as a feature or a fix. The notes are for the
+  # people who use FXM; CHANGELOG.md keeps them all.
+  { sha = "b494e8fe4e38ee2cafc1adadafb4b983be05146c", skip = true }, # plugins' and Spotify's hosts after a merge
+  { sha = "b3c7bd216b07e407be4103d839497b101b81b2eb", skip = true }, # evaluator workers from blobs
+  { sha = "1077769c0ae8edfcd1422cff6945929455fe9e3e", skip = true }, # stream lifecycle internals
+  { sha = "d03f3fd743132a89eaf1b8a66496b7105e24a44a", skip = true }, # stream lifecycle internals
+  { sha = "f873b0fa126214cfd067979062b347c5a4910d86", skip = true }, # host table lookup
+  { sha = "fd0eaf13c988bdfc1582eafffa5c562308dbb14c", skip = true }, # request policy type
+  { sha = "ef5558360779bb5e911084562971f77abfb9f554", skip = true }, # transports' host table
+  { sha = "632ae935d91ee19714df755d4469c352fdfc4cb1", skip = true }, # converter internals
+  { sha = "361fc552658fb8486b6a328d3891a9ebc39930d1", skip = true }, # autoplay wiring after a merge
   # Internal work, whatever its type: the toolchain, releases, the deploy, CI and the plan.
   { message = '^[a-z]+\((tooling|release|deploy|ci|plan)\)', skip = true },
   # Integration and test work, whatever its type: what a merge of develop or another stage broke
-  # (merged, develop's, 2.9's) and the fakes the tests use (fixtures, type tests, test streams,
-  # the tests' helpers).
-  { message = '''^[a-z]+(\([a-z]+\))?!?: .*(\bmerged\b|\bdevelop's\b|\bfixtures\b|\btype tests\b|\btest streams\b|\btests' |\b[0-9]\.[0-9]+'s\b)''', skip = true },
+  # (merged, develop's, another stage's such as 2.9's or a lettered one's such as 2.9b's) and the
+  # fakes the tests use (fixtures, type tests, test streams, the tests' helpers).
+  { message = '''^[a-z]+(\([a-z]+\))?!?: .*(\bmerged\b|\bdevelop's\b|\bfixtures\b|\btype tests\b|\btest streams\b|\btests' |\b[0-9]\.[0-9]+[a-z]?'s\b)''', skip = true },
   { message = '^feat', group = "<!-- 0 -->Features" },
   { message = '^fix', group = "<!-- 1 -->Bug fixes" },
   { message = '^perf', group = "<!-- 2 -->Performance" },

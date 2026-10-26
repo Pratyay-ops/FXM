@@ -8,9 +8,10 @@ name: Deploy
 #   ffmpeg-core        stage 4.2's LGPL ffmpeg core for the app's conversions (ffmpeg-wasm.yml):
 #                      built when its recipe changed, otherwise from the cache, and checked
 #                      (under 25 MiB, LGPL) on every run.
-#   dist               make dist: the site, the web app with the ffmpeg core, _headers and the
-#                      third-party notices, with the licence, header and privacy checks. On every
-#                      branch, so a stage branch finds out before it merges. No secrets.
+#   dist               make dist: the site, the web app with the ffmpeg core, the core's source,
+#                      _headers, _redirects and the third-party notices, with the licence, header
+#                      and privacy checks. On every branch, so a stage branch finds out before it
+#                      merges. No secrets.
 #   deploy             develop: the preview. main: a release candidate at
 #                      main-candidate.fxmusic.pages.dev. Only these two branches deploy. Each
 #                      runs in its GitHub environment (preview, production), which holds the
@@ -22,10 +23,12 @@ name: Deploy
 #                      Chrome that the pages run under their policies and googlevideo requests
 #                      carry no Referer.
 #   release            main only: while main's version has no GitHub Release (after a release
-#                      pull request's merge, or a failed release run), waits up to 30 minutes
+#                      pull request's merge, or a failed release run), waits up to 90 minutes
 #                      for the release workflow to publish it, so the site never links to a
-#                      release that isn't out yet (scripts/release-wait.sh). A version that is
-#                      out passes after one request.
+#                      release that isn't out yet (scripts/release-wait.sh). That covers the
+#                      release's store jobs, which hold it while Firefox Add-ons signs FXM
+#                      Connect (up to 30 minutes) and while the stores environment waits for
+#                      its reviewer's approval. A version that is out passes after one request.
 #   promote            main only, once verify and release passed: the same folder to production.
 #   verify-production  main only: the header check of production.
 on:
@@ -74,7 +77,8 @@ jobs:
       - name: Set up toolchain and dependencies (frozen lockfile)
         run: make ci-setup
 
-      # The core the ffmpeg-core job built and checked, for make dist to ship at /app/ffmpeg/.
+      # The core the ffmpeg-core job built and checked, for make dist to ship at /app/ffmpeg/,
+      # with its source at /source/ffmpeg-core/.
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ffmpeg-core
@@ -236,7 +240,7 @@ jobs:
     name: Wait for the release
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 100
     # It only reads the releases.
     permissions:
       contents: read
@@ -245,9 +249,14 @@ jobs:
         with:
           persist-credentials: false
 
+      # The release workflow's publish job waits for its firefox job, which enters the stores
+      # environment: with AMO's keys it signs FXM Connect (10 minutes for the validator, 20 for
+      # the signature), and with a reviewer on stores it waits for the approval. Approve within
+      # this wait, or re-run this workflow's failed jobs once the release is out.
       - name: Wait for the version's GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          FXM_RELEASE_WAIT_MINUTES: '90'
         run: scripts/release-wait.sh
 
   promote:
