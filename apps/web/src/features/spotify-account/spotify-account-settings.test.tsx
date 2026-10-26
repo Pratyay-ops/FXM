@@ -9,6 +9,7 @@ import { routes } from '../../app/routes'
 import { getLibrary } from '../../db/repo'
 import { INITIAL_CONNECTION, useConnection } from '../connect/connection'
 import { appSources } from '../search/sources-context'
+import { createSyncStore } from '../sync/sync-store'
 import { createAccountChoice, SPOTIFY_ACCOUNT_STORAGE_KEY } from './account-store'
 import { type AccountAccess, SpotifyAccountProvider } from './context'
 import { LIKED_NAME } from './ids'
@@ -33,10 +34,20 @@ function tier(capabilities: NetworkCapabilities, platform: 'web' | 'desktop' = '
   useConnection.setState({ phase: 'ready', capabilities, platform })
 }
 
-function setup({ optedIn = false } = {}) {
+function setup({ optedIn = false, librarySync = false } = {}) {
   const fake: FakeServices = fakeServices(getLibrary())
   const choice = createAccountChoice()
   if (optedIn) choice.getState().setOptedIn(true)
+  // Library sync's settings of their own, so the app's sync never starts here.
+  const syncSettings = createSyncStore({ storage: () => undefined })
+  if (librarySync) {
+    syncSettings.getState().connect({
+      token: 'fixture_token_not_a_real_one',
+      login: 'fixture-user',
+      gistId: '0123456789abcdef0123',
+      gistUrl: 'https://gist.github.com/fixture-user/0123456789abcdef0123',
+    })
+  }
   let runtime: AccountRuntime | undefined
   const access: AccountAccess = {
     choice,
@@ -55,6 +66,7 @@ function setup({ optedIn = false } = {}) {
     },
     current: () => runtime,
     library: getLibrary,
+    librarySync: syncSettings,
   }
   const router = createMemoryRouter(routes, { initialEntries: ['/settings'] })
   const user = userEvent.setup()
@@ -87,6 +99,11 @@ describe('Settings → Spotify account', () => {
     expect(dialog).toHaveTextContent('No case is known of an account suspended')
     expect(dialog).toHaveTextContent('never changes anything in your Spotify account')
     expect(dialog).toHaveTextContent('The token stays in FXM’s memory and is never saved')
+    // Library sync is off: the copies stay on the device, until it goes on.
+    expect(dialog).toHaveTextContent(
+      'If you turn on Sync with GitHub, these copies go to your sync gist there too, your private playlists included.',
+    )
+    expect(dialog).not.toHaveTextContent('Sync with GitHub is on')
     expect(within(dialog).getByRole('button', { name: 'Cancel' })).toHaveFocus()
     await user.click(within(dialog).getByRole('button', { name: 'Cancel' }))
     expect(choice.getState().optedIn).toBe(false)
@@ -113,6 +130,26 @@ describe('Settings → Spotify account', () => {
       state: { optedIn: true },
       version: 1,
     })
+  })
+
+  it('says, while library sync is on, that the copies go to the sync gist too', async () => {
+    tier(FULL)
+    const { user } = setup({ librarySync: true })
+    const account = await section()
+    await user.click(account.getByRole('button', { name: 'Connect your account' }))
+    const notice = await screen.findByRole('alertdialog', { name: 'Connect your Spotify account?' })
+    expect(notice).toHaveTextContent(
+      'Sync with GitHub is on, so these copies, your private playlists included, also go to your sync gist on GitHub. Anyone with its link can read them there, and GitHub keeps every earlier version of it, also after you disconnect.',
+    )
+    await user.click(within(notice).getByRole('button', { name: 'Connect' }))
+    await account.findByText(/^Last synced just now/)
+    await user.click(account.getByRole('button', { name: 'Disconnect' }))
+    const dialog = await screen.findByRole('alertdialog', {
+      name: 'Disconnect your Spotify account?',
+    })
+    expect(dialog).toHaveTextContent(
+      'Your sync gist on GitHub keeps them in its earlier versions, even once you remove them here.',
+    )
   })
 
   it('points to FXM Connect where Spotify is out of reach, and offers nothing to connect', async () => {
@@ -231,6 +268,7 @@ describe('Settings → Spotify account', () => {
       name: 'Disconnect your Spotify account?',
     })
     expect(dialog).toHaveTextContent('Your library keeps the 3 playlists it synced')
+    expect(dialog).not.toHaveTextContent('sync gist')
     expect(within(dialog).getByRole('button', { name: 'Cancel' })).toHaveFocus()
     await user.click(
       within(dialog).getByRole('checkbox', {

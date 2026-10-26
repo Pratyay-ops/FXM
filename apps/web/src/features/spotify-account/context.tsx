@@ -1,6 +1,7 @@
 /**
  * How the Settings section reaches the feature: the user's choice, the runtime (built on first
- * use) and the library the sync writes. The app's by default; tests pass their own.
+ * use), the library the sync writes, and library sync's settings (stage 8.4), which decide
+ * whether the copies also go to the user's sync gist. The app's by default; tests pass their own.
  *
  * @module
  */
@@ -8,6 +9,7 @@
 import { createContext, type ReactNode, useContext, useEffect, useState } from 'react'
 import { useStore } from 'zustand'
 import { getLibrary } from '../../db/repo'
+import { type SyncStore, useSyncStore } from '../sync/sync-store'
 import type { AccountChoiceStore } from './account-store'
 import type { AccountRuntime, AccountRuntimeState } from './runtime'
 import { appAccountChoice, currentAppAccountRuntime, getAppAccountRuntime } from './start'
@@ -23,6 +25,11 @@ export interface AccountAccess {
   current(): AccountRuntime | undefined
   /** The library the sync writes, for what it synced. */
   library(): SyncLibrary
+  /**
+   * Library sync's settings: while it is on, the copies, like every playlist, also go to the
+   * user's sync gist on GitHub, and the notices say so.
+   */
+  readonly librarySync: SyncStore
 }
 
 const APP_ACCESS: AccountAccess = {
@@ -30,6 +37,7 @@ const APP_ACCESS: AccountAccess = {
   load: getAppAccountRuntime,
   current: currentAppAccountRuntime,
   library: getLibrary,
+  librarySync: useSyncStore,
 }
 
 const AccountContext = createContext<AccountAccess>(APP_ACCESS)

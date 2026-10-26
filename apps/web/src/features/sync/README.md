@@ -17,7 +17,7 @@ Records are the library backup's (`db/backup.ts`), and every one goes through th
 
 | Carried | Stays on each device |
 |---|---|
-| Playlists and their custom order, Liked songs and its order, the order of the playlists list | **Downloads**: it lists files stored on this device only |
+| Playlists and their custom order, Liked songs and its order, the order of the playlists list. The copies a connected Spotify account's sync makes (stage 3.5) are playlists too, private ones included, and its notice says so | **Downloads**: it lists files stored on this device only |
 | Likes, follows | Undo orders: Undo applies to this device's last shuffle or saved sort |
 | Reserved settings whose key starts with `sync.` | Every other reserved setting: credentials, secret sources, network endpoints and per-device privacy switches must never use `sync.` |
 | Plays of the last 90 days, with what a backup holds of them: time played, the track's length, completed or skipped, where they started, what streamed, the import they came from | Older plays: sync never reads, sends or deletes them. The query of a search a play started from |

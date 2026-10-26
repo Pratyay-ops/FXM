@@ -8,6 +8,7 @@ import { useConnection } from '../connect/connection'
 import { Dialog, DialogActions } from '../library/ui/dialog'
 import { useSourcesSnapshot } from '../search/sources-context'
 import { SettingsSection } from '../settings/settings-layout'
+import { isConnected as isLibrarySyncOn } from '../sync/sync-store'
 import { useAccountAccess, useAccountRuntime } from './context'
 import { LIKED_NAME } from './ids'
 import type { AccountRuntimeState, SyncFailure } from './runtime'
@@ -173,10 +174,13 @@ function PhaseText({
 /** The opt-in: what connecting does, and the risk, before anything happens. */
 function ConnectDialog({
   open,
+  librarySync,
   onClose,
   onConnect,
 }: {
   open: boolean
+  /** Whether library sync is on: the copies then go to the user's sync gist too. */
+  librarySync: boolean
   onClose: () => void
   onConnect: () => void
 }) {
@@ -194,6 +198,18 @@ function ConnectDialog({
           them in your library on this device. It never changes anything in your Spotify account. It
           syncs again about every six hours while FXM is open, and whenever you select Sync now.
         </p>
+        {librarySync ? (
+          <p className="font-semibold">
+            Sync with GitHub is on, so these copies, your private playlists included, also go to
+            your sync gist on GitHub. Anyone with its link can read them there, and GitHub keeps
+            every earlier version of it, also after you disconnect.
+          </p>
+        ) : (
+          <p>
+            If you turn on Sync with GitHub, these copies go to your sync gist there too, your
+            private playlists included.
+          </p>
+        )}
         <p>
           FXM Connect asks Spotify for a login token with this browser’s Spotify login. The token
           stays in FXM’s memory and is never saved. FXM never sees your password or Spotify’s
@@ -226,11 +242,14 @@ function ConnectDialog({
 function DisconnectDialog({
   open,
   copies,
+  librarySync,
   onClose,
   onDisconnect,
 }: {
   open: boolean
   copies: number
+  /** Whether library sync is on: the copies are in the user's sync gist too. */
+  librarySync: boolean
   onClose: () => void
   onDisconnect: (removeCopies: boolean) => void
 }) {
@@ -246,7 +265,12 @@ function DisconnectDialog({
           : 'FXM forgets your Spotify login token at once and stops syncing.'
       }
     >
-      <DisconnectChoices copies={copies} onClose={onClose} onDisconnect={onDisconnect} />
+      <DisconnectChoices
+        copies={copies}
+        librarySync={librarySync}
+        onClose={onClose}
+        onDisconnect={onDisconnect}
+      />
     </Dialog>
   )
 }
@@ -254,10 +278,12 @@ function DisconnectDialog({
 /** The dialog's choices, fresh each time it opens (the dialog mounts them only while open). */
 function DisconnectChoices({
   copies,
+  librarySync,
   onClose,
   onDisconnect,
 }: {
   copies: number
+  librarySync: boolean
   onClose: () => void
   onDisconnect: (removeCopies: boolean) => void
 }) {
@@ -286,6 +312,12 @@ function DisconnectChoices({
               </p>
             </div>
           </div>
+        )}
+        {copies > 0 && librarySync && (
+          <p className="text-text-muted">
+            Your sync gist on GitHub keeps them in its earlier versions, even once you remove them
+            here.
+          </p>
         )}
         <p className="text-text-muted">
           To stop FXM Connect from using your Spotify login at all, also turn off “Use my Spotify
@@ -323,6 +355,7 @@ export function SpotifyAccountSettings() {
   const { spotifyEnabled } = useSourcesSnapshot()
   const capabilities = useConnection((state) => state.capabilities)
   const platform = useConnection((state) => state.platform)
+  const librarySync = useStore(access.librarySync, isLibrarySyncOn)
   const { runtime, state, error: loadError } = useAccountRuntime(optedIn)
   // Only the sync's own row: a sync rewrites the rows of its copies as it goes.
   const synced = useLiveQuery(
@@ -528,12 +561,14 @@ export function SpotifyAccountSettings() {
       </section>
       <ConnectDialog
         open={dialog === 'connect'}
+        librarySync={librarySync}
         onClose={() => setDialog(null)}
         onConnect={() => void connect()}
       />
       <DisconnectDialog
         open={dialog === 'disconnect'}
         copies={copies}
+        librarySync={librarySync}
         onClose={() => setDialog(null)}
         onDisconnect={(removeCopies) => void disconnect(removeCopies)}
       />
