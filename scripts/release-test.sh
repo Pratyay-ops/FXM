@@ -287,6 +287,20 @@ same_cliff_parts() {
       "$(cliff_part cliff.notes.toml 'commit_preprocessors' ']')" ]
 }
 expect "the notes and the changelog share their template and preprocessors" same_cliff_parts
+# The commits the notes leave out by hash: git-cliff compares whole hashes, and in a full clone
+# (CI's checkout is shallow) each must be a commit of this history.
+skipped_hashes_ok() {
+  local sha hashes
+  hashes=$(sed -n 's/^ *{ sha = "\([^"]*\)", skip = true }.*/\1/p' "$FXM_ROOT/cliff.notes.toml")
+  [ -n "$hashes" ] || return 1
+  while IFS= read -r sha; do
+    [[ $sha =~ ^[0-9a-f]{40}$ ]] || return 1
+    if [ "$(git -C "$FXM_ROOT" rev-parse --is-shallow-repository)" = false ]; then
+      git -C "$FXM_ROOT" cat-file -e "$sha^{commit}" 2>/dev/null || return 1
+    fi
+  done <<<"$hashes"
+}
+expect "the notes leave out commits by their whole hash, each one of this history" skipped_hashes_ok
 big=$tmp/big.md
 for i in $(seq 1 2000); do echo "- entry $i, long enough to need many lines of notes"; done >"$big"
 fxm_release_fit "$big" 20000 "See CHANGELOG.md."
@@ -391,6 +405,7 @@ commit "$work" "fix(core): accept the platform fetch, with type tests"
 commit "$work" "fix(player): give test streams the fields core requires"
 commit "$work" "fix(web): keep the local files tests' plays out of the history"
 commit "$work" "feat(web): run the services on stage 2.7's app platform"
+commit "$work" "fix(web): fit the account to 2.9b's composition root"
 # The same change twice, as when a stacked branch carries a copy of a commit.
 commit "$work" "fix(web): repair a thing"
 notes=$tmp/notes.md
@@ -419,7 +434,8 @@ expect "and the internal scopes, whatever their type" leaves_out_internal_scopes
 leaves_out_integration_work() {
   local entry
   for entry in "merged library's toast" "develop's native HTTP shape" "start time from fixtures" \
-    "with type tests" "test streams the fields" "tests' plays" "2.7's app platform"; do
+    "with type tests" "test streams the fields" "tests' plays" "2.7's app platform" \
+    "2.9b's composition root"; do
     lacks "$notes" "$entry" || return 1
   done
 }
