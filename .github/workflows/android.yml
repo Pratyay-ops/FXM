@@ -61,7 +61,8 @@ jobs:
   apk:
     name: Debug APK
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # A dry run also builds the ffmpeg core from scratch, about 4 more.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -128,11 +129,16 @@ jobs:
             exit 1
           fi
 
-      # The dry run: the release job's build, with its Jamendo switch (release.yml), then its
-      # signing with a key made for this run only.
+      # The dry run: the release job's build, with its ffmpeg core, which make dist needs in CI,
+      # and its Jamendo switch (release.yml), then its signing with a key made for this run only.
+      - name: Build the ffmpeg core (dry run)
+        if: inputs.release
+        run: FXM_FFMPEG_JOBS="$(nproc)" make ffmpeg-wasm
+
       - name: Build the unsigned release APKs (dry run)
         if: inputs.release
         env:
+          FXM_REQUIRE_FFMPEG_CORE: '1'
           VITE_FXM_JAMENDO_CLIENT_ID: ${{ vars.FXM_JAMENDO_CLIENT_ID }}
         run: apps/mobile/scripts/release-apk.sh build dist/android-unsigned
 

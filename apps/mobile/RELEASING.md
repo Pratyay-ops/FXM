@@ -8,7 +8,7 @@ Stage 6.6. Every FXM release on GitHub carries the Android app as two signed APK
 
 | Job | What it does | Key |
 |---|---|---|
-| `android` | `apps/mobile/scripts/release-apk.sh build`: `make dist` for its third-party notices, the web app with base `/` (`FXM_DISTRIBUTION=standard`, and the deploy's Jamendo switch, `VITE_FXM_JAMENDO_CLIENT_ID` from the variable `FXM_JAMENDO_CLIENT_ID`, so the app offers Jamendo where the website does), `cap sync android`, the APK's [third-party notices](#third-party-notices), then Gradle's `assembleRelease` with `-PfxmReleaseApks`, which makes an APK for arm64-v8a and a universal one ([app/build.gradle](android/app/build.gradle)). Both unsigned, as the artifact `android-unsigned` | None |
+| `android` | `make ffmpeg-wasm`, the ffmpeg core that `make dist` needs in CI (the APKs don't carry it), then `apps/mobile/scripts/release-apk.sh build`: `make dist` for its third-party notices, the web app with base `/` (`FXM_DISTRIBUTION=standard`, and the deploy's Jamendo switch, `VITE_FXM_JAMENDO_CLIENT_ID` from the variable `FXM_JAMENDO_CLIENT_ID`, so the app offers Jamendo where the website does), `cap sync android`, the APK's [third-party notices](#third-party-notices), then Gradle's `assembleRelease` with `-PfxmReleaseApks`, which makes an APK for arm64-v8a and a universal one ([app/build.gradle](android/app/build.gradle)). Both unsigned, as the artifact `android-unsigned` | None |
 | `android-sign` | `release-apk.sh sign`, in the `android-release` environment: the JDK and the Android SDK only, then apksigner signs both APKs and the script checks them. Uploads `release-android` | The four secrets below |
 
 The publish job attaches `fxm-android-universal-<version>.apk` and `fxm-android-arm64-v8a-<version>.apk` to the release (they are listed for `release-android` in `fxm_release_catalog`, `scripts/release-lib.sh`), with their checksums and build provenance. The notes quote the signing certificate's SHA-256 fingerprint and link [INSTALL.md](INSTALL.md).
@@ -107,7 +107,7 @@ Android never lets an update replace an app signed with another key. If the key 
 Both build the release APKs as the `android` job does, then sign them with `release-apk.sh dry-run`: `sign --dry-run` with a throwaway key that it makes for the run in a private temporary folder and deletes afterwards. They never use FXM's key, and never tag or publish anything.
 
 - **On a branch:** `scripts/run.sh gh workflow run android.yml --ref <branch> -f release=true` uploads the APKs as the artifact `fxm-android-dry-run`.
-- **Locally:** `make apk-release` writes them into `dist/android/release`. Like the release job's build, it refuses to run while a signing variable is set.
+- **Locally:** `make apk-release` writes them into `dist/android/release`. Like the release job's build, it refuses to run while a signing variable is set. Its notices name the ffmpeg core only after `make ffmpeg-wasm`, as the release's do.
 - **The signing scripts' tests:** `make apk-sign-test` (the Android workflow runs it) checks `make-android-keystore.sh`, `release-apk.sh sign` and `dry-run` (with the checks of each signed APK, its third-party notices among them), and the build's refusal of signing variables, offline, with throwaway keys and small APKs that aapt2 links from a bare manifest. `make test` runs the notices' tests (`scripts/notices.test.ts`).
 
 ## The in-app update check
