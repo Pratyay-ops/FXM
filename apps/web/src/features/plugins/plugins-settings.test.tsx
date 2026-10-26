@@ -60,7 +60,10 @@ describe('Settings → Plugins', () => {
     expect(dialog).toHaveTextContent('It can contact only these addresses:')
     expect(within(dialog).getByText(TEST_CATALOG_HOST)).toBeVisible()
     expect(within(dialog).getByText(TEST_MEDIA_HOST)).toBeVisible()
-    expect(dialog).toHaveTextContent(/It adds search, search suggestions, songs, albums/)
+    // Only what this version of FXM uses counts as what it adds; the rest is named as unused.
+    expect(dialog).toHaveTextContent(
+      'It adds search, albums, artists, playlists and audio for its songs. It also offers search suggestions, song details, radio and audio for songs from other sources, which this version of FXM doesn’t use.',
+    )
     expect(dialog).toHaveTextContent('At most 120 requests an hour. Needs FXM 0.1.0 or later.')
     expect(dialog).toHaveTextContent('From the file test-catalog.fxmplugin.json')
     expect(dialog).toHaveTextContent(/Add only plugins from people you trust/)

@@ -19,7 +19,7 @@ import {
 export const OPERATION_LABELS: Readonly<Record<PluginOperation, string>> = {
   search: 'search',
   suggest: 'search suggestions',
-  track: 'songs',
+  track: 'song details',
   album: 'albums',
   artist: 'artists',
   playlist: 'playlists',
@@ -28,15 +28,69 @@ export const OPERATION_LABELS: Readonly<Record<PluginOperation, string>> = {
   resolve: 'audio for its songs',
 }
 
+/**
+ * The operations this version of FXM uses, so what a plugin's approval says it adds is only
+ * what it will do: its catalog in search (only with its source picked) and its album, artist
+ * and playlist pages, and the audio of its own songs. The others are ready in `@fxm/plugins` but
+ * unused: search suggestions (a plugin is a source to call only on request, so the search box
+ * never asks it as the user types), single songs by ID, radio and matching for songs from other
+ * sources (the radio and the matching engine don't follow plugins yet; see the README).
+ */
+export const USED_OPERATIONS: ReadonlySet<PluginOperation> = new Set([
+  'search',
+  'album',
+  'artist',
+  'playlist',
+  'resolve',
+])
+
+/** The operations of `operations` this version of FXM uses, and those it doesn't. */
+export function splitOperations(operations: readonly PluginOperation[]): {
+  used: PluginOperation[]
+  unused: PluginOperation[]
+} {
+  return {
+    used: operations.filter((operation) => USED_OPERATIONS.has(operation)),
+    unused: operations.filter((operation) => !USED_OPERATIONS.has(operation)),
+  }
+}
+
 /** "a", "a and b", "a, b and c". */
 export function listText(items: readonly string[]): string {
   if (items.length <= 1) return items[0] ?? ''
   return `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`
 }
 
-/** What a plugin adds, as a sentence fragment: "search, albums and audio for its songs". */
+/** Operations as a sentence fragment: "search, albums and audio for its songs". */
 export function operationsText(operations: readonly PluginOperation[]): string {
   return listText(operations.map((operation) => OPERATION_LABELS[operation]))
+}
+
+/**
+ * What a plugin adds to this version of FXM, as sentences: "It adds search, albums and audio for
+ * its songs." for what FXM uses, then "It also offers radio, which this version of FXM doesn't
+ * use." for what it declares beyond that. `subject` starts them ("It" in the approval, "" for
+ * the installed plugin's "Adds …").
+ */
+export function operationsSentences(
+  operations: readonly PluginOperation[],
+  subject: 'It' | '' = 'It',
+): string[] {
+  const { used, unused } = splitOperations(operations)
+  const lead = (verb: string) => (subject === '' ? capitalize(verb) : `${subject} ${verb}`)
+  const sentences: string[] = []
+  if (used.length > 0) sentences.push(`${lead('adds')} ${operationsText(used)}.`)
+  if (unused.length > 0) {
+    const also = used.length > 0 ? 'also offers' : 'offers'
+    sentences.push(
+      `${lead(also)} ${operationsText(unused)}, which this version of FXM doesn’t use.`,
+    )
+  }
+  return sentences
+}
+
+function capitalize(text: string): string {
+  return `${text.charAt(0).toUpperCase()}${text.slice(1)}`
 }
 
 /** Where a plugin came from, for people. */

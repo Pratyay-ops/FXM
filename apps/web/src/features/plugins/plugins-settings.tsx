@@ -12,7 +12,7 @@ import { SettingSwitch } from '../settings/setting-switch'
 import { SettingRow, SettingsSection } from '../settings/settings-layout'
 import { AddressDialog, OfferDialog, RemoveDialog } from './plugin-dialogs'
 import {
-  operationsText,
+  operationsSentences,
   originText,
   pluginFailureText,
   pluginTitle,
@@ -64,9 +64,9 @@ function PluginRow({
             {manifest?.description !== undefined && <p>{manifest.description}</p>}
             {entry.problem === undefined ? (
               <>
-                {entry.manifest.provides.length > 0 && (
-                  <p>Adds {operationsText(entry.manifest.provides)}.</p>
-                )}
+                {operationsSentences(entry.manifest.provides, '').map((sentence) => (
+                  <p key={sentence}>{sentence}</p>
+                ))}
                 <p className="wrap-anywhere">
                   {entry.manifest.hosts.length === 0
                     ? 'Contacts no addresses.'
