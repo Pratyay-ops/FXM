@@ -48,28 +48,6 @@ const PLAY_BUTTON_STYLES = {
 
 type PlayButtonAppearance = keyof typeof PLAY_BUTTON_STYLES
 
-/**
- * The big play button of the shell's placeholder playlist pages (a bare `/playlist/liked`, …).
- * It responds but plays nothing, like the shell's other placeholders, rather than pausing
- * whatever the queue plays. The library's own playlists (stage 2.6) pass their tracks and get
- * {@link CollectionPlayButton}; the catalog's pages (stage 2.4) have their own play buttons.
- */
-function PlaceholderPlayButton() {
-  const [playing, setPlaying] = useState(false)
-  const Icon = playing ? Pause : Play
-  const style = PLAY_BUTTON_STYLES.cta
-  return (
-    <IconButton
-      label={playing ? 'Pause' : 'Play'}
-      icon={<Icon fill="currentColor" strokeWidth={0} className={cn(!playing && 'ml-0.5')} />}
-      size="custom"
-      variant={style.variant}
-      className={style.className}
-      onClick={() => setPlaying(!playing)}
-    />
-  )
-}
-
 /** A list of tracks a big play button plays, and what the queue says it plays from. */
 export interface PlayableCollection {
   readonly tracks: readonly Track[]
@@ -117,8 +95,8 @@ function CollectionPlayButton({ collection }: { collection: PlayableCollection }
 
 /**
  * Play/pause for the app's player. `cta` is the big button of a collection page: with
- * `collection`, it plays that list (see {@link CollectionPlayButton}); without, the shell's
- * placeholder.
+ * `collection`, it plays that list (see {@link CollectionPlayButton}); without, it plays and
+ * pauses the player like the others.
  */
 export function PlayPauseButton({
   appearance = 'bar',
@@ -127,12 +105,10 @@ export function PlayPauseButton({
   appearance?: PlayButtonAppearance
   collection?: PlayableCollection
 }) {
-  if (appearance !== 'cta') return <PlayerPlayPauseButton appearance={appearance} />
-  return collection === undefined ? (
-    <PlaceholderPlayButton />
-  ) : (
-    <CollectionPlayButton collection={collection} />
-  )
+  if (appearance === 'cta' && collection !== undefined) {
+    return <CollectionPlayButton collection={collection} />
+  }
+  return <PlayerPlayPauseButton appearance={appearance} />
 }
 
 function PlayerPlayPauseButton({ appearance }: { appearance: PlayButtonAppearance }) {
