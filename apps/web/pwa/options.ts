@@ -71,6 +71,9 @@ export interface PwaOptionsInput {
  * - **No inline script:** the app registers the worker from its bundle
  *   (src/features/pwa/service-worker.ts), so the page's CSP needs no extra hash, and the
  *   Workbox runtime is inlined into one `sw.js`.
+ * - **Source map as the build's** (the plugin's default): none from `vite build`, a hidden one
+ *   from `make dist`, which reads it to list the Workbox packages in `sw.js` and never deploys
+ *   it (source-map.ts).
  * - **Only on the web.** `build:mobile` and `build:desktop` build the app with base `/` for the
  *   Android and desktop shells, which load it from the app package: those builds get no
  *   service worker and no manifest, and registering does nothing.
@@ -97,7 +100,6 @@ export function pwaOptions(
       clientsClaim: true,
       skipWaiting: false,
       inlineWorkboxRuntime: true,
-      sourcemap: false,
       disableDevLogs: true,
       ...(headersRevision
         ? { manifestTransforms: [revisionPageWithHeaders(headersRevision)] }

@@ -1,9 +1,9 @@
 /**
- * What the installable web app needs from the static host: stage 2.8 writes the `_headers`
- * and `_redirects` rules for /app/. 2.8 started alongside 5.1 and is not merged yet, so the tests
- * check the /app/* policy that docs/PLAN.md §2.8 specifies ({@link PLANNED_APP_CSP}), and the
- * build revisions the service worker's copy of the page with that rule ({@link APP_HEADERS}).
- * When 2.8 merges, the integration step points both at the rule 2.8 generates instead.
+ * What the installable web app needs from the static host: the `_headers` rule for /app/*,
+ * which stage 2.8 generates (`appPolicy()` in scripts/build-dist/src/policies.ts). 5.1 started
+ * before 2.8 merged, so the tests check the /app/* policy that docs/PLAN.md §2.8 specifies
+ * ({@link PLANNED_APP_CSP}), and the build revisions the service worker's copy of the page with
+ * that rule ({@link APP_HEADERS}). An integration step points both at the rule 2.8 generates.
  *
  * @module
  */

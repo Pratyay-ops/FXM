@@ -40,6 +40,12 @@ describe('PWA plugin options', () => {
     expect(workbox.inlineWorkboxRuntime).toBe(true)
   })
 
+  it("writes the service worker's source map when the build writes the app's", () => {
+    // Unset, the plugin follows Vite's build.sourcemap: make dist's hidden maps list the
+    // packages in sw.js (source-map.ts), and a plain build writes none.
+    expect(workbox.sourcemap).toBeUndefined()
+  })
+
   it('precaches the app shell and nothing that plays', () => {
     for (const file of [
       'index.html',
