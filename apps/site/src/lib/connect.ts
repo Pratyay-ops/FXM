@@ -16,6 +16,8 @@ export interface ConnectFlags {
    * without FXM Connect: what it plays comes from src/lib/tiers.ts. Off when left out.
    */
   lite?: boolean
+  /** The build offers Jamendo (AVAILABLE.jamendo), next to Internet Archive. Off when left out. */
+  jamendo?: boolean
 }
 
 /** The fine print under the install steps of the "Get FXM" web card. */
@@ -51,17 +53,22 @@ export function plainText(parts: readonly (string | UiLabel)[]): string {
 /** The note under the web card's buttons, for visitors who can't add FXM Connect. */
 export function noExtensionNote(
   firefox: boolean,
-  { lite = false }: Pick<ConnectFlags, 'lite'> = {},
+  { lite = false, jamendo = false }: Pick<ConnectFlags, 'lite' | 'jamendo'> = {},
 ): string {
   const who = firefox
     ? 'No extension, or on an iPhone, an iPad or a phone browser other than Firefox?'
     : 'No extension, or on a phone or tablet?'
-  return `${who} ${noExtensionPlays(lite)}`
+  return `${who} ${noExtensionPlays(lite, jamendo)}`
 }
 
 /** The FAQ's answer for phones, tablets and other browsers. */
-export function phonesAnswer({ firefox, android, lite = false }: ConnectFlags): string {
-  const plays = otherBrowsersPlays(lite)
+export function phonesAnswer({
+  firefox,
+  android,
+  lite = false,
+  jamendo = false,
+}: ConnectFlags): string {
+  const plays = otherBrowsersPlays(lite, jamendo)
   if (!firefox) {
     return `On phones and tablets, and in other browsers such as Safari, ${plays} ${
       android

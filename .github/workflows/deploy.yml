@@ -68,7 +68,12 @@ jobs:
       - name: Set up toolchain and dependencies (frozen lockfile)
         run: make ci-setup
 
+      # Jamendo's public client_id, once the owner has registered one and confirmed Jamendo's
+      # terms (packages/sources/src/jamendo/README.md). While the repository variable is empty,
+      # the build leaves Jamendo out: the app, the site's copy and the /app/* policy.
       - name: Compose dist/pages
+        env:
+          VITE_FXM_JAMENDO_CLIENT_ID: ${{ vars.FXM_JAMENDO_CLIENT_ID }}
         run: make dist
 
       # develop and main deploy; every other branch stops here.

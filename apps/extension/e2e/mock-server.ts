@@ -14,7 +14,7 @@
  * - open.spotify.com /api/token and /api/server-time, and Last.fm stations: no CORS headers,
  *   OPTIONS answered with 200.
  * - clienttoken.spotify.com: CORS headers only for the Origin https://open.spotify.com, OPTIONS
- *   answered with 200 either way.
+ *   answered with 200 either way. FXM Connect has no rule for it, so pages can't read it.
  * - api-partner.spotify.com (pathfinder GraphQL) and spclient.wg.spotify.com: echo any Origin
  *   with credentials allowed, and answer preflights with their own allow lists.
  */

@@ -7,8 +7,10 @@
  *
  * Each build of each environment (Astro builds a prerender and a client environment) appends
  * one JSON line to the file named by FXM_BUNDLE_INVENTORY, which make dist sets for the parts
- * it builds (parts.ts). Without that variable the plugin does nothing. It uses only the parts
- * of the Rollup plugin interface that Vite and Rolldown share, so it needs no Vite types.
+ * it builds (parts.ts), and so does each worker Vite bundles, when the plugin is in the config's
+ * `worker.plugins` too (dist-configs.ts). Without that variable the plugin does nothing. It uses
+ * only the parts of the Rollup plugin interface that Vite and Rolldown share, so it needs no Vite
+ * types.
  */
 import { appendFileSync } from 'node:fs'
 import { isAbsolute, resolve } from 'node:path'
@@ -30,7 +32,11 @@ interface PluginContext {
   readonly environment?: { readonly name?: string }
 }
 
-export function bundleInventory() {
+/**
+ * The plugin. `environment` names the entries it writes, for builds whose own environment
+ * doesn't say what they are: Vite bundles a worker in an environment it also calls `client`.
+ */
+export function bundleInventory(options: { readonly environment?: string } = {}) {
   let root = process.cwd()
   return {
     name: 'fxm:bundle-inventory',
@@ -57,7 +63,7 @@ export function bundleInventory() {
         .filter((output) => output.type === 'chunk')
         .map((chunk) => ({ fileName: chunk.fileName, modules: [...(chunk.moduleIds ?? [])] }))
       const entry = {
-        environment: this.environment?.name ?? 'client',
+        environment: options.environment ?? this.environment?.name ?? 'client',
         modules: [...this.getModuleIds()],
         assets,
         chunks,

@@ -11,6 +11,9 @@ export default defineProject({
     // pwa/ holds the build-time PWA config (manifest, service worker options, icons).
     include: ['src/**/*.test.{ts,tsx}', 'pwa/**/*.test.ts'],
     setupFiles: ['./src/test/setup.ts'],
+    // The build without Jamendo's public client_id, as deployed until the owner sets one
+    // (src/lib/free-sources.ts): a test that wants Jamendo stubs the variable.
+    env: { VITE_FXM_JAMENDO_CLIENT_ID: '' },
     // Pages load lazily, and a dynamic import can take seconds when other checks share the
     // machine. A real failure still fails, only later (see also asyncUtilTimeout in setup.ts).
     testTimeout: 20_000,

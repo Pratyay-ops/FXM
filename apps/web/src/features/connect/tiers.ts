@@ -14,6 +14,7 @@
  */
 
 import type { NetworkCapabilities } from '@fxm/core'
+import { freeSources } from '../../lib/free-sources'
 import { RELEASED, soon } from './config'
 
 /** The tier FXM runs in. */
@@ -50,7 +51,10 @@ export const TIER_INFO: Readonly<Record<Tier, TierInfo>> = {
   free: {
     name: 'Free only',
     experimental: false,
-    summary: 'Free music from Internet Archive and Jamendo.',
+    // The free sources this build offers: Jamendo only with its client_id (lib/free-sources.ts).
+    get summary() {
+      return `Free music from ${freeSources().and}.`
+    },
     how: 'Any browser, with nothing to install.',
   },
   lite: {
@@ -98,8 +102,13 @@ export interface TierFeature {
 export const TIER_FEATURES: readonly TierFeature[] = [
   {
     id: 'free-sources',
-    label: 'Free music from Internet Archive and Jamendo, in lossless FLAC where they have it',
-    short: 'free music from Internet Archive and Jamendo',
+    get label() {
+      const free = freeSources()
+      return `Free music from ${free.and}, in lossless FLAC where ${free.several ? 'they have' : 'it has'} it`
+    },
+    get short() {
+      return `free music from ${freeSources().and}`
+    },
     from: 'free',
     released: true,
   },

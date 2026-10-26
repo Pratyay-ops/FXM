@@ -208,7 +208,7 @@ describe('the Downloads tab', { timeout: 30_000 }, () => {
     renderApp('/library?tab=downloads')
     expect(
       await main().findByText(
-        "Downloads of YouTube Music songs need FXM Connect, which isn't available on iPhone and iPad. Songs from Internet Archive and Jamendo download here.",
+        "Downloads of YouTube Music songs need FXM Connect, which isn't available on iPhone and iPad. Songs from Internet Archive download here.",
       ),
     ).toBeInTheDocument()
   })

@@ -11,6 +11,10 @@
  * setSongResolver(fromAudioSource(createYouTubeAudioSource({ session, healthStore })))
  * ```
  *
+ * The app does that once YouTube's code has loaded in the background (`app/services/index.ts`),
+ * which can be after Settings rendered, so the resolver is a store: components read it with
+ * {@link useSongResolver} and render again when it arrives.
+ *
  * Tests and the development fake mode use `createFakeResolver` (`fake-resolver.ts`).
  *
  * @module
@@ -25,6 +29,7 @@ import {
   type QualityPrefs,
   type StreamOption,
 } from '@fxm/core'
+import { useSyncExternalStore } from 'react'
 
 /** The song the self-test resolves and plays. */
 export interface SelfTestSong {
@@ -137,13 +142,29 @@ export function fromAudioSource(
 }
 
 let appResolver: SongResolver = unavailableResolver
+const listeners = new Set<() => void>()
 
 /** The resolver the app's self-test uses. */
 export function getSongResolver(): SongResolver {
   return appResolver
 }
 
-/** Replaces the app's resolver: 1.4's ladder once it is wired in, or a fake. */
+/** Replaces the app's resolver: 1.4's ladder once it is wired in, or a fake. Tells subscribers. */
 export function setSongResolver(resolver: SongResolver): void {
+  if (resolver === appResolver) return
   appResolver = resolver
+  for (const listener of [...listeners]) listener()
+}
+
+/** Calls `listener` whenever the app's resolver changes. Returns a function that stops it. */
+export function subscribeSongResolver(listener: () => void): () => void {
+  listeners.add(listener)
+  return () => {
+    listeners.delete(listener)
+  }
+}
+
+/** The app's resolver, for a component: it renders again when the resolver changes. */
+export function useSongResolver(): SongResolver {
+  return useSyncExternalStore(subscribeSongResolver, getSongResolver, getSongResolver)
 }

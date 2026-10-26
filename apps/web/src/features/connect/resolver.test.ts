@@ -1,4 +1,5 @@
 import { type AudioCandidate, isFxmError, type ProviderContext, type StreamOption } from '@fxm/core'
+import { act, renderHook } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   fromAudioSource,
@@ -7,7 +8,9 @@ import {
   SELF_TEST_SONG,
   setSongResolver,
   songCandidate,
+  subscribeSongResolver,
   unavailableResolver,
+  useSongResolver,
 } from './resolver'
 import { TIER_CAPABILITIES } from './testing'
 
@@ -48,6 +51,26 @@ describe("the app's resolver", () => {
     const resolver = fromAudioSource({ id: 'ytm', match: vi.fn(), resolve: vi.fn() })
     setSongResolver(resolver)
     expect(getSongResolver()).toBe(resolver)
+  })
+
+  it('tells its subscribers when it changes, and only then', () => {
+    const heard = vi.fn()
+    const stop = subscribeSongResolver(heard)
+    const resolver = fromAudioSource({ id: 'ytm', match: vi.fn(), resolve: vi.fn() })
+    setSongResolver(resolver)
+    setSongResolver(resolver)
+    expect(heard).toHaveBeenCalledTimes(1)
+    stop()
+    setSongResolver(unavailableResolver)
+    expect(heard).toHaveBeenCalledTimes(1)
+  })
+
+  it('renders a component again when YouTube’s ladder arrives', () => {
+    const { result } = renderHook(() => useSongResolver())
+    expect(result.current).toBe(unavailableResolver)
+    const resolver = fromAudioSource({ id: 'ytm', match: vi.fn(), resolve: vi.fn() })
+    act(() => setSongResolver(resolver))
+    expect(result.current).toBe(resolver)
   })
 })
 

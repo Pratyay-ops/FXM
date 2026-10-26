@@ -60,7 +60,13 @@ const services: Service[] = [
     url: 'https://archive.org',
     use: 'Free music, including lossless FLAC.',
   },
-  { name: 'Jamendo', url: 'https://www.jamendo.com', use: 'Free music, including lossless FLAC.' },
+  {
+    name: 'Jamendo',
+    url: 'https://www.jamendo.com',
+    use: AVAILABLE.jamendo
+      ? 'Free music, including lossless FLAC.'
+      : "Free music, including lossless FLAC (coming soon). FXM contacts Jamendo only once it is turned on, and this version doesn't have it on.",
+  },
   {
     name: 'SponsorBlock',
     url: 'https://sponsor.ajay.app',
@@ -69,7 +75,7 @@ const services: Service[] = [
   {
     name: 'GitHub',
     url: 'https://github.com',
-    use: "Only if you turn on sync in the app's settings: your library, your settings and the plays of the last 90 days, kept in a secret gist on your own GitHub account with a token you create. GitHub keeps every earlier version of the gist, so together they hold every play synced since you turned sync on, and what you removed since. GitHub doesn't list or search secret gists, but anyone who has the link can open one and its earlier versions.",
+    use: "If you turn on sync in the app's settings: your library, your settings and the plays of the last 90 days, kept in a secret gist on your own GitHub account with a token you create. GitHub keeps every earlier version of the gist, so together they hold every play synced since you turned sync on, and what you removed since. GitHub doesn't list or search secret gists, but anyone who has the link can open one and its earlier versions. Whenever the Spotify integration is on, also the Spotify key file above, which GitHub hosts (raw.githubusercontent.com).",
   },
 ]
 

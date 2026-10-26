@@ -26,9 +26,20 @@ export interface Service {
   readonly connect?: readonly string[]
   /** img-src: hosts the app shows images from. */
   readonly img?: readonly string[]
+  /**
+   * The build variable without which the web app doesn't offer the service, such as Jamendo's
+   * public `client_id` (`VITE_FXM_JAMENDO_CLIENT_ID`): a build without it leaves the service's
+   * hosts out of the policies (offeredServices).
+   */
+  readonly requires?: string
 }
 
-/** YouTube's API hosts (InnerTube): the app with FXM Connect, and the Lite sandbox document. */
+/**
+ * YouTube's API hosts (InnerTube): the app with FXM Connect, and the Lite sandbox document.
+ * `youtubei.googleapis.com` is reserved: no client in the bundled YouTube config uses it today,
+ * but the signed config that the apps fetch from the site (stage 1.13) can move a client there
+ * without an app release, so the policies, FXM Connect and the platform's host table keep it.
+ */
 export const INNERTUBE_HOSTS = [
   'https://www.youtube.com',
   'https://music.youtube.com',
@@ -74,7 +85,15 @@ export const APP_SERVICES: readonly Service[] = [
     connect: ['https://archive.org', 'https://*.archive.org'],
     img: ['https://archive.org', 'https://*.archive.org'],
   },
-  { privacyName: 'Jamendo', connect: ['https://*.jamendo.com'], img: ['https://*.jamendo.com'] },
+  // 1.6: only in a build with FXM's public Jamendo client_id, which the deploy passes from the
+  // repository variable FXM_JAMENDO_CLIENT_ID (README.md, "Jamendo"). The web app registers Jamendo
+  // only then, and the site calls it coming soon until then.
+  {
+    privacyName: 'Jamendo',
+    connect: ['https://*.jamendo.com'],
+    img: ['https://*.jamendo.com'],
+    requires: 'VITE_FXM_JAMENDO_CLIENT_ID',
+  },
   { privacyName: 'LRCLIB', connect: ['https://lrclib.net'] },
   // 8.7: opt-in, and only for videos in Music + Video mode.
   { privacyName: 'SponsorBlock', connect: ['https://sponsor.ajay.app'] },
@@ -94,6 +113,20 @@ export const APP_SERVICES: readonly Service[] = [
     img: ['https://coverartarchive.org'],
   },
 ]
+
+/**
+ * The services a build offers: those of `services` whose `requires` variable the build's
+ * environment has (make dist's own, in which it also builds the web app), so the policies allow
+ * exactly what the app it ships can contact.
+ */
+export function offeredServices(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+  services: readonly Service[] = APP_SERVICES,
+): Service[] {
+  return services.filter(
+    (service) => service.requires === undefined || Boolean(env[service.requires]?.trim()),
+  )
+}
 
 /**
  * Extra script-src sources for the web app and the embed. 4.2 adds WASM_UNSAFE_EVAL here for
@@ -130,8 +163,19 @@ const COMMON_DOCUMENT_DIRECTIVES: readonly Directive[] = [
 ]
 
 /**
+ * Where the web app's workers may come from: its own origin only. Every worker it starts is a
+ * file of its own build: the service worker (`/app/sw.js`), the downloads' storage worker and
+ * stage 4.2's conversion worker (`new Worker(new URL(…, import.meta.url))`). 4.2's ffmpeg core is
+ * built without threads (`--disable-pthreads`), so it starts no worker of its own, from a `blob:`
+ * URL or otherwise (checked on its branch, feat/4.2-convert, on 2026-10-26). docs/PLAN.md's policy
+ * row also allows `blob:`; a stage that needs a worker from a `blob:` URL adds it here, with why.
+ */
+export const WORKER_SOURCES: readonly string[] = [SELF]
+
+/**
  * The web app's policy (`/app/*`), or the embed's (`/embed/*`): the same without
- * `frame-ancestors`, because any site may embed the player.
+ * `frame-ancestors`, because any site may embed the player. Its hosts are those of the services
+ * this build offers (offeredServices) unless `services` says otherwise.
  */
 export function appPolicy(
   scriptHashes: readonly string[],
@@ -141,7 +185,7 @@ export function appPolicy(
     scriptExtras?: readonly string[]
   } = {},
 ): Policy {
-  const services = options.services ?? APP_SERVICES
+  const services = options.services ?? offeredServices()
   const extras = options.scriptExtras ?? APP_SCRIPT_EXTRAS
   for (const source of extras) {
     if (source === UNSAFE_EVAL || source === UNSAFE_INLINE) {
@@ -153,7 +197,7 @@ export function appPolicy(
   return [
     ['default-src', [SELF]],
     ['script-src', unique([SELF, ...scriptHashes, ...extras])],
-    ['worker-src', [SELF, 'blob:']],
+    ['worker-src', [...WORKER_SOURCES]],
     ['style-src', [SELF, UNSAFE_INLINE]],
     ['img-src', [SELF, 'data:', 'blob:', ...img]],
     ['media-src', [SELF, 'blob:', 'https:']],

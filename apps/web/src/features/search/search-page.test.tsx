@@ -13,6 +13,7 @@ import { useSettingsStore } from '../settings/settings-store'
 import { createFakeCatalog } from './fake-catalog'
 import { FEEDBACK_MS } from './feedback'
 import { ONBOARDING_URL } from './onboarding'
+import { scrollIntoRow } from './search-page'
 import { searchTiming } from './search-view'
 import { createStaticPlatform, TIER_CAPABILITIES } from './sources'
 import { renderCatalog, resetCatalogState } from './testing'
@@ -604,5 +605,35 @@ describe('Search: actions', () => {
     expect(
       within(songs).getAllByRole('button', { name: /^More options for/ }).length,
     ).toBeGreaterThan(0)
+  })
+})
+
+describe('scrollIntoRow', () => {
+  /** A box at `left`–`right` on screen, with a scroll position the function may change. */
+  function box(left: number, right: number) {
+    return {
+      scrollLeft: 100,
+      getBoundingClientRect: () => ({ left, right }) as DOMRect,
+    } as unknown as HTMLElement
+  }
+
+  it('scrolls the row just enough to show the chip clear of the faded edges', () => {
+    // A 390 px row; the checked chip ends at 511 px, off its right edge.
+    const row = box(0, 390)
+    scrollIntoRow(row, box(400, 511), 40)
+    expect(row.scrollLeft).toBe(100 + 511 - 350)
+    // Off the left edge.
+    const back = box(0, 390)
+    scrollIntoRow(back, box(-80, 20), 40)
+    expect(back.scrollLeft).toBe(100 - 120)
+  })
+
+  it('leaves a chip already in view alone, and never pushes a wide chip off the start', () => {
+    const row = box(0, 390)
+    scrollIntoRow(row, box(60, 300), 40)
+    expect(row.scrollLeft).toBe(100)
+    const narrow = box(0, 200)
+    scrollIntoRow(narrow, box(50, 260), 40)
+    expect(narrow.scrollLeft).toBe(100 + 10)
   })
 })
