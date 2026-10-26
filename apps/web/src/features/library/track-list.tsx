@@ -20,7 +20,8 @@ import type { OrderUndo } from '../../db/types'
 import { cn } from '../../lib/cn'
 import { downloadTracks, removeDownloads } from '../downloads/actions'
 import { useCanDownload } from '../downloads/hooks'
-import { useDownloadMenuItem } from '../downloads/menu'
+import { useDownloadMenuItem, useSaveMenuItem } from '../downloads/menu'
+import { SaveToDeviceDialog } from '../downloads/save/save-dialog'
 import { CoverArt } from './cover-art'
 import { failureText } from './failure'
 import { addedLabel, artistNames, artworkUrl, countLabel, trackDuration } from './format'
@@ -241,6 +242,7 @@ export function TrackList({ listId, rows, undo, kind, name, empty }: TrackListPr
   const [selecting, setSelecting] = useState(false)
   const selection = useSelection(ids)
   const [adding, setAdding] = useState<Track[] | null>(null)
+  const [saving, setSaving] = useState<Track | null>(null)
   const [menu, setMenu] = useState<{ id: string; anchor: HTMLElement } | null>(null)
   const listRef = useRef<HTMLOListElement>(null)
   const emptyRef = useRef<HTMLDivElement>(null)
@@ -248,6 +250,7 @@ export function TrackList({ listId, rows, undo, kind, name, empty }: TrackListPr
   const sortId = useId()
   const plural = 'songs'
   const downloadMenuItem = useDownloadMenuItem()
+  const saveMenuItem = useSaveMenuItem(setSaving)
   const canDownload = useCanDownload()
 
   const titleOf = useCallback(
@@ -379,6 +382,8 @@ export function TrackList({ listId, rows, undo, kind, name, empty }: TrackListPr
       })
     }
     const download = row && downloadMenuItem(row, { inDownloads: kind === 'downloads' })
+    const save = row && saveMenuItem(row)
+    if (save) items.push(save)
     if (download) items.push(download)
     if (kind !== 'downloads') {
       items.push({
@@ -531,6 +536,7 @@ export function TrackList({ listId, rows, undo, kind, name, empty }: TrackListPr
         />
       )}
       <AddToPlaylistDialog tracks={adding} onClose={() => setAdding(null)} />
+      <SaveToDeviceDialog track={saving} onClose={() => setSaving(null)} />
     </div>
   )
 }

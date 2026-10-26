@@ -806,17 +806,17 @@ YouTube downloads are on by default (Decision 2, option A, 2026-10-25). Every st
 
 YouTube audio is never labelled lossless.
 
-**itag 18** is a video file. Its AAC track is extracted with a JavaScript MP4 remux, mp4box.js (BSD-3-Clause, 2.4.1), not ffmpeg. Spotube issue #3085, where downloads came out as video files, is the trap to avoid.
+**itag 18** is a video file. Its AAC track is extracted with a JavaScript MP4 remux, mp4box.js (BSD-3-Clause, 2.4.1), not ffmpeg: mp4box.js reads the samples, and FXM writes them alone into a plain M4A. Spotube issue #3085, where downloads came out as video files, is the trap to avoid.
 
 **Pipeline:**
 
 1. Fetch the bytes (ranged and resumable).
-2. Convert with ffmpeg.wasm in a worker, using FXM's own LGPL, audio-only build under 25 MiB, hosted with the site (FLAC, ALAC, WAV, MP3 via LAME, AAC and Opus encoders; no GPL-only libraries). The stock `@ffmpeg/core` is GPL-2.0-or-later and 30.7 MiB, over Cloudflare Pages' 25 MiB file limit, and loading it from a CDN would break the no-third-party-scripts rule.
-3. Write tags (title, artists, album, track number, ISRC, lyrics) and cover art.
+2. Convert with ffmpeg.wasm in a worker, using FXM's own LGPL, audio-only build under 25 MiB, hosted with the site (FLAC, ALAC, WAV, MP3 via LAME, AAC and Opus encoders; no GPL-only libraries). The stock `@ffmpeg/core` is GPL-2.0-or-later and 30.7 MiB, over Cloudflare Pages' 25 MiB file limit, and loading it from a CDN would break the no-third-party-scripts rule. FXM's build (FFmpeg 9.0.2, about 2.4 MiB, [tools/ffmpeg-wasm](../tools/ffmpeg-wasm/README.md)) has no `ffmpeg` command-line tool: it needs threads since FFmpeg 7, and WebAssembly threads need a cross-origin isolated page, which would block the covers and media FXM loads from other sites. A small C converter calls FFmpeg's libraries instead. CI builds it, checks the size and the licence, and the deploy ships it at `/app/ffmpeg/`; the app's policy allows `'wasm-unsafe-eval'`, never `'unsafe-eval'`.
+3. Write tags (title, artists, album, track and disc number, date, ISRC, lyrics) and cover art, with FXM's own writers for ID3v2.3, FLAC, Ogg, MP4 and RIFF ([packages/convert](../packages/convert/README.md)); WebM's Matroska tags come from the core's muxer.
 4. Store the file:
-   - **Browser:** OPFS plus "Save to device".
-   - **Desktop:** the filesystem.
-   - **Android:** the app's own storage, plus MediaStore export.
+   - **Browser:** OPFS keeps the original for offline playback; "Save to device" converts a copy in the format the user picks and saves it through the browser's file picker or downloads.
+   - **Desktop:** the filesystem (7.4 implements "Save to device" natively).
+   - **Android:** the app's own storage, plus MediaStore export (6.4).
 
 Offline copies come first in the playback policy.
 

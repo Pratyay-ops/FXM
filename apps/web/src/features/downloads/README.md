@@ -1,6 +1,6 @@
 # Downloads in the web app
 
-The web app's side of stage 4.1: where downloads are stored, which tab runs the queue, the UI, and offline playback. The queue itself is [`@fxm/downloads`](../../../../../packages/downloads/README.md).
+The web app's side of stages 4.1 and 4.2: where downloads are stored, which tab runs the queue, the UI, offline playback, and "Save to device" in the format the user picks. The queue itself is [`@fxm/downloads`](../../../../../packages/downloads/README.md), the conversion [`@fxm/convert`](../../../../../packages/convert/README.md).
 
 | File | What it holds |
 |---|---|
@@ -16,6 +16,9 @@ The web app's side of stage 4.1: where downloads are stored, which tab runs the 
 | `menu.ts` | The download entry of track-list menus |
 | `format.ts`, `progress.tsx` | Sizes, states, errors; the progress ring and bar |
 | `testing.ts`, `opfs/fake-opfs.ts` | Test setup: fakes for the network, the resolver and the file system |
+| `save/save.ts` | Save to device (4.2): the converter (a worker running FXM's ffmpeg core) and the device saver, both replaceable (`setConverter`, `setDeviceSaver`), and `saveDownload` |
+| `save/save-dialog.tsx` | The Save to device dialog: the formats with their honest labels, progress, cancel, errors |
+| `save/worker.ts` | The conversion worker (`serveConversions` from `@fxm/convert/worker`) |
 
 ## Storage
 
@@ -46,6 +49,16 @@ The running tab also keeps the **Downloads playlist** in step: a completed downl
 
 Nothing is offered where the bytes are unreadable (YouTube audio needs FXM Connect, the desktop app or the Android app, and never the Lite tier), nor what the app can't resolve: until the stream sources are wired in (see `environment.ts`), that is every track, Internet Archive and Jamendo included. A download the manager paused on its own says why in its row ("Paused · There is no room left for downloads", or after a YouTube bot check).
 
+## Save to device
+
+A downloaded song's menu (in playlists, Liked songs and Downloads) has **Save to device…**. Its dialog lists every format with its honest label from `@fxm/convert` (`exportChoices`): "Original (Opus)", "FLAC (converted from Opus, same quality as the source)", "MP3 (converted from Opus, some quality loss)", and so on; YouTube audio is never called lossless, and choosing a lossless format for it says that converting gives a bigger file, not a better one. The choice starts at the download format of Settings → Audio quality, and MP3 takes its bitrate from there.
+
+Save works in two steps. Straight from the click, the device saver asks where to save (the browser's save picker in Chromium on desktop; elsewhere the file goes to the browser's downloads), because browsers open their picker only from a click. Then FXM reads the stored file, fetches the cover (the track's largest artwork; WebP becomes JPEG through a canvas) and the lyrics (LRCLIB), each left out after 8 s or on any failure, converts and tags the file in the conversion worker, and writes it. The dialog shows the progress and a Cancel button, which stops the worker; closing the dialog cancels too. Failures say what to do: the core can't load here (save the original instead), the file is damaged or gone (download it again), the browser ran out of memory, the folder refused the file. The stored download stays the original either way, for offline playback.
+
+The conversion worker loads FXM's ffmpeg core from the app's `ffmpeg/` folder on the first save that needs it (the deploy puts it there; `make dev` serves a local build from `make ffmpeg-wasm`, tools/ffmpeg-wasm/README.md). Saving an original MP3, FLAC, Ogg or WAV, or an M4A as M4A, needs no core: FXM's own writers tag those.
+
+The desktop app (7.4) and the Android app (6.4) save natively: they pass their own `DeviceSaver` to `setDeviceSaver` (a save dialog, the device's music library) and nothing else changes.
+
 ## Testing
 
-`setupDownloads()` from `testing.ts` gives the app's downloads an in-memory storage, a `FakeMediaServer` as the network and a `FakeDownloadResolver`, for a tier the test picks, and runs the queue; the test setup resets everything after each test. OPFS is tested against `opfs/fake-opfs.ts`, with the worker's handler run in-process and through a fake worker.
+`setupDownloads()` from `testing.ts` gives the app's downloads an in-memory storage, a `FakeMediaServer` as the network and a `FakeDownloadResolver`, for a tier the test picks, and runs the queue; the test setup resets everything after each test. OPFS is tested against `opfs/fake-opfs.ts`, with the worker's handler run in-process and through a fake worker. Save to device is tested with `createInProcessConverter` from `@fxm/convert/testing` (the whole pipeline on a fake core, without the worker), a fake device saver and a fake lyrics provider, so nothing reaches the network.
