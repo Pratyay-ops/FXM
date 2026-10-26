@@ -7,6 +7,7 @@ import {
   createStaticPlatform,
   TIER_CAPABILITIES,
 } from '../../features/search/sources'
+import { spotifyAccountForHome } from '../../features/spotify-account/start'
 import { createAppHomeServices, homeSourcesUntil, tierKnown } from './home'
 import { RADIOHEAD_CHANNEL } from './testing/fixtures'
 import { servicesOnTier, type TierServices } from './testing/tiers'
@@ -108,8 +109,9 @@ describe("Home on the app's services", () => {
       (outcome) => (outcome as unknown as { source: string }).source === 'spotify',
     ) as unknown as { status: string; reason?: string } | undefined
     expect(spotify).toMatchObject({ status: 'skipped', reason: 'switched-off' })
-    // Spotify is registered here (its secret is reachable), so its account can be asked.
-    expect(home.spotifyAccount).toBeDefined()
+    // Spotify is registered here (its secret is reachable), so its account can be asked: stage
+    // 3.5's view of it, with the sections its sync keeps.
+    expect(home.spotifyAccount).toBe(spotifyAccountForHome)
     // Its code isn't even downloaded while it is switched off.
     expect(setup.services.spotify.current).toBeUndefined()
   })

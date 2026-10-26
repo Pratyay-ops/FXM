@@ -7,7 +7,7 @@
  * | `sources` | The sources registry (stage 2.4): the tier, the Spotify switch, a context per call; `detecting` until the platform's first detection ends (`homeSourcesUntil`) |
  * | `recommendations` | Stage 3.2's `createRecommendationCollector` over the app's providers: YouTube Music radio, Spotify when it is switched on and reachable, Last.fm's stations (where the platform reaches them: FXM Connect, the desktop and Android apps), ListenBrainz's similar artists, and the Cover Art Archive for tracks without a cover. Loaded with Home's first build |
  * | `catalog` | `findArtist` (a YouTube Music artist search, the same name only), `artistTracks` (an artist page's top songs) and `findSong` (the matching engine over YouTube Music's song searches, stage 1.7) |
- * | `spotifyAccount` | The app's Spotify provider's `status`, where Spotify is registered |
+ * | `spotifyAccount` | Stage 3.5's view of the account (`spotifyAccountForHome`), where Spotify is registered: whether it is connected, and the sections its sync keeps |
  * | `playback` | The app's player, as 2.4's `PlaybackActions` |
  *
  * Every YouTube call draws on the request budget through the context Home passes (the
@@ -47,6 +47,7 @@ import type {
   HomeSpotifyAccount,
 } from '../../features/home/services'
 import type { Sources, SourcesSnapshot } from '../../features/search/sources'
+import { spotifyAccountForHome } from '../../features/spotify-account/start'
 import type { AppServices } from './app-services'
 import { createLoader, type Loader } from './lazy-provider'
 import type { YouTube } from './youtube'
@@ -245,9 +246,13 @@ export function appHomeRecommendations(
   }
 }
 
-/** The Spotify account's status, where Spotify is registered: its provider's `status`. */
-export function appSpotifyAccount(app: Pick<AppServices, 'spotify'>): HomeSpotifyAccount {
-  return { status: async (ctx) => (await app.spotify.load()).status(ctx) }
+/**
+ * The Spotify account, where Spotify is registered: stage 3.5's view of it, over the app's one
+ * Spotify provider. It says whether the account is connected and brings the sections its sync
+ * keeps, and loads nothing until the user connects the account.
+ */
+export function appSpotifyAccount(): HomeSpotifyAccount {
+  return spotifyAccountForHome
 }
 
 /** How long Home waits for the first Lite self-test at most, before it shows what is known. */
@@ -350,7 +355,7 @@ export function createAppHomeServices(
     sources: options.sources ?? app.sources,
     recommendations: appHomeRecommendations(recommendationLoader(app)),
     catalog: appHomeCatalog(app),
-    ...(options.spotify ? { spotifyAccount: appSpotifyAccount(app) } : {}),
+    ...(options.spotify ? { spotifyAccount: appSpotifyAccount() } : {}),
     ...(options.playback === undefined ? {} : { playback: options.playback }),
   }
 }

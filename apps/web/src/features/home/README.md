@@ -68,7 +68,7 @@ Home reaches everything through one seam, `services.tsx` (`appHomeServices`, a s
 | `sources` | 2.4's `appSources`, which holds 1.2's platform and the Spotify switch | `appSources`, saying `detecting` until the platform's first detection ends |
 | `recommendations` | 3.2's `createRecommendationCollector` | Over the app's providers: YouTube Music radio, Spotify (while switched on and reachable), Last.fm's stations (where the platform reaches them), ListenBrainz's similar artists, with covers from the Cover Art Archive for the few candidate tracks without one; loaded with Home's first build |
 | `catalog` | 1.3: artist search (`findArtist`), artist pages' top songs (`artistTracks`); 1.7: song search (`findSong`) | YouTube Music's artist search (the same name only), its artist pages, and the matching engine over its song searches |
-| `spotifyAccount` | 3.5's account: `status`, and `sections` from its sync (`features/spotify-account`) | The app's Spotify provider, where Spotify is registered |
+| `spotifyAccount` | 3.5's account: `status`, and `sections` from its sync (`features/spotify-account`) | `spotifyAccountForHome`, where Spotify is registered (`main.tsx` sets it at start too, with `startSpotifyAccount`) |
 | `playback` | 2.2's player, as 2.4's `PlaybackActions` | `appActions.get().playback` |
 
 Album, artist and playlist cards (in Spotify's sections) link to their pages with 2.4's link helpers (`albumPath`, `artistPath`) and the library's `playlistPath` (`entityPath` in `shelves.tsx`).
