@@ -475,14 +475,14 @@ The site's privacy page names every service the apps contact, and the web app's 
 
 ## 9. FXM Connect (companion extension)
 
-- **Manifest V3, Chromium (120+) and Firefox (140+).** Permissions are `declarativeNetRequest` and `storage`. Host permissions cover only the FXM origin (exactly, so preview sub-domains are excluded), YouTube's API hosts, `*.googlevideo.com`, the Spotify hosts (`open.spotify.com`, `clienttoken`, `api-partner`, `spclient.wg`) and `www.last.fm`. There is no `<all_urls>`, `cookies`, `tabs`, `scripting` or `webRequest` permission.
+- **Manifest V3, Chromium (120+) and Firefox (140+).** Permissions are `declarativeNetRequest` and `storage`. Host permissions cover only the FXM origin (exactly, so preview sub-domains are excluded), YouTube's API hosts, `*.googlevideo.com`, the Spotify hosts (`open.spotify.com`, `api-partner`, `spclient.wg`) and `www.last.fm`. clienttoken, which FXM doesn't use, has neither a permission nor a rule. There is no `<all_urls>`, `cookies`, `tabs`, `scripting` or `webRequest` permission.
 - **Static declarativeNetRequest rules.** Every rule is scoped to the FXM origin (`initiatorDomains`) and sets `Access-Control-Allow-Origin` to that exact origin. None sets `*` or `Allow-Credentials`, and every rule strips `Cookie`, `Set-Cookie` and `Access-Control-Allow-Credentials`.
 
   | Rule | Hosts | Request change | Response change |
   |---|---|---|---|
   | YouTube API | www/music.youtube.com, youtubei.googleapis.com | Origin and Referer set to the host's own YouTube origin on every request. Preflights get the *other* YouTube origin, because InnerTube answers same-host preflights with 400 | ACAO, allowed methods and InnerTube headers, `Max-Age: 600` |
   | Stream bytes | googlevideo | A YouTube Origin on preflights only | ACAO, with the range headers exposed, for probes, downloads and MediaSource |
-  | Spotify token | open.spotify.com (`/api/token`, `/api/server-time`), clienttoken | Origin and Referer set to `https://open.spotify.com` | ACAO, allowed methods and Spotify headers |
+  | Spotify token | open.spotify.com (`/api/token`, `/api/server-time`) | Origin and Referer set to `https://open.spotify.com` | ACAO, allowed methods and Spotify headers |
   | Spotify API | pathfinder, spclient | None | ACAO, allowed methods and Spotify headers |
   | Last.fm | Station JSON | None | ACAO |
 
