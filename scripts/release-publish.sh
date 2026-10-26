@@ -6,11 +6,13 @@
 # <dir> holds plain files only, and <dir>/SHA256SUMS must match them exactly (release-build.sh
 # --checksums). Creates tag vX.Y.Z at the commit unless it is already there, deletes a draft
 # release that a failed run left behind, then publishes the release with the notes, a list of
-# the files and every file in <dir> as an asset. gh uploads the assets to a draft and publishes
-# it after the last upload, so a release never shows up half uploaded. Re-running is safe: a
-# published release is left alone, and a tag that points at another commit stops it. A failed
-# GitHub API request stops it too, instead of reading as "no release" or "no tag". Needs gh with
-# GH_TOKEN (contents: write) and GITHUB_REPOSITORY (owner/repo).
+# the files and every file in <dir> as an asset. With the Android APKs, the notes also give the
+# SHA-256 of their signing certificate, pinned in apps/mobile/release-certificate.txt, and the
+# release stops before tagging while nothing is pinned. gh uploads the assets to a draft and
+# publishes it after the last upload, so a release never shows up half uploaded. Re-running is
+# safe: a published release is left alone, and a tag that points at another commit stops it. A
+# failed GitHub API request stops it too, instead of reading as "no release" or "no tag". Needs
+# gh with GH_TOKEN (contents: write) and GITHUB_REPOSITORY (owner/repo).
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 source "$here/env.sh"
@@ -42,6 +44,20 @@ for file in "$dir"/*; do
   if [ "$file" != "$dir/SHA256SUMS" ]; then files+=("$file"); fi
 done
 files+=("$dir/SHA256SUMS")
+
+# With the Android APKs, the notes quote the certificate they are signed with: the one pinned at
+# the release commit, which the android-sign job checked them against. Read before anything is
+# tagged, so that a missing pin stops the release before it starts.
+certificate=
+for file in "${files[@]}"; do
+  case "$(basename "$file")" in
+    fxm-android-*.apk)
+      certificate=$(fxm_release_android_certificate "$FXM_ROOT/apps/mobile/release-certificate.txt") ||
+        exit 1
+      certificate=$(fxm_release_colons "$certificate")
+      ;;
+  esac
+done
 
 if fxm_release_published "$repo" "$tag"; then
   fxm_info "$tag is already published: nothing to do"
@@ -104,6 +120,18 @@ fxm_release_fit "$body" 115000 \
   echo
   echo "Install FXM Connect with the [steps in its README](https://github.com/$repo/blob/$tag/apps/extension/README.md#install)."
   echo
+  if [ -n "$certificate" ]; then
+    echo "Install the Android app with the [steps in its guide](https://github.com/$repo/blob/$tag/apps/mobile/INSTALL.md)."
+    echo "The APKs are signed with FXM's key. Its certificate's SHA-256 fingerprint is:"
+    echo
+    echo '```text'
+    echo "$certificate"
+    echo '```'
+    echo
+    echo "Android installs an update only when it is signed with the same key, and the guide shows"
+    echo "how to check the fingerprint before the first install."
+    echo
+  fi
   echo "To verify a download, run these in its folder:"
   echo
   echo '```sh'

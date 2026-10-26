@@ -1,0 +1,7 @@
+# The SHA-256 fingerprint of the certificate that signs FXM's release APKs. The release workflow
+# signs only with the key of this certificate, and each release's notes quote it, so anyone can
+# check a downloaded APK against it (INSTALL.md). scripts/make-android-keystore.sh prints it when
+# the owner creates the key, which never enters the repository (RELEASING.md).
+#
+# Until then, the line below is a placeholder and release builds refuse to sign.
+none yet: run scripts/make-android-keystore.sh

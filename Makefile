@@ -81,13 +81,23 @@ ci: ci-setup check ## What CI runs: frozen setup, then check
 
 # --- Android app (docs/DEVELOPMENT.md, "Android app") ---------------------------
 
-.PHONY: android-setup apk android-test android-clean
+.PHONY: android-setup apk apk-release apk-sign-test android-test android-clean
 
 android-setup: ## Install the JDK and Android SDK into .tools (accepts the SDK licenses)
 	@scripts/android-setup.sh
 
 apk: ## Build the Android debug APK (run make android-setup once first)
 	@apps/mobile/scripts/build-apk.sh
+
+# The key comes from the environment (apps/mobile/RELEASING.md); DRY_RUN=1 accepts any key.
+apk-release: ## Build and sign the release APKs into dist/android/release (DRY_RUN=1: any key)
+	@rm -rf dist/android
+	@apps/mobile/scripts/release-apk.sh build dist/android/unsigned
+	@apps/mobile/scripts/release-apk.sh sign $(if $(filter 1 true yes,$(DRY_RUN)),--dry-run) \
+		dist/android/unsigned dist/android/release
+
+apk-sign-test: ## Test the release signing and the keystore script offline, with a throwaway key
+	@apps/mobile/scripts/test-release.sh
 
 android-test: ## Run the Android app's native unit tests (offline, no device needed)
 	@apps/mobile/scripts/test-native.sh

@@ -9,6 +9,10 @@ name: Release
 #                   and runs AMO's linter on the Firefox zip (apps/extension/store/firefox.ts)
 #   firefox         with AMO_CHANNEL unlisted (the default): has Firefox Add-ons (AMO) sign that
 #                   Firefox zip and passes on the signed XPI (apps/extension/store/firefox.ts)
+#   android         builds the Android app's release APKs, unsigned: arm64-v8a and universal
+#                   (apps/mobile/scripts/release-apk.sh build)
+#   android-sign    signs them with FXM's key and checks them against the certificate pinned in
+#                   apps/mobile/release-certificate.txt (apps/mobile/scripts/release-apk.sh sign)
 #   publish         collects the artifact jobs' files (scripts/release-collect.sh), writes
 #                   SHA256SUMS, attests every file's build provenance, creates tag vX.Y.Z and
 #                   publishes the release with git-cliff notes (scripts/release-publish.sh)
@@ -27,6 +31,15 @@ name: Release
 # third-party code ever sees a store key. Its plan step learns only whether each secret is set
 # (`secrets.X != ''`); only the step that submits gets the values.
 #
+# The Android signing key is in the `android-release` environment, which, like `stores`, only
+# runs on main can use: ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS and
+# ANDROID_KEY_PASSWORD (scripts/make-android-keystore.sh makes them; apps/mobile/RELEASING.md).
+# Unlike the store keys they are required: without them, or with a key whose certificate isn't the
+# pinned one, android-sign fails and nothing is published, so a release never carries an APK
+# signed with another key, or none at all. android-sign runs only the JDK and the Android SDK's
+# apksigner and aapt2 on the APKs that the android job built, so the key never meets Gradle, its
+# plugins or an npm package.
+#
 # Every job builds the commit the run was started for (plan's sha is always github.sha), which
 # is also the commit the attestations name. Re-running is safe: a published release stops at
 # the plan job, a draft left by a failed run is replaced, and a tag without a release is
@@ -34,7 +47,7 @@ name: Release
 # run, so a tag pushed by hand never gets a commit built and published. Builds start from a
 # clean runner, without caches, so nothing from other runs reaches the files.
 #
-# Adding artifacts (the APK in 6.6, desktop installers in 7.5; the firefox job is one):
+# Adding artifacts (desktop installers in 7.5; the firefox and android-sign jobs are two):
 #   1. Add a job that needs plan, runs `if: needs.plan.outputs.release == 'true'`, checks out
 #      needs.plan.outputs.sha and uploads its files as an artifact named release-<name>. The
 #      files sit at the artifact's root (no folders) and carry the version in their names.
@@ -192,9 +205,93 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  android:
+    name: Android APKs (unsigned)
+    needs: plan
+    if: needs.plan.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Set up toolchain and dependencies (frozen lockfile)
+        run: make ci-setup
+
+      - name: Install the JDK and Android SDK into .tools
+        run: make android-setup
+
+      # The web app, cap sync and Gradle's assembleRelease, with no key anywhere in this job.
+      - name: Build the unsigned release APKs
+        run: apps/mobile/scripts/release-apk.sh build dist/android-unsigned
+
+      # Not a release-* artifact: only android-sign reads it, and nothing publishes it.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: android-unsigned
+          path: dist/android-unsigned/
+          if-no-files-found: error
+          retention-days: 1
+
+  android-sign:
+    name: Signed Android APKs
+    needs: [plan, android]
+    if: needs.plan.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # The signing key is a secret of this environment, which only runs on main can use.
+    environment: android-release
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          persist-credentials: false
+
+      # The JDK and Google's SDK tools only (pinned and checksum-verified): no npm package and no
+      # Gradle plugin runs in this job.
+      - name: Install the JDK and Android SDK into .tools
+        run: scripts/android-setup.sh
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: android-unsigned
+          path: dist/android-unsigned
+
+      # Fails without the four secrets, and when the key's certificate isn't the one pinned in
+      # apps/mobile/release-certificate.txt. The key is deleted as soon as both APKs are signed.
+      - name: Sign and check the APKs
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: >-
+          apps/mobile/scripts/release-apk.sh sign --version "$VERSION"
+          dist/android-unsigned dist/release-android
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-android
+          path: dist/release-android/
+          if-no-files-found: error
+          retention-days: 30
+
   publish:
     name: Publish ${{ needs.plan.outputs.tag }}
-    needs: [plan, bundles, firefox]
+    # android too, not only android-sign: when android fails, android-sign is skipped, and only
+    # android's failure keeps the release from going out without the APKs.
+    needs: [plan, bundles, firefox, android, android-sign]
     # No artifact job may fail or be cancelled. A job that can skip itself on purpose doesn't
     # block, as long as its download step below runs only `if: needs.<job>.result == 'success'`.
     if: >-
@@ -227,6 +324,12 @@ jobs:
         with:
           name: release-firefox
           path: dist/artifacts/release-firefox
+
+      # Always: a release without its APKs doesn't go out.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-android
+          path: dist/artifacts/release-android
 
       - name: Collect the release files
         env:

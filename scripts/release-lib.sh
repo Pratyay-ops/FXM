@@ -115,7 +115,32 @@ release-bundles|fxm-connect-firefox-<version>.zip|FXM Connect for Firefox, unsig
 release-bundles|fxm-web-<version>.zip|The web app for self-hosting: its files are in `app/`, served from `/app/`
 release-bundles|fxm-site-<version>.zip|The landing page for self-hosting, served from `/`
 release-firefox|fxm-connect-firefox-<version>.xpi|FXM Connect for Firefox, signed by Mozilla: install it from Firefox's Add-ons Manager
+release-android|fxm-android-universal-<version>.apk|The Android app, for any phone or tablet with Android 7 or later: pick this one if unsure
+release-android|fxm-android-arm64-v8a-<version>.apk|The Android app for 64-bit ARM processors (arm64-v8a), which most phones of the last few years have. While FXM has no native code it is the same app as the universal APK
 EOF
+}
+
+# fxm_release_android_certificate <file>: prints the SHA-256 fingerprint of the certificate that
+# signs the release APKs, pinned in apps/mobile/release-certificate.txt, as 64 lower-case
+# hexadecimal digits. The first line that is neither empty nor a # comment holds it, with or
+# without colons. Fails while the file holds no fingerprint, as before the owner creates the key:
+# call it as `pinned=$(fxm_release_android_certificate <file>) || exit 1`.
+fxm_release_android_certificate() {
+  local line hex
+  [ -f "$1" ] || fxm_die "no such file: $1"
+  line=$(grep -v -e '^[[:space:]]*#' -e '^[[:space:]]*$' "$1" | head -n 1 || true)
+  hex=$(printf '%s' "$line" | tr -d ' \t\r:' | tr '[:upper:]' '[:lower:]')
+  [[ $hex =~ ^[0-9a-f]{64}$ ]] ||
+    fxm_die "$1 pins no signing certificate yet ('$line'), so no release APK may be signed: create" \
+      "the key with scripts/make-android-keystore.sh and pin its fingerprint (apps/mobile/RELEASING.md)"
+  printf '%s\n' "$hex"
+}
+
+# fxm_release_colons <hex>: a SHA-256 fingerprint the way keytool and certificate viewers show
+# it, upper case in pairs: AB:CD:…
+fxm_release_colons() {
+  printf '%s' "$1" | tr '[:lower:]' '[:upper:]' | sed 's/../&:/g; s/:$//'
+  echo
 }
 
 # fxm_release_lookup <artifact or ""> <file name> <version>: prints the catalog's description of
