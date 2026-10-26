@@ -7,7 +7,8 @@
  * - follows the catalog mode setting;
  * - shows the current track in the system media controls (Media Session);
  * - keeps its queue, position and volume across reloads (`features/queue/queue-storage.ts`);
- * - keeps the queue's review list (`features/queue/review-store.ts`) in step with the policy.
+ * - keeps the queue's review list (`features/queue/review-store.ts`) in step with the policy;
+ * - skips the non-music parts of videos when SponsorBlock is on (`features/sponsorblock/`).
  *
  * Components read it with {@link usePlayerState} and call the player's methods straight from
  * event handlers, so playback starts inside the user's gesture (see the player's README).
@@ -34,6 +35,7 @@ import {
 } from '../queue/queue-storage'
 import { useQueueReviewStore } from '../queue/review-store'
 import { useSettingsStore } from '../settings/settings-store'
+import { connectSponsorBlock } from '../sponsorblock/skipping'
 import { createAppPolicy, type PlaybackPolicy } from './playback-policy'
 
 /** How the app's playback is put together. Every field has a default; tests pass fakes. */
@@ -121,6 +123,7 @@ function createPlayback(options: PlaybackOptions, notify: () => void): Connected
       useQueueReviewStore.getState().clear()
       player.setCatalogMode(state.catalogMode)
     }),
+    connectSponsorBlock(player),
   ]
   return {
     player,

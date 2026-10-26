@@ -48,3 +48,4 @@ export type {
   StreamFailure,
   StreamResolver,
 } from './resolver'
+export * from './segment-skipper'

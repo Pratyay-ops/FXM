@@ -38,9 +38,9 @@ import {
 /**
  * The request budget's priority a call draws on, in the budget's own words (`RequestPriority`
  * in `@fxm/platform`, 1.2): `current-track` for the track that plays or is about to,
- * `prefetch` for the next ones.
+ * `prefetch` for the next ones, `bulk` for work nobody waits for, such as downloads (4.1).
  */
-export type ResolvePriority = 'current-track' | 'prefetch'
+export type ResolvePriority = 'current-track' | 'prefetch' | 'bulk'
 
 /** The details of one call to {@link StreamSource.resolve}. */
 export interface StreamSourceRequest {

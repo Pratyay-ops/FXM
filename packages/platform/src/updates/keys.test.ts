@@ -16,21 +16,16 @@ const publicKey = new Uint8Array(ed25519.keygen().publicKey)
 const identity = new Uint8Array(ed25519.Point.ZERO.toBytes())
 
 describe('what this build trusts', () => {
-  it('is only the placeholder until the owner adds the real keys, so every build fails closed', () => {
-    // When the owner commits the real public keys, this test changes with them: the placeholder
-    // goes, and UPDATE_SIGNING_READY becomes true.
-    expect(keyFile.keys).toEqual([
-      expect.objectContaining({
-        keyId: 'placeholder',
-        publicKey: expect.stringContaining('PLACEHOLDER'),
-      }),
+  it('trusts the signing key and its offline backup, so builds accept signed updates', () => {
+    // Created with scripts/make-signing-key.sh on 2026-10-26: the first key signs, the second is
+    // the backup kept offline. Replacing either one takes an app update.
+    expect(keyFile.keys.map((entry) => entry.keyId)).toEqual([
+      'ed25519-05f33e9965c21517',
+      'ed25519-fb960ef25a2918c2',
     ])
-    expect(UPDATE_SIGNING_KEYS).toEqual({
-      keys: [],
-      revoked: {},
-      problems: ['placeholder is not an Ed25519 public key'],
-    })
-    expect(UPDATE_SIGNING_READY).toBe(false)
+    expect(UPDATE_SIGNING_KEYS.problems).toEqual([])
+    expect(UPDATE_SIGNING_KEYS.keys).toHaveLength(2)
+    expect(UPDATE_SIGNING_READY).toBe(true)
   })
 
   it('never holds a private key: each entry has only an ID and a public key', () => {

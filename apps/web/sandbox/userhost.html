@@ -6,7 +6,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-Wwfrx2h4zxmFsvIxzVDqtAn2VLsjka1/6o6DK0OFha4='; connect-src https:; base-uri 'none'; form-action 'none'" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-HOYeNTRSmoRjZYmnAyB1JpZ5WFDH7STKefi/93TX9Rs='; connect-src https:; base-uri 'none'; form-action 'none'" />
     <title>FXM sandbox: user hosts</title>
   </head>
   <body>
@@ -575,7 +575,11 @@ function startSandboxDocument(
   }
 }
 
-startSandboxDocument(globalThis, SANDBOX_DOCUMENT_POLICIES.userhost)
+// Only where the sandbox policy made the origin opaque: Cloudflare Pages also serves this
+// document at percent-encoded paths that no header rule matches, with FXM's origin.
+if (self.origin === 'null') {
+  startSandboxDocument(globalThis, SANDBOX_DOCUMENT_POLICIES.userhost)
+}
 })()
     </script>
   </body>
