@@ -12,6 +12,7 @@ import {
   noExtensionHighlight,
   noExtensionNote,
   otherBrowsersAnswer,
+  privacyLiteCheck,
   SPOTIFY_ACCOUNT,
   webCardIntro,
 } from './tiers'
@@ -33,6 +34,7 @@ function allCopy(lite: boolean): string[] {
     connectNeededFor(lite),
     otherBrowsersAnswer(lite),
     iPhoneAnswer(lite),
+    privacyLiteCheck(lite),
   ]
 }
 
@@ -81,9 +83,11 @@ describe('once Lite is out (AVAILABLE.lite on)', () => {
       howItWorksStep(true),
       otherBrowsersAnswer(true),
     ]) {
-      expect(sentence).toContain('the experimental Lite mode')
+      // A tier, as the web app calls it: the Features section's modes are Music and Music + Video.
+      expect(sentence).toContain('the experimental Lite tier')
       expect(sentence).toContain('where the browser allows it')
     }
+    for (const sentence of allCopy(true)) expect(sentence).not.toMatch(/Lite mode/)
     expect(noExtensionHighlight(true).experimental).toBe(true)
     expect(extensionFaq(true).answers[0]).toMatch(/may stop working at any time/)
   })
@@ -109,15 +113,28 @@ describe('once Lite is out (AVAILABLE.lite on)', () => {
 })
 
 describe('in both versions', () => {
-  it('never claims FXM Connect has no music-service code: it carries the Spotify login bridge', () => {
-    expect(CONNECT_DOES).toContain(
-      'an option to use your Spotify login, is off unless you turn it on',
-    )
+  it("says all FXM Connect does: the headers, Spotify's server time and the opt-in login", () => {
+    // It always relays Spotify's server time, and its login bridge is opt-in: neither is its
+    // "only" other part, and it never holds no music-service code.
+    expect(CONNECT_DOES).toContain("adjusts a few headers on FXM's own requests")
+    expect(CONNECT_DOES).toContain("fetches Spotify's public server time when the web app asks")
+    expect(CONNECT_DOES).toContain('option to use your Spotify login is off unless you turn it on')
     for (const lite of [false, true]) {
-      for (const sentence of allCopy(lite)) expect(sentence).not.toMatch(/no music-service/)
+      for (const sentence of allCopy(lite)) {
+        expect(sentence).not.toMatch(/no music-service|only other part|one other part/)
+      }
     }
     expect(howItWorksStep(false)).toContain(CONNECT_DOES)
     expect(extensionFaq(true).answers[1]).toContain(CONNECT_DOES)
+  })
+
+  it('tells the privacy page about the request that checks Lite at start-up', () => {
+    expect(privacyLiteCheck(false)).toBe(
+      'Without FXM Connect, the web app also sends YouTube Music one request when it starts, to check whether it can reach YouTube Music without the extension.',
+    )
+    expect(privacyLiteCheck(true)).toBe(
+      'Without FXM Connect, the web app also sends YouTube Music one request when it starts, to check whether the experimental Lite tier works in your browser.',
+    )
   })
 
   it('says Music mode plays songs from any source, and the Spotify sync only reads', () => {
@@ -148,6 +165,7 @@ describe('the pages', () => {
     ]) {
       expect(faq).toContain(`${helper}(AVAILABLE.lite)`)
     }
+    expect(source('../pages/privacy.astro')).toContain('privacyLiteCheck(AVAILABLE.lite)')
   })
 
   it('drop the sentences revision 3 found untrue', () => {
@@ -169,5 +187,11 @@ describe('the pages', () => {
 
   it('tell Chromium users to leave Developer mode on', () => {
     expect(source('../components/GetFxm.astro')).toMatch(/Leave it on/)
+  })
+
+  it('promise only the update prompt the web app has: one for an out-of-date FXM Connect', () => {
+    const getFxm = source('../components/GetFxm.astro')
+    expect(getFxm).not.toContain('says a new version is out')
+    expect(getFxm).toMatch(/When the web app says FXM Connect is out of date/)
   })
 })

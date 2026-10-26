@@ -7,13 +7,17 @@
  * - **Lite off:** without FXM Connect, the web app plays only free sources (Internet Archive and
  *   Jamendo), and YouTube Music and Spotify need the extension.
  * - **Lite on:** without FXM Connect, the web app also plays YouTube Music in the experimental
- *   Lite mode, where the browser allows it (docs/ARCHITECTURE.md §8); Spotify still needs the
+ *   Lite tier, where the browser allows it (docs/ARCHITECTURE.md §8); Spotify still needs the
  *   extension.
  */
 
-/** What FXM Connect does, in a sentence that is true of every version of it. */
+/**
+ * What FXM Connect does, in a sentence that is true of every version of it. Besides the headers,
+ * it always relays Spotify's public server time (`spotify-server-time`, without credentials), and
+ * its Spotify login bridge is opt-in, so no one feature is its "only other part".
+ */
 export const CONNECT_DOES =
-  "it adjusts a few headers on FXM's own requests, and its only other part, an option to use your Spotify login, is off unless you turn it on"
+  "it adjusts a few headers on FXM's own requests and fetches Spotify's public server time when the web app asks; its option to use your Spotify login is off unless you turn it on"
 
 /** What Music mode plays (an owner decision, 2026-10-25): songs, from any source. */
 export const MUSIC_MODE =
@@ -23,8 +27,11 @@ export const MUSIC_MODE =
 export const SPOTIFY_ACCOUNT =
   'Connect your Spotify account for a read-only sync of your recommendations, liked songs and playlists'
 
-/** Lite, as the copy names it, marked experimental. */
-const LITE = 'the experimental Lite mode'
+/**
+ * Lite, as the copy names it, marked experimental: a tier, as the web app calls it, not a mode,
+ * which the Features section uses for Music and Music + Video.
+ */
+const LITE = 'the experimental Lite tier'
 
 /** The note under the hero's buttons, before the sentence about the apps. */
 export function heroNote(lite: boolean): string {
@@ -121,4 +128,15 @@ export function iPhoneAnswer(lite: boolean): string {
   return lite
     ? `FXM Connect isn't available there. The web app plays free sources such as Internet Archive and Jamendo, and YouTube Music in ${LITE} if Safari allows it: Lite isn't tested on iPhone and iPad yet.`
     : "FXM Connect isn't available there, so the web app plays from free sources such as Internet Archive and Jamendo."
+}
+
+/**
+ * The privacy page's sentence on the request the web app sends YouTube Music when it starts
+ * without FXM Connect: the Lite tier's self-test (one `get_search_suggestions` call from the
+ * sandbox), which runs whatever the flag says, unless Lite's kill switch is on.
+ */
+export function privacyLiteCheck(lite: boolean): string {
+  return lite
+    ? 'Without FXM Connect, the web app also sends YouTube Music one request when it starts, to check whether the experimental Lite tier works in your browser.'
+    : 'Without FXM Connect, the web app also sends YouTube Music one request when it starts, to check whether it can reach YouTube Music without the extension.'
 }
