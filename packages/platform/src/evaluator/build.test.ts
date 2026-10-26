@@ -61,6 +61,11 @@ describe('the evaluator document', () => {
     expect(committed).not.toContain("'unsafe-inline'")
   })
 
+  it("starts framed only at an opaque origin, which stage 2.8's make dist checks for", () => {
+    const [script] = partsOf(committed).scripts
+    expect(script).toMatch(/\bself\.origin\s*[!=]==?\s*(['"])null\1/u)
+  })
+
   it('is served with sandbox allow-scripts in front of the same policy', async () => {
     const build = await renderEvaluatorDocument('console.log(1)')
     expect(build.headerPolicy).toBe(evaluatorHeaderPolicy(build.scriptHash))

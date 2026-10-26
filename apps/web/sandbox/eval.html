@@ -5,7 +5,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-3bTzoqUiWTILw2Toci+TdhNaibQMkgSo1rVLOmra0qA=' 'unsafe-eval' 'wasm-unsafe-eval'; connect-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-/ZmHAyD5hnrGocgzGaUPbFhpK1MQ1AHmQghIAs7ORVM=' 'unsafe-eval' 'wasm-unsafe-eval'; connect-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <title>FXM evaluator</title>
 </head>
@@ -615,7 +615,7 @@
 
 //#endregion
 //#region src/evaluator/document-entry.ts
-	startEvaluatorDocument(window);
+	if (window.parent === window || self.origin === "null") startEvaluatorDocument(window);
 
 //#endregion
 })();</script>

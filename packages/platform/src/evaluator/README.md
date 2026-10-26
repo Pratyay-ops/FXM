@@ -59,6 +59,8 @@ It picks its channel when it starts:
 - **Framed** (it has a parent): it opens a `MessageChannel` and sends its hello, with the nonce of its URL's fragment and one end of the channel, to its parent at the FXM origin only, the origin its own URL names. From then on it hears requests only on its end of the channel; nothing that reaches its window is acted on. A page on another site that frames it, with or without the `sandbox` attribute, gets neither the hello nor the channel. Where the hello goes is stage 1.10's message check, in `messages.ts` until 1.10 merges: then its check replaces that file's function.
 - **Mailbox** (a top-level page in a native webview): it exposes a frozen `window.__fxmEvaluator` with `hello` (its announcement, as JSON), `receive(request)` and `take(id)`. The document has no bridge object and calls nothing: the host reads from it.
 
+A framed document starts only where its `sandbox` policy made its origin opaque (`self.origin === 'null'`, in `document-entry.ts`): Cloudflare Pages also serves it at percent-encoded paths, which no `_headers` rule reaches, and any page may frame it there. Stage 2.8's `make dist` refuses a sandbox document whose script doesn't make that test. A top-level document always starts: it is a native app's, and on Android it runs at `https://www.youtube.com` on purpose.
+
 The runtime captures `Function`, `JSON`, the async function constructor and its channel when it starts, so a script that replaces those globals changes nothing about later requests.
 
 ## Tests
