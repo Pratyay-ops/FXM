@@ -97,6 +97,17 @@ describe('negotiateLocale', () => {
     expect(negotiate(['EN-in']).formatLocale).toBe('en-IN')
   })
 
+  it('chooses one of the available locales as the app spells it', () => {
+    const list = ['en', 'pt-br', 'zh-hant']
+    expect(negotiate(['pt-BR'], undefined, list).locale).toBe('pt-br')
+    expect(negotiate(['zh-TW'], undefined, list)).toEqual({
+      locale: 'zh-hant',
+      formatLocale: 'zh-TW',
+      direction: 'ltr',
+    })
+    expect(negotiate(['en-US'], 'PT-BR', list).locale).toBe('pt-br')
+  })
+
   it('says which way the chosen locale is written', () => {
     expect(negotiate(['ar-EG']).direction).toBe('rtl')
   })

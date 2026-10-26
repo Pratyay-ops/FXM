@@ -20,7 +20,7 @@ export type Direction = 'ltr' | 'rtl'
 
 /** The locale FXM shows, and how it formats. */
 export interface LocaleChoice {
-  /** The locale whose messages FXM shows: one of the available locales. */
+  /** The locale whose messages FXM shows: one of the available locales, spelled as given. */
   readonly locale: string
   /**
    * The locale numbers, dates and lists are formatted in: the user's own tag when it is the same
@@ -121,10 +121,17 @@ function match(wanted: Intl.Locale, available: readonly Intl.Locale[]): Intl.Loc
 
 /** Chooses the locale to show and to format with: see {@link LocaleChoice}. */
 export function negotiateLocale(options: NegotiateOptions): LocaleChoice {
-  const available = options.available.flatMap((tag) => parseTag(tag) ?? [])
+  // Tags are compared in canonical form, but the choice is spelled as the app lists it (`pt-br`),
+  // so it is always one of `available`.
+  const spelling = new Map<Intl.Locale, string>()
+  const available = options.available.flatMap((given) => {
+    const tag = parseTag(given)
+    if (tag !== undefined) spelling.set(tag, given)
+    return tag ?? []
+  })
   const requested = (options.requested ?? []).flatMap((tag) => parseTag(tag) ?? [])
   const choose = (locale: Intl.Locale, formatWith: Intl.Locale | undefined): LocaleChoice => {
-    const tag = locale.toString()
+    const tag = spelling.get(locale) ?? locale.toString()
     return {
       locale: tag,
       formatLocale:
@@ -148,10 +155,8 @@ export function negotiateLocale(options: NegotiateOptions): LocaleChoice {
     const found = match(wanted, available)
     if (found !== undefined) return choose(found, wanted)
   }
-  const fallback = parseTag(options.defaultLocale)
-  return fallback === undefined
-    ? { locale: options.defaultLocale, formatLocale: options.defaultLocale, direction: 'ltr' }
-    : choose(fallback, undefined)
+  const fallback = options.defaultLocale
+  return { locale: fallback, formatLocale: fallback, direction: textDirection(fallback) }
 }
 
 /**

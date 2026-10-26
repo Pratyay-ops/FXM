@@ -51,9 +51,15 @@ export interface MessageProblem {
 export interface I18nOptions {
   /** The locale the namespaces' own messages are in. Default: `en`. */
   readonly sourceLocale?: string
-  /** Locales with catalogs, besides the source locale, for `load`. */
+  /**
+   * Locales with catalogs, besides the source locale, for `load`. Like every tag here, they are
+   * kept in canonical form (`pt-br` is `pt-BR`), so negotiation's choice always matches one.
+   */
   readonly locales?: readonly string[]
-  /** Loads a locale's catalog; called once per locale, on the first switch to it or `load`. */
+  /**
+   * Loads a locale's catalog, given its canonical tag; called once per locale, on the first switch
+   * to it or `load`.
+   */
   readonly load?: (locale: string) => Promise<Catalog>
   /** Locales made from the source messages rather than loaded: the pseudo-locales. */
   readonly derived?: Readonly<Record<string, DeriveMessages>>
@@ -91,7 +97,10 @@ export interface Translator<M extends Messages> {
 export interface I18n {
   /** The locale of the namespaces' own messages. */
   readonly sourceLocale: string
-  /** Every locale it can show: the source locale, the catalog locales, the derived ones. */
+  /**
+   * Every locale it can show, in canonical form: the source locale, the catalog locales, the
+   * derived ones.
+   */
   readonly locales: readonly string[]
   /** The locale whose messages it shows. */
   readonly locale: string
@@ -102,9 +111,10 @@ export interface I18n {
   /** Changes whenever what it shows changes: the locale, or a catalog added for it. */
   readonly revision: number
   /**
-   * Switches to `locale` (one of {@link locales}) once its catalogs are loaded, and formats in
-   * `formatLocale` (default: `locale`). A later call wins over an earlier one still loading.
-   * Rejects, staying in the current locale, when a catalog fails to load.
+   * Switches to `locale` (one of {@link locales}, in any spelling: `pt-br` is `pt-BR`) once its
+   * catalogs are loaded, and formats in `formatLocale` (default: `locale`). A later call wins
+   * over an earlier one still loading. Rejects, staying in the current locale, when a catalog
+   * fails to load.
    */
   setLocale(locale: string, formatLocale?: string): Promise<void>
   /** Loads `locale`'s catalogs without switching to it, for instance while Settings is open. */
@@ -133,29 +143,47 @@ function parseCached(message: string): MessageNode[] | Error {
   return nodes
 }
 
+/** `tag` in canonical form (`pt-br` is `pt-BR`), or as it is when it isn't a valid tag. */
+function canonical(tag: string): string {
+  try {
+    return Intl.getCanonicalLocales(tag)[0] ?? tag
+  } catch {
+    return tag
+  }
+}
+
 /** Creates an app's translations. */
 export function createI18n(options: I18nOptions = {}): I18n {
-  const sourceLocale = options.sourceLocale ?? 'en'
-  const derived = options.derived ?? {}
-  const locales = [...new Set([sourceLocale, ...(options.locales ?? []), ...Object.keys(derived)])]
+  const sourceLocale = canonical(options.sourceLocale ?? 'en')
+  const derived = new Map(
+    Object.entries(options.derived ?? {}).map(([tag, derive]) => [canonical(tag), derive]),
+  )
+  const locales = [
+    ...new Set([sourceLocale, ...(options.locales ?? []).map(canonical), ...derived.keys()]),
+  ]
   const catalogs = new Map<string, Record<string, Record<string, string>>>()
   const loading = new Map<string, Promise<void>>()
   const derivedNodes = new Map<string, MessageNode[]>()
   const reported = new Set<string>()
   const listeners = new Set<() => void>()
-  let locale = options.locale ?? sourceLocale
+  let locale = canonical(options.locale ?? sourceLocale)
   let formatLocale = options.formatLocale ?? locale
   let direction = textDirection(locale)
   let revision = 0
   let switching = 0
 
-  const known = (tag: string): boolean => locales.includes(tag)
-  if (!known(locale)) throw new RangeError(`${locale} is not one of ${locales.join(', ')}`)
+  /** `tag` as one of {@link locales}; throws when it isn't one. */
+  const known = (tag: string): string => {
+    const found = canonical(tag)
+    if (!locales.includes(found)) throw new RangeError(`${tag} is not one of ${locales.join(', ')}`)
+    return found
+  }
+  known(locale)
 
   /** The catalog locales `tag` reads messages from, most specific first. */
   const chainOf = (tag: string): string[] =>
     fallbackChain(tag).filter(
-      (link) => link !== sourceLocale && known(link) && !Object.hasOwn(derived, link),
+      (link) => link !== sourceLocale && locales.includes(link) && !derived.has(link),
     )
 
   const changed = (): void => {
@@ -163,7 +191,8 @@ export function createI18n(options: I18nOptions = {}): I18n {
     for (const listener of [...listeners]) listener()
   }
 
-  const addCatalog = (tag: string, catalog: Catalog): void => {
+  const addCatalog = (given: string, catalog: Catalog): void => {
+    const tag = canonical(given)
     const target = catalogs.get(tag) ?? {}
     for (const [namespace, messages] of Object.entries(catalog)) {
       target[namespace] = { ...target[namespace], ...messages }
@@ -189,8 +218,7 @@ export function createI18n(options: I18nOptions = {}): I18n {
   }
 
   const load = async (tag: string): Promise<void> => {
-    if (!known(tag)) throw new RangeError(`${tag} is not one of ${locales.join(', ')}`)
-    await Promise.all(chainOf(tag).map(loadOne))
+    await Promise.all(chainOf(known(tag)).map(loadOne))
   }
 
   const report = (key: string, notify: () => void): void => {
@@ -212,7 +240,7 @@ export function createI18n(options: I18nOptions = {}): I18n {
       problem(sourceLocale, `No message ${id} in the source locale`)
       return [`${id}`]
     }
-    const derive = Object.hasOwn(derived, locale) ? derived[locale] : undefined
+    const derive = derived.get(locale)
     for (const tag of derive === undefined ? chainOf(locale) : []) {
       const messages = catalogs.get(tag)?.[name]
       const message =
@@ -291,13 +319,15 @@ export function createI18n(options: I18nOptions = {}): I18n {
     get revision() {
       return revision
     },
-    async setLocale(tag, formatTag = tag) {
+    async setLocale(tag, formatTag) {
+      const target = known(tag)
       const ticket = ++switching
-      await load(tag)
+      await load(target)
       if (ticket !== switching) return
-      if (tag === locale && formatTag === formatLocale) return
-      locale = tag
-      formatLocale = formatTag
+      const format = formatTag ?? target
+      if (target === locale && format === formatLocale) return
+      locale = target
+      formatLocale = format
       direction = textDirection(locale)
       changed()
     },

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { type Catalog, createI18n, type I18nOptions } from './i18n'
 import { defineMessages } from './messages'
+import { negotiateLocale } from './negotiate'
 import type { MessageNode } from './parse'
 
 const library = defineMessages('library', {
@@ -160,10 +161,32 @@ describe('createI18n', () => {
     }
   })
 
+  it('keeps tags in canonical form, so negotiation’s choice is always one of its locales', async () => {
+    const load = vi.fn(async () => ({ library: { title: 'Biblioteca' } }))
+    const i18n = createI18n({ locales: ['pt-br', 'zh-hant'], load })
+    expect(i18n.locales).toEqual(['en', 'pt-BR', 'zh-Hant'])
+    const choice = negotiateLocale({
+      available: i18n.locales,
+      defaultLocale: 'en',
+      requested: ['zh-TW'],
+    })
+    await i18n.setLocale(choice.locale, choice.formatLocale)
+    expect([i18n.locale, i18n.formatLocale]).toEqual(['zh-Hant', 'zh-TW'])
+    await i18n.setLocale('PT-br')
+    expect([i18n.locale, i18n.formatLocale]).toEqual(['pt-BR', 'pt-BR'])
+    expect(load.mock.calls).toEqual([['zh-Hant'], ['pt-BR']])
+    expect(i18n.translator(library)('title')).toBe('Biblioteca')
+  })
+
   it('refuses locales it doesn’t know', async () => {
     const { i18n } = setup()
     await expect(i18n.setLocale('xx')).rejects.toThrow(RangeError)
     expect(() => createI18n({ locale: 'de' })).toThrow(RangeError)
+    // Without cancelling a switch that is still loading.
+    const switching = i18n.setLocale('de')
+    await expect(i18n.setLocale('xx')).rejects.toThrow('xx is not one of')
+    await switching
+    expect(i18n.locale).toBe('de')
   })
 
   it('preloads without switching', async () => {
