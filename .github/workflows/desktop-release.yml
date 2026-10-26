@@ -23,7 +23,8 @@ name: Desktop release
 #           WINDOWS_CERTIFICATE_PASSWORD, and unsigned without them (apps/desktop/INSTALL.md says
 #           what that means for users); a dry run with a throwaway certificate made on the runner.
 #           Tauri signs fxm.exe, the NSIS installer and its uninstaller, and the MSI, and the job
-#           checks every signature (apps/desktop/release/windows-signing.ts)
+#           checks the installers' signatures and those of the fxm.exe inside each
+#           (apps/desktop/release/windows-signing.ts)
 #   sign    signs the files the updater installs with the updater key, writes latest.json and
 #           checks every signature against the public key the apps carry
 #           (apps/desktop/release/release.ts). It installs nothing, so no third-party code ever
@@ -292,8 +293,11 @@ jobs:
           apps/desktop/release/release.ts collect --target "$TARGET" --version "$VERSION"
           --bundle-dir "apps/desktop/src-tauri/target/$TRIPLE/release/bundle" --out dist/desktop
 
-      # fxm.exe (which the installers hold) and the two installers: signed by the certificate of
-      # this run and timestamped, or, for a release without one, not signed at all.
+      # The two installers and the fxm.exe each of them holds: signed by the certificate of this
+      # run and timestamped, or, for a release without one, not signed at all. Tauri signs a copy
+      # of fxm.exe for each installer and puts the unsigned one back in target/, so the check reads
+      # the copies: the MSI's through an administrative install (it only unpacks), the NSIS
+      # installer's with 7-Zip.
       - name: Check the Windows signatures
         if: runner.os == 'Windows'
         shell: pwsh
@@ -302,12 +306,28 @@ jobs:
           THUMBPRINT: ${{ steps.windows-certificate.outputs.thumbprint }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $files = @(Get-Item -LiteralPath "apps/desktop/src-tauri/target/$env:TRIPLE/release/fxm.exe") +
-            @(Get-ChildItem -LiteralPath dist/desktop -File)
+          $msi = Get-Item -Path dist/desktop/*.msi
+          $setup = Get-Item -Path dist/desktop/*-setup.exe
+          $fromMsi = New-Item -ItemType Directory -Force -Path (Join-Path $env:RUNNER_TEMP 'msi-contents')
+          $unpack = Start-Process msiexec.exe -Wait -PassThru -NoNewWindow -ArgumentList @(
+            '/a', "`"$($msi.FullName)`"", '/qn', "TARGETDIR=`"$($fromMsi.FullName)`"")
+          if ($unpack.ExitCode -ne 0) { throw "msiexec /a exited with $($unpack.ExitCode)" }
+          $fromNsis = Join-Path $env:RUNNER_TEMP 'nsis-contents'
+          7z x $setup.FullName "-o$fromNsis" -y | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "7z exited with $LASTEXITCODE" }
+          $inside = { param($folder) Get-ChildItem -LiteralPath $folder -Recurse -Filter fxm.exe |
+            Select-Object -First 1 -ExpandProperty FullName }
+          $files = @(
+            @{ name = $msi.Name; path = $msi.FullName },
+            @{ name = $setup.Name; path = $setup.FullName },
+            @{ name = "fxm.exe in $($msi.Name)"; path = & $inside $fromMsi.FullName },
+            @{ name = "fxm.exe in $($setup.Name)"; path = & $inside $fromNsis }
+          )
           $report = foreach ($file in $files) {
-            $signature = Get-AuthenticodeSignature -LiteralPath $file.FullName
+            if (-not $file.path) { throw "$($file.name) not found" }
+            $signature = Get-AuthenticodeSignature -LiteralPath $file.path
             [pscustomobject]@{
-              file = $file.Name
+              file = $file.name
               status = "$($signature.Status)"
               signer = $signature.SignerCertificate.Thumbprint
               timestamped = $null -ne $signature.TimeStamperCertificate

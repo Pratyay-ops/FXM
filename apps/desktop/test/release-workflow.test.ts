@@ -202,8 +202,14 @@ describe('desktop-release.yml', () => {
     )
     expect(check).toMatch(/if: runner\.os == 'Windows'\n/)
     expect(check).toContain('Get-AuthenticodeSignature')
-    expect(check).toContain('apps/desktop/src-tauri/target/$env:TRIPLE/release/fxm.exe')
-    expect(check).toContain('Get-ChildItem -LiteralPath dist/desktop -File')
+    // Both installers, and the fxm.exe inside each: Tauri puts the unsigned one back in target/.
+    expect(check).toContain('Get-Item -Path dist/desktop/*.msi')
+    expect(check).toContain('Get-Item -Path dist/desktop/*-setup.exe')
+    expect(check).toContain('\'/a\', "`"$($msi.FullName)`"", \'/qn\'')
+    expect(check).toContain('7z x $setup.FullName')
+    expect(check).toContain('fxm.exe in $($msi.Name)')
+    expect(check).toContain('fxm.exe in $($setup.Name)')
+    expect(check).not.toContain('release/fxm.exe')
     expect(check).toContain('if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }')
     // After the files were collected under their release names.
     const names = steps(job(workflow, 'build')).map((step) => /name: (.+)/.exec(step)?.[1])

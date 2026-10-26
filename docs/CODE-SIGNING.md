@@ -105,7 +105,7 @@ Not an application but an order: "Open Source Code Signing in the Cloud" at <htt
 
 ## Signing in the release workflow
 
-The Windows build of `.github/workflows/desktop-release.yml` signs through Tauri's own signing: given a certificate's thumbprint, `tauri build` runs Windows' `signtool` on `fxm.exe` before it packs it, on the NSIS uninstaller while NSIS packs it, and on the NSIS installer and the MSI, with SHA-256 digests, "FXM" as the description and an RFC 3161 timestamp (`apps/desktop/release/windows-signing.ts`). Then the job reads every file's signature (`Get-AuthenticodeSignature`) and fails unless each is signed by that certificate and timestamped. The updater's signatures are made later, by the sign job, over the signed files, so the two never conflict.
+The Windows build of `.github/workflows/desktop-release.yml` signs through Tauri's own signing: given a certificate's thumbprint, `tauri build` runs Windows' `signtool` on `fxm.exe` before it packs it, on the NSIS uninstaller while NSIS packs it, and on the NSIS installer and the MSI, with SHA-256 digests, "FXM" as the description and an RFC 3161 timestamp (`apps/desktop/release/windows-signing.ts`). Then the job reads the signatures (`Get-AuthenticodeSignature`) of both installers and of the `fxm.exe` inside each, unpacked from them (Tauri signs a copy for each installer), and fails unless each is signed by that certificate and timestamped. The updater's signatures are made later, by the sign job, over the signed files, so the two never conflict.
 
 | Run | Certificate | Result |
 |---|---|---|
