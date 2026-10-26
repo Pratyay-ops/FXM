@@ -389,7 +389,8 @@ export function ImportPage() {
         <PageTitle hideOnPhone>Import music</PageTitle>
         <p className="max-w-prose text-text-muted">
           Bring your playlists, liked songs and listening history from Spotify, YouTube or a
-          playlist file. FXM finds every song for you, and keeps everything on this device.
+          playlist file. FXM looks for every song on YouTube Music, lists the ones it isn’t sure of
+          for you to check, and keeps everything on this device.
         </p>
       </div>
       {picked === null ? (
