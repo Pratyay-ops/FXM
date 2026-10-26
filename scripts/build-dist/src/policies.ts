@@ -41,9 +41,10 @@ export const INNERTUBE_HOSTS = [
  * add theirs when they ship:
  *
  * - 1.11: the BotGuard hosts, once one of its rungs is on;
- * - 3.2: Last.fm (`www.last.fm`, `ws.audioscrobbler.com`, `lastfm.freetls.fastly.net`),
- *   ListenBrainz (`api.listenbrainz.org`, `labs.api.listenbrainz.org`), Cover Art Archive
- *   (`coverartarchive.org`) and iTunes Search (`itunes.apple.com`, `*.mzstatic.com`);
+ * - 3.2's recommendation providers, once the app calls them: the hosts in the table in
+ *   packages/sources/src/recommend/README.md. It leaves out the plan's `api.listenbrainz.org`
+ *   and `lastfm.freetls.fastly.net`, which FXM doesn't contact, and adds Internet Archive's
+ *   hosts, already here, for the Cover Art Archive's redirects;
  * - 8.7: SponsorBlock (`sponsor.ajay.app`).
  *
  * Audio needs no entry: `media-src https:` covers googlevideo, Internet Archive's and Jamendo's
