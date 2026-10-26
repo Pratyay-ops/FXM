@@ -335,13 +335,16 @@ describe('ImportPage', () => {
       file('kitchen.csv', 'Title,Artist\nOne,Band\nTwo,Band', 'text/csv'),
     )
     const notice = await screen.findByRole('complementary', { name: 'Finding songs' })
-    // The app's own onboarding, and no app that isn't out yet.
+    // The app's own onboarding, the desktop app, which is out, and the Android app as coming.
     expect(within(notice).getByRole('link', { name: 'add FXM Connect' })).toHaveAttribute(
       'href',
       '/connect',
     )
     expect(notice).toHaveTextContent(
-      'The desktop and Android apps, which need no extension, are coming soon.',
+      'To let it, add FXM Connect to this browser, or use the desktop app, then resume.',
+    )
+    expect(notice).toHaveTextContent(
+      'The desktop app needs no extension: it has everything built in. The Android app is coming soon.',
     )
     expect(within(notice).queryByRole('link', { name: /desktop|Android/ })).toBeNull()
     await user.click(screen.getByRole('button', { name: 'Start import' }))
