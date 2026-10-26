@@ -23,10 +23,12 @@ name: Deploy
 #                      Chrome that the pages run under their policies and googlevideo requests
 #                      carry no Referer.
 #   release            main only: while main's version has no GitHub Release (after a release
-#                      pull request's merge, or a failed release run), waits up to 30 minutes
+#                      pull request's merge, or a failed release run), waits up to 90 minutes
 #                      for the release workflow to publish it, so the site never links to a
-#                      release that isn't out yet (scripts/release-wait.sh). A version that is
-#                      out passes after one request.
+#                      release that isn't out yet (scripts/release-wait.sh). That covers the
+#                      release's store jobs, which hold it while Firefox Add-ons signs FXM
+#                      Connect (up to 30 minutes) and while the stores environment waits for
+#                      its reviewer's approval. A version that is out passes after one request.
 #   promote            main only, once verify and release passed: the same folder to production.
 #   verify-production  main only: the header check of production.
 on:
@@ -238,7 +240,7 @@ jobs:
     name: Wait for the release
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 100
     # It only reads the releases.
     permissions:
       contents: read
@@ -247,9 +249,14 @@ jobs:
         with:
           persist-credentials: false
 
+      # The release workflow's publish job waits for its firefox job, which enters the stores
+      # environment: with AMO's keys it signs FXM Connect (10 minutes for the validator, 20 for
+      # the signature), and with a reviewer on stores it waits for the approval. Approve within
+      # this wait, or re-run this workflow's failed jobs once the release is out.
       - name: Wait for the version's GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          FXM_RELEASE_WAIT_MINUTES: '90'
         run: scripts/release-wait.sh
 
   promote:
