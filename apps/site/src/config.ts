@@ -20,6 +20,8 @@ export const THEME_COLOR = { dark: '#0b0b0f', light: '#f6f6f8' } as const
 
 export const REPO_URL = 'https://github.com/Pratyay-ops/FXM'
 export const RELEASES_URL = `${REPO_URL}/releases/latest`
+/** How to install the desktop app, and what to do when macOS or Windows warns about it. */
+export const DESKTOP_INSTALL_URL = `${REPO_URL}/blob/main/apps/desktop/INSTALL.md`
 export const ISSUES_URL = `${REPO_URL}/issues`
 export const LICENSE_URL = `${REPO_URL}/blob/main/LICENSE`
 
@@ -64,8 +66,11 @@ export const AVAILABLE: Readonly<Record<Feature, boolean>> = {
   embed: false,
   /** The Android APK on GitHub Releases: 6.6 (M5) */
   android: false,
-  /** The desktop app for macOS, Windows and Linux: 7.5 (M6) */
-  desktop: false,
+  /**
+   * The desktop app for macOS, Windows and Linux: 7.5, which builds its installers into every
+   * release from then on (apps/desktop/README.md, "Releases").
+   */
+  desktop: true,
   /**
    * FXM Connect as a Firefox add-on signed by Mozilla, the .xpi on GitHub Releases: R.2. Turn it
    * on once a release carries the signed file (apps/extension/README.md, "Store channels").
