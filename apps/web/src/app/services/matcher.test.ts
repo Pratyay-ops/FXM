@@ -9,8 +9,9 @@ import {
   type Track,
 } from '@fxm/core'
 import type { TrackMatchRequest } from '@fxm/player'
+import type { IsrcFinding } from '@fxm/sources/musicbrainz'
 import { describe, expect, it, vi } from 'vitest'
-import { createTrackMatcher, type MatcherSearches } from './matcher'
+import { createTrackMatcher, type MatcherSearches, matchDetails } from './matcher'
 
 const ISRC = 'GBAYE9200070'
 
@@ -279,5 +280,117 @@ describe('the release facts', () => {
 
     expect(getDescription).toHaveBeenCalled()
     expect(getDescription.mock.calls[0]?.[0]).toMatch(/^ytm:track:/)
+  })
+})
+
+describe('matchDetails, what the engine reads about a Spotify track', () => {
+  /** Spotify's answer for SPOTIFY, as `getTrackDetails` gives it. */
+  const DETAILS = {
+    label: 'XL Recordings',
+    releaseDate: '1993-02-22',
+    albumType: 'album' as const,
+  }
+  const FINDING: IsrcFinding = {
+    origin: 'musicbrainz-exact',
+    isrc: ISRC,
+    isrcs: [ISRC],
+    recording: {
+      id: 'mbid-creep',
+      title: 'Creep',
+      lengthMs: 238_000,
+      video: false,
+      credits: [],
+      artists: ['Radiohead'],
+      isrcs: [ISRC],
+    },
+  }
+
+  function setUp(answers: { spotify?: object | 'off' | Error; exact?: object | null | Error }) {
+    const getTrackDetails = vi.fn(async () => {
+      if (answers.spotify instanceof Error) throw answers.spotify
+      return answers.spotify as object
+    })
+    const spotify = { isAvailable: vi.fn(() => true), getTrackDetails }
+    const exactIsrc = vi.fn(async () => {
+      if (answers.exact instanceof Error) throw answers.exact
+      return (answers.exact ?? null) as IsrcFinding | null
+    })
+    const report = vi.fn()
+    const details = matchDetails({
+      spotify: async () => (answers.spotify === 'off' ? undefined : spotify),
+      exactIsrc,
+      report,
+    })
+    return { details, getTrackDetails, exactIsrc, report }
+  }
+
+  it("reads nothing for other sources' tracks", async () => {
+    const { details, getTrackDetails, exactIsrc } = setUp({ spotify: DETAILS })
+
+    await expect(details(RIGHT, request())).resolves.toBeUndefined()
+    expect(getTrackDetails).not.toHaveBeenCalled()
+    expect(exactIsrc).not.toHaveBeenCalled()
+  })
+
+  it("takes Spotify's details as they are when they have an ISRC", async () => {
+    const { details, exactIsrc } = setUp({ spotify: { ...DETAILS, isrc: ISRC } })
+
+    await expect(details(SPOTIFY, request())).resolves.toEqual({ ...DETAILS, isrc: ISRC })
+    expect(exactIsrc).not.toHaveBeenCalled()
+  })
+
+  it("adds MusicBrainz's exact ISRC to Spotify's details when Spotify has none", async () => {
+    const { details } = setUp({ spotify: DETAILS, exact: FINDING })
+
+    await expect(details(SPOTIFY, request())).resolves.toEqual({
+      ...DETAILS,
+      isrc: ISRC,
+      isrcOrigin: 'musicbrainz-exact',
+    })
+  })
+
+  it("asks MusicBrainz alone where Spotify can't be asked, with the recording's length", async () => {
+    const { details, getTrackDetails } = setUp({ spotify: 'off', exact: FINDING })
+    const { durationMs: _durationMs, ...withoutDuration } = SPOTIFY
+
+    await expect(details(withoutDuration, request())).resolves.toEqual({
+      isrc: ISRC,
+      isrcOrigin: 'musicbrainz-exact',
+      durationMs: 238_000,
+    })
+    expect(getTrackDetails).not.toHaveBeenCalled()
+  })
+
+  it('asks no one for an ISRC the track has', async () => {
+    const { details, exactIsrc } = setUp({ spotify: 'off', exact: FINDING })
+
+    await expect(details({ ...SPOTIFY, isrc: ISRC }, request())).resolves.toBeUndefined()
+    expect(exactIsrc).not.toHaveBeenCalled()
+  })
+
+  it('goes on to MusicBrainz when Spotify fails, and reports why', async () => {
+    const failure = new FxmError('BotCheck', 'Spotify wants a check')
+    const { details, report } = setUp({ spotify: failure, exact: FINDING })
+
+    await expect(details(SPOTIFY, request())).resolves.toMatchObject({ isrc: ISRC })
+    expect(report).toHaveBeenCalledWith(failure)
+  })
+
+  it("keeps Spotify's details when MusicBrainz fails or finds nothing", async () => {
+    const failed = setUp({ spotify: DETAILS, exact: new FxmError('Network', 'offline') })
+    const none = setUp({ spotify: 'off', exact: null })
+
+    await expect(failed.details(SPOTIFY, request())).resolves.toEqual(DETAILS)
+    await expect(none.details(SPOTIFY, request())).resolves.toBeUndefined()
+  })
+
+  it('stops when the caller cancels', async () => {
+    const controller = new AbortController()
+    controller.abort(new DOMException('Cancelled', 'AbortError'))
+    const { details } = setUp({ spotify: new FxmError('Network', 'cut off') })
+
+    await expect(details(SPOTIFY, request({ signal: controller.signal }))).rejects.toMatchObject({
+      name: 'AbortError',
+    })
   })
 })

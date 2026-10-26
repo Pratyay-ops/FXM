@@ -221,6 +221,8 @@ export function SearchPage() {
   const typed = useDebouncedValue(query, searchTiming.suggestionsDelayMs, initial)
   const searched = useDebouncedValue(query, searchTiming.resultsDelayMs, initial)
   const { source, availability } = useSearchSource()
+  // While FXM Connect is still answering, the install pitch would most likely be wrong.
+  const { detecting = false } = useSourcesSnapshot()
 
   return (
     // Phones: tight spacing, as the rows of controls carry their own padding (room for focus
@@ -234,7 +236,7 @@ export function SearchPage() {
         <SearchResults query={query} typed={typed} searched={searched} />
       ) : (
         <div className="space-y-6 pt-2 sm:pt-0">
-          {availability.status === 'needs-youtube' && (
+          {availability.status === 'needs-youtube' && !detecting && (
             <OnboardingBanner name={sourceLabel(source)} />
           )}
           <BrowseAll />

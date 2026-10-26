@@ -44,6 +44,8 @@ import {
   videoSongsQuery,
 } from '@fxm/core'
 import type { MatchOutcome, TrackMatcher, TrackMatchRequest } from '@fxm/player'
+import type { IsrcFinding } from '@fxm/sources/musicbrainz'
+import type { SpotifyProvider } from '@fxm/sources/spotify'
 import type { YouTubeMusicProvider } from '@fxm/sources/youtube'
 
 /** The searches the engine's pages come from. */
@@ -150,6 +152,64 @@ function rankLossless(candidates: readonly AudioCandidate[]): AudioCandidate[] {
         a.index - b.index,
     )
     .map(({ candidate }) => candidate)
+}
+
+/** Where {@link matchDetails} reads a Spotify track's details from. */
+export interface MatchDetailsOptions {
+  /**
+   * Spotify, when it may be asked for this call (switched on, reachable, its secret fetchable
+   * here), else `undefined`, so that its code isn't even downloaded.
+   */
+  readonly spotify: (
+    ctx: ProviderContext,
+  ) => Promise<Pick<SpotifyProvider, 'isAvailable' | 'getTrackDetails'> | undefined>
+  /** MusicBrainz's exact path (`findExactIsrc`): the one recording it links to the track. */
+  readonly exactIsrc: (track: Track, request: TrackMatchRequest) => Promise<IsrcFinding | null>
+  /** Hears Spotify's errors, e.g. `FxmPlatform.report`. */
+  readonly report?: (error: unknown) => void
+}
+
+/**
+ * The {@link TrackMatcherOptions.details} of a Spotify track (nothing for other sources' tracks):
+ *
+ * - Spotify's ISRC, label, release date and album type, where Spotify may be asked;
+ * - when neither Spotify nor the track has an ISRC, MusicBrainz's exact path, an ISRC-verified
+ *   input, merged with what Spotify did say: its label and date still help the engine.
+ *
+ * A failure of either leaves the match to the track's own fields; only the caller's
+ * cancellation is rethrown.
+ */
+export function matchDetails(
+  options: MatchDetailsOptions,
+): (track: Track, request: TrackMatchRequest) => Promise<Partial<MatchSource> | undefined> {
+  return async (track, request) => {
+    if (track.source !== 'spotify') return undefined
+    const { ctx } = request
+    let found: Partial<MatchSource> | undefined
+    try {
+      const spotify = await options.spotify(ctx)
+      if (spotify?.isAvailable(ctx)) found = await spotify.getTrackDetails(track.id, ctx)
+    } catch (error) {
+      rethrowAbort(ctx, error)
+      options.report?.(error)
+    }
+    if (track.isrc !== undefined || found?.isrc !== undefined) return found
+    let exact: IsrcFinding | null
+    try {
+      exact = await options.exactIsrc(track, request)
+    } catch (error) {
+      rethrowAbort(ctx, error)
+      return found
+    }
+    const lengthMs = exact?.recording.lengthMs
+    const durationMs = track.durationMs ?? found?.durationMs
+    const merged: Partial<MatchSource> = {
+      ...found,
+      ...(exact?.isrc === undefined ? {} : { isrc: exact.isrc, isrcOrigin: exact.origin }),
+      ...(durationMs === undefined && lengthMs !== undefined ? { durationMs: lengthMs } : {}),
+    }
+    return Object.keys(merged).length === 0 ? undefined : merged
+  }
 }
 
 /** Creates the app's {@link TrackMatcher}: see the module documentation. */

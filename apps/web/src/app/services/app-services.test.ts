@@ -1,5 +1,6 @@
 import {
   type AudioCandidate,
+  type CatalogMode,
   type FxmError,
   formatId,
   isFxmError,
@@ -12,11 +13,18 @@ import { createStaticNetworkMonitor, Player } from '@fxm/player'
 import { FakeEngine } from '@fxm/player/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createMediaActionsStore } from '../../features/search/actions'
-import { createSources, sourceAvailability } from '../../features/search/sources'
+import {
+  createSources,
+  type SourcesSnapshot,
+  searchSourceIds,
+  sourceAvailability,
+} from '../../features/search/sources'
 import { createAppServices } from './app-services'
 import { createMemoryStore, RUNG_HEALTH_KEY, VISITOR_DATA_KEY } from './device-store'
+import type { LibraryMatchDecision, LibraryRepository } from './library'
 import { FAKE_VISITOR_DATA } from './testing/fake-network'
-import { servicesOnTier, type TierServices } from './testing/tiers'
+import { servicesOnTier, type TierServices, untilSources } from './testing/tiers'
+import type { YouTubeModule } from './youtube'
 
 let setups: TierServices[] = []
 
@@ -38,9 +46,14 @@ function provider(setup: TierServices, id: SourceId): MetadataProvider {
 }
 
 /** A player on a fake engine, connected to the services as the app's is. */
-function playerFor(setup: TierServices) {
+function playerFor(setup: TierServices, mode: CatalogMode = 'music') {
   const engine = new FakeEngine()
-  const player = new Player({ engine, resolver: setup.services.resolver, retryDelaysMs: [0] })
+  const player = new Player({
+    engine,
+    resolver: setup.services.resolver,
+    retryDelaysMs: [0],
+    queue: { mode },
+  })
   const disconnect = setup.services.connectPlayer(player)
   return { engine, player, disconnect }
 }
@@ -99,6 +112,20 @@ const SPOTIFY_CREEP: Track = {
   kind: 'song',
 }
 
+/** A YouTube video that isn't a catalog song: Music + Video mode plays it as music. */
+const CREEP_VIDEO: Track = {
+  id: formatId('ytm', 'track', 'XFkzRNyygfk'),
+  source: 'ytm',
+  title: 'Radiohead - Creep (live)',
+  artists: [{ name: 'Radiohead' }],
+  durationMs: 241_000,
+  artwork: [],
+  kind: 'video',
+}
+
+/** A user-host document that answers every request with a 404, like a secret that moved. */
+const missingSecret = () => new Response('{}', { status: 404 })
+
 describe('the Full tier (FXM Connect)', () => {
   it('searches YouTube Music, plays a song and then the next one', async () => {
     const setup = setUp('full')
@@ -145,10 +172,23 @@ describe('the Full tier (FXM Connect)', () => {
     expect(JSON.stringify(await setup.store.get(RUNG_HEALTH_KEY))).toContain('visionos')
   })
 
-  it('offers Spotify while its switch is on, and not once it is off', async () => {
+  it("doesn't offer Spotify in a browser without the sandbox's user-host document", async () => {
     const setup = setUp('full')
     await setup.ready()
-    expect(sourceAvailability(setup.sources.getSnapshot(), 'spotify').status).toBe('available')
+    const snapshot = setup.sources.getSnapshot()
+
+    // FXM Connect reaches Spotify, but its anonymous token needs the TOTP secret, whose hosts
+    // only the user-host document of stage 1.10 reaches: every call would fail at once. So the
+    // search page has no Spotify chip, and a Spotify link says this version can't read it.
+    expect(snapshot.capabilities.spotify).toBe('anonymous')
+    expect(searchSourceIds(snapshot)).toEqual(['ytm', 'archive'])
+    expect(sourceAvailability(snapshot, 'spotify').status).toBe('missing')
+  })
+
+  it('offers Spotify with the user-host document, while its switch is on', async () => {
+    const setup = setUp('full', { userHost: missingSecret })
+    await setup.ready()
+    expect(searchSourceIds(setup.sources.getSnapshot())).toEqual(['ytm', 'spotify', 'archive'])
 
     setup.sources.setSpotifyEnabled(false)
 
@@ -156,7 +196,7 @@ describe('the Full tier (FXM Connect)', () => {
   })
 
   it("asks for Spotify's secret through the sandbox's user-host document (stage 1.10)", async () => {
-    const setup = setUp('full', { userHost: () => new Response('{}', { status: 404 }) })
+    const setup = setUp('full', { userHost: missingSecret })
     await setup.ready()
 
     await provider(setup, 'spotify')
@@ -166,22 +206,6 @@ describe('the Full tier (FXM Connect)', () => {
     const hosts = setup.sandbox?.userHostRequests.map((request) => new URL(request.url).host)
     expect(hosts).toContain('raw.githubusercontent.com')
     expect(setup.network.requests.filter((request) => request.url.includes('github'))).toEqual([])
-  })
-
-  it('fails Spotify at once without the sandbox documents, before any request', async () => {
-    const setup = setUp('full')
-    await setup.ready()
-
-    const search = provider(setup, 'spotify').search(
-      'creep',
-      { types: ['track'] },
-      setup.sources.context({ mode: 'music' }),
-    )
-
-    await expect(search).rejects.toMatchObject({ reason: 'secret-unavailable' })
-    expect(setup.network.requests.filter((request) => /spotify|github/u.test(request.url))).toEqual(
-      [],
-    )
   })
 
   it('plays a Spotify track as its matched song after a tap, and marks it for review', async () => {
@@ -207,6 +231,43 @@ describe('the Full tier (FXM Connect)', () => {
       new AbortController().signal,
     )
     expect(alternatives[0]?.ref).toBe(played)
+    // Spotify can't be read here, so MusicBrainz's exact path was asked for the ISRC instead.
+    expect(setup.network.requests.some((request) => request.url.includes('musicbrainz'))).toBe(true)
+  })
+
+  it("asks Spotify about a track's ISRC only while its switch is on", async () => {
+    const on = setUp('full', { userHost: missingSecret })
+    const off = setUp('full', { userHost: missingSecret, spotifyEnabled: false })
+    for (const setup of [on, off]) {
+      await setup.ready()
+      const { engine } = playerFor(setup)
+      play(setup, [SPOTIFY_CREEP])
+      await until(() => engine.loadedUrls.length === 1, 'the matched song')
+    }
+
+    // Asking Spotify starts with its secret, through the user-host document. Switched off,
+    // Spotify's code isn't even loaded, so its secret's hosts never reach the platform.
+    expect(on.sandbox?.userHostRequests).not.toEqual([])
+    expect(off.sandbox?.userHostRequests).toEqual([])
+    expect(off.platformOptions()?.userHosts?.()).toEqual([])
+  })
+
+  it('plays a video as music in Music + Video mode, and hides it in Music mode', async () => {
+    const all = setUp('full', { mode: 'all' })
+    await all.ready()
+    const { engine } = playerFor(all, 'all')
+
+    play(all, [CREEP_VIDEO])
+
+    await until(() => engine.loadedUrls.length === 1, 'the video')
+    expect(new URL(engine.loadedUrls[0] ?? '').searchParams.get('id')).toBe(videoId(CREEP_VIDEO))
+    expect(all.network.players).toEqual([videoId(CREEP_VIDEO)])
+
+    const music = setUp('full')
+    await music.ready()
+    const { player } = playerFor(music)
+    play(music, [CREEP_VIDEO])
+    expect(player.getState().queue.items).toEqual([])
   })
 
   it('takes the play buttons away again when the player disconnects', async () => {
@@ -218,6 +279,64 @@ describe('the Full tier (FXM Connect)', () => {
     disconnect()
 
     expect(setup.actions.get().playback).toBeUndefined()
+  })
+
+  it('leaves the play buttons to a player connected later', async () => {
+    const setup = setUp('full')
+    await setup.ready()
+    const first = playerFor(setup)
+    playerFor(setup)
+    const playback = setup.actions.get().playback
+
+    // Stage 2.5's player taking over from an earlier one, say.
+    first.disconnect()
+
+    expect(setup.actions.get().playback).toBe(playback)
+    expect(playback).toBeDefined()
+  })
+})
+
+describe('detecting FXM Connect', () => {
+  it('says the tier is known as soon as FXM Connect answers', async () => {
+    const setup = setUp('full')
+    expect(setup.sources.getSnapshot().detecting).toBe(true)
+
+    await setup.ready()
+
+    expect(setup.sources.getSnapshot()).toMatchObject({
+      detecting: false,
+      capabilities: { youtube: 'full' },
+    })
+  })
+
+  it('waits for an answer that comes after the platform stopped waiting', async () => {
+    const setup = setUp('full', { connect: { answerPings: false } })
+    const seen: SourcesSnapshot[] = []
+    setup.sources.subscribe(() => seen.push(setup.sources.getSnapshot()))
+
+    // A service worker that wakes up slowly: no answer within the platform's 800 ms.
+    await setup.ready()
+    expect(setup.sources.getSnapshot()).toMatchObject({
+      detecting: true,
+      capabilities: { youtube: 'none' },
+    })
+    setup.connect?.update({ answerPings: true, version: '0.1.1' })
+
+    await untilSources(setup.sources, (snapshot) => snapshot.detecting === false)
+    expect(setup.sources.getSnapshot().capabilities.youtube).toBe('full')
+    // The pages never saw the Free tier as settled meanwhile, so they never offered the install.
+    expect(
+      seen.filter((snapshot) => !snapshot.detecting && snapshot.capabilities.youtube === 'none'),
+    ).toEqual([])
+  })
+
+  it("doesn't wait without FXM Connect's marker", async () => {
+    const setup = setUp('free')
+    expect(setup.sources.getSnapshot().detecting).toBe(false)
+
+    await setup.ready()
+
+    expect(setup.sources.getSnapshot().detecting).toBe(false)
   })
 })
 
@@ -247,6 +366,30 @@ describe('the Lite tier (the sandbox documents of stage 1.10)', () => {
     expect(new URL(engine.loadedUrls[1] ?? '').searchParams.get('id')).toBe(videoId(songs[1]))
   })
 
+  it('creates the platform at once, and runs the self-test once the kill switch is known', async () => {
+    let release: () => void = () => {}
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const setup = setUp('lite', {
+      importYouTube: async (): Promise<YouTubeModule> => {
+        await held
+        return import('@fxm/sources/youtube')
+      },
+    })
+
+    // The YouTube config, which holds the Lite kill switch, hasn't loaded: the platform runs
+    // anyway, with the Lite tier switched off and no request sent to YouTube.
+    const platform = await setup.services.start()
+    expect(platform?.lite?.state).toBe('killed')
+    expect(setup.sandbox?.selfTests).toBe(0)
+
+    release()
+
+    await untilSources(setup.sources, (snapshot) => snapshot.capabilities.youtube === 'simple')
+    expect(setup.sandbox?.selfTests).toBe(1)
+  })
+
   it('tells the ladder which rung started playing', async () => {
     const setup = setUp('lite')
     await setup.ready()
@@ -260,6 +403,29 @@ describe('the Lite tier (the sandbox documents of stage 1.10)', () => {
     const health = await youtube.audio.health(ctx)
     expect(health.scope).toBe('web/simple')
     expect(health.lastWorking).toBe('visionos')
+  })
+
+  it('counts a rung as working only once the engine says it plays', async () => {
+    const setup = setUp('lite')
+    await setup.ready()
+    const youtube = await setup.services.youtube.load()
+    const reported = vi.spyOn(youtube.audio, 'reportPlaybackSuccess')
+    const { engine, player } = playerFor(setup)
+    engine.startOnPlay = false
+    play(setup, (await searchSongs(setup)).slice(0, 1))
+    await until(() => engine.count('play') === 1, 'the first play')
+    // Paused before a byte played, e.g. while the stream resolved.
+    player.pause()
+
+    // Playing again says `playing` (with `buffering`) at once, before the engine played a byte.
+    await player.play()
+    expect(player.getState()).toMatchObject({ status: 'playing', buffering: true })
+    expect(reported).not.toHaveBeenCalled()
+
+    engine.emit('play', undefined)
+
+    expect(reported).toHaveBeenCalledOnce()
+    expect(reported.mock.calls[0]?.[0]).toBe(player.getState().stream)
   })
 
   it("can't reach Spotify", async () => {
@@ -319,10 +485,68 @@ describe('the Free tier (no FXM Connect, no Lite)', () => {
   })
 })
 
+/** A library like stage 2.6's repository, as far as the services use it. */
+function fakeLibrary() {
+  const decisions = new Map<string, LibraryMatchDecision>()
+  const library = {
+    getPlaylistList: vi.fn(async () => ({
+      items: [
+        {
+          id: formatId('local', 'playlist', 'liked'),
+          origin: 'local' as const,
+          system: 'liked' as const,
+          name: 'Liked songs',
+        },
+        { id: formatId('local', 'playlist', 'road-trip'), origin: 'local' as const, name: 'Road' },
+      ],
+    })),
+    addTracks: vi.fn(async () => ({ added: 1 })),
+    createPlaylist: vi.fn(async () => formatId('local', 'playlist', 'new')),
+    getMatch: vi.fn(async (id: string, mode: CatalogMode) => {
+      const decision = decisions.get(`${id}|${mode}`)
+      return decision && { ...decision, userPinned: false, decidedAt: 1 }
+    }),
+    recordMatch: vi.fn(async (decision: LibraryMatchDecision) => {
+      decisions.set(`${decision.sourceTrackId}|${decision.mode}`, decision)
+      return true
+    }),
+    pinMatch: vi.fn(async () => {}),
+    unpinMatch: vi.fn(async () => {}),
+    forgetMatch: vi.fn(async () => true),
+  } satisfies LibraryRepository
+  return library
+}
+
+describe('the library (stage 2.6)', () => {
+  it('offers its playlists on the catalog pages, and keeps the matches the engine found', async () => {
+    const library = fakeLibrary()
+    const setup = setUp('full', { library })
+    expect(setup.actions.get().library).toBeUndefined()
+
+    await setup.ready()
+
+    const playlists = await setup.actions.get().library?.playlists()
+    expect(playlists?.map((playlist) => playlist.name)).toEqual(['Liked songs', 'Road'])
+    const { engine } = playerFor(setup)
+    play(setup, [SPOTIFY_CREEP])
+    await until(() => engine.loadedUrls.length === 1, 'the matched song')
+    const played = new URL(engine.loadedUrls[0] ?? '').searchParams.get('id')
+    await until(() => library.recordMatch.mock.calls.length > 0, 'the decision')
+    expect(library.recordMatch).toHaveBeenCalledWith(
+      expect.objectContaining({ sourceTrackId: SPOTIFY_CREEP.id, mode: 'music' }),
+    )
+    const stored = (await library.getMatch(SPOTIFY_CREEP.id, 'music')) as
+      | { candidate?: AudioCandidate }
+      | undefined
+    expect(stored?.candidate?.ref).toBe(played)
+  })
+})
+
 describe('the platform', () => {
   it('is created with the options the services need', async () => {
     const created: PlatformOptions[] = []
     const sources = createSources()
+    sources.setDetecting(true)
     const services = createAppServices({
       createPlatform: async (options) => {
         created.push(options)
@@ -337,8 +561,9 @@ describe('the platform', () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
 
     // A platform that fails to start leaves the app in the Free tier's stand-in, with its
-    // sources listed, rather than with no app at all.
+    // sources listed, rather than with no app at all, and nothing left to detect.
     await expect(services.start()).resolves.toBeUndefined()
+    expect(sources.getSnapshot().detecting).toBe(false)
     services.dispose()
 
     const [options] = created
@@ -348,5 +573,17 @@ describe('the platform', () => {
     expect(options?.killSwitches).toBeDefined()
     expect(typeof options?.userHosts).toBe('function')
     expect(error).toHaveBeenCalledOnce()
+  })
+
+  it('asks YouTube with the same language and region for search and playback', async () => {
+    const setup = setUp('full')
+    await setup.ready()
+
+    const forPages = setup.sources.context({ mode: 'music' })
+    const forPlayback = setup.services.context({ priority: 'current-track' })
+
+    // Neither: YouTube's defaults, and the region of the IP address that streams play from.
+    expect([forPages.locale, forPages.region]).toEqual([undefined, undefined])
+    expect([forPlayback.locale, forPlayback.region]).toEqual([undefined, undefined])
   })
 })

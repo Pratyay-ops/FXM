@@ -1,10 +1,12 @@
 /**
  * The app's composition root (stage 2.9): see `README.md` in this folder and
- * `app-services.ts`. `main.tsx` calls {@link startAppServices} once, before the first render.
+ * `app-services.ts`. `main.tsx` loads this module beside the first render and calls
+ * {@link startAppServices}.
  *
  * @module
  */
 
+import { appSources } from '../../features/search/sources-context'
 import { type AppServices, createAppServices } from './app-services'
 import { createInterimPlayer, type InterimPlayer } from './player'
 
@@ -35,24 +37,50 @@ async function devFakesOn(): Promise<boolean> {
   return readFakeTier() !== undefined
 }
 
+let starting: Promise<void> | undefined
 let interim: InterimPlayer | undefined
+let disconnect: (() => void) | undefined
 
-/**
- * Wires the real platform, providers and player into the app. Resolves once the platform is
- * ready, which takes as long as FXM Connect's answer (a few milliseconds, at most 800), so the
- * first render already shows the right tier. Never rejects.
- */
-export async function startAppServices(): Promise<void> {
+async function start(): Promise<void> {
   try {
-    if (await devFakesOn()) return
-    const app = getAppServices()
-    await app.start()
-    // The app's player until stage 2.5's lands (see player.ts).
-    if (interim === undefined) {
-      interim = createInterimPlayer({ resolver: app.resolver })
-      app.connectPlayer(interim.player)
+    if (await devFakesOn()) {
+      // The fake catalog sets a tier of its own: nothing is detected.
+      appSources.setDetecting(false)
+      return
     }
+    const app = getAppServices()
+    // The player first: its resolver waits for the platform itself, so the play buttons work
+    // while FXM Connect answers. It is the app's player until stage 2.5's lands (player.ts).
+    interim = createInterimPlayer({ resolver: app.resolver })
+    disconnect = app.connectPlayer(interim.player)
+    await app.start()
   } catch (error) {
     console.error('FXM: could not start the music services', error)
+    appSources.setDetecting(false)
   }
+}
+
+/**
+ * Wires the real platform, providers and player into the app, once however often it is called.
+ * Resolves once the platform is ready, which takes as long as FXM Connect's answer (a few
+ * milliseconds, at most 800). Never rejects.
+ */
+export function startAppServices(): Promise<void> {
+  starting ??= start()
+  return starting
+}
+
+/**
+ * Takes the app's services down again (the player, the platform's watchers, the registrations),
+ * so that the next {@link startAppServices} starts afresh. For tests: the app keeps its services
+ * for the page's life.
+ */
+export function stopAppServices(): void {
+  disconnect?.()
+  interim?.dispose()
+  services?.dispose()
+  disconnect = undefined
+  interim = undefined
+  services = undefined
+  starting = undefined
 }

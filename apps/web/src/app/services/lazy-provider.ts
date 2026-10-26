@@ -1,9 +1,9 @@
 /**
  * Metadata providers that load their code on first use. The YouTube providers carry youtubei.js
- * (about 193 KB gzipped), and Spotify only matters with FXM Connect, so neither belongs in the
- * app's first bundle. The sources registry (stage 2.4) still needs a provider object at once, to
- * list the source and its features: {@link lazyProvider} is one, and loads the real provider
- * the first time a page calls it.
+ * (about 165 KB gzipped, the providers another 25 KB), and Spotify only matters where its secret
+ * can be fetched, so neither belongs in the app's first bundle. The sources registry (stage 2.4)
+ * still needs a provider object at once, to list the source and its features: {@link lazyProvider}
+ * is one, and loads the real provider the first time a page calls it.
  *
  * @module
  */
@@ -11,12 +11,13 @@
 import {
   type EntityId,
   FxmError,
-  isFxmError,
   type MetadataProvider,
   type PageOptions,
   type ProviderContext,
   type SourceId,
 } from '@fxm/core'
+import { AppUpdatedError } from '../../lib/app-update'
+import { isChunkLoadError } from '../errors'
 
 /** Loads a module once, and again after a failure (a chunk that did not download, say). */
 export interface Loader<T> {
@@ -26,14 +27,62 @@ export interface Loader<T> {
   readonly current: T | undefined
 }
 
+/** Whether the browser says it is offline. Without a `navigator`, it counts as online. */
+function isOffline(): boolean {
+  return typeof navigator !== 'undefined' && navigator.onLine === false
+}
+
 /**
- * A {@link Loader} over `load`. Concurrent calls share one load. A load that fails is forgotten,
- * so the next call tries again, and its error becomes a `Network` `FxmError`: offline, a code
- * chunk can't download, and the pages offer "Try again" for network errors.
+ * What a failed `import()` becomes:
+ *
+ * - offline, a `Network` `FxmError`: the pages say "Couldn't reach …" and offer "Try again";
+ * - online, a code file that did not download is an `AppUpdatedError`: the build names its
+ *   files after their content, so a file that is gone means a new version replaced it, and only
+ *   a reload helps (a tab opened before a deploy, say);
+ * - anything else, e.g. a module whose own code threw, is a bug: it is logged and passes on.
  */
-export function createLoader<T>(what: string, load: () => Promise<T>): Loader<T> {
+function importError(what: string, cause: unknown): unknown {
+  if (isOffline()) return new FxmError('Network', `Could not load ${what}: offline`, { cause })
+  if (isChunkLoadError(cause)) {
+    return new AppUpdatedError(`Could not load ${what}: FXM was most likely updated`, { cause })
+  }
+  console.error(`FXM: could not load ${what}`, cause)
+  return cause
+}
+
+/**
+ * A {@link Loader} that imports a module with `importModule` and builds the value from it with
+ * `build`. Concurrent calls share one load. A load that fails is forgotten, so the next call
+ * tries again. The two halves fail differently:
+ *
+ * - **the import** is a download, whose failure says what helps (see `importError`): the
+ *   connection back, or a reload after an update;
+ * - **building** runs FXM's own code, whose errors pass on as they are and are logged, so a bug
+ *   shows as one, not as a network problem with a "Try again" that can never work.
+ */
+export function createLoader<M, T>(
+  what: string,
+  importModule: () => Promise<M>,
+  build: (module: M) => T | Promise<T>,
+): Loader<T> {
   let current: T | undefined
   let pending: Promise<T> | undefined
+
+  async function load(): Promise<T> {
+    let module: M
+    try {
+      module = await importModule()
+    } catch (cause) {
+      throw importError(what, cause)
+    }
+    try {
+      return await build(module)
+    } catch (error) {
+      console.error(`FXM: could not set up ${what}`, error)
+      throw error
+    }
+  }
+
   return {
     get current() {
       return current
@@ -46,11 +95,9 @@ export function createLoader<T>(what: string, load: () => Promise<T>): Loader<T>
           pending = undefined
           return value
         },
-        (cause: unknown) => {
+        (error: unknown) => {
           pending = undefined
-          throw isFxmError(cause)
-            ? cause
-            : new FxmError('Network', `Could not load ${what}`, { cause })
+          throw error
         },
       )
       return pending

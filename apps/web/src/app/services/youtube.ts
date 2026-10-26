@@ -4,7 +4,8 @@
  * source the playback policy's `ytm` stream source (stage 2.3).
  *
  * - **Lazy.** `@fxm/sources/youtube` is imported the first time a page or the player needs it
- *   (youtubei.js alone is about 193 KB gzipped), so it never weighs on the app's first bundle.
+ *   (its providers about 25 KB gzipped), and the session imports youtubei.js (about 165 KB) on
+ *   its first InnerTube call, so neither weighs on the app's first bundle.
  * - **One session.** The providers and the audio source share one session, so the device keeps
  *   one server-issued visitorData, persisted in IndexedDB (`device-store.ts`) so it survives
  *   reloads. The rung health is kept there too.
@@ -63,8 +64,7 @@ export interface YouTubeLoaderOptions {
 /** Creates the loader of {@link YouTube}: nothing is imported until the first `load()`. */
 export function createYouTubeLoader(options: YouTubeLoaderOptions): Loader<YouTube> {
   const importModule = options.importModule ?? (() => import('@fxm/sources/youtube'))
-  return createLoader('YouTube Music', async () => {
-    const module = await importModule()
+  return createLoader('YouTube Music', importModule, (module) => {
     const { session, music, video } = module.createYouTubeProviders({
       visitorDataStore: visitorDataStore(options.store),
     })
