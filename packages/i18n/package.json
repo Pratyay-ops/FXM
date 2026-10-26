@@ -10,6 +10,7 @@
     ".": "./src/index.ts",
     "./react": "./src/react.ts",
     "./pseudo": "./src/pseudo.ts",
+    "./check": "./src/check.ts",
     "./testing": "./src/testing.ts"
   },
   "scripts": {
