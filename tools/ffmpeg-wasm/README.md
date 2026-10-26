@@ -69,7 +69,7 @@ At run time the worker refuses the core unless the wasm matches the manifest's S
 
 ## CI and the deploy
 
-`.github/workflows/ffmpeg-wasm.yml` builds, checks and tests the core, cached by the recipe's hash, so it only builds when the recipe changes. `deploy.yml` calls it on every push and hands the core to `make dist`, which ships it at `/app/ffmpeg/` with its entry in `third-party-notices.txt` and fails without it in CI. Locally, `make dist` ships the core when one is built and otherwise composes a site that can't convert, and says so (scripts/build-dist/README.md). `make check` never builds or needs it: the code that uses the core is tested against a fake, and the real core only in `make ffmpeg-wasm-test` and CI.
+`.github/workflows/ffmpeg-wasm.yml` builds, checks and tests the core, cached by the recipe's hash, so it only builds when the recipe changes. `deploy.yml` calls it on every push and hands the core to `make dist`, which ships it at `/app/ffmpeg/` with its entry in `third-party-notices.txt` and fails without it in CI. A release's web zip (`fxm-web-<version>.zip`, which is `make dist`'s folder) has it too: `release.yml` builds and tests the core in its bundles job, from scratch and without caches like everything a release ships, before `scripts/release-build.sh`. Locally, `make dist` ships the core when one is built and otherwise composes a site that can't convert, and says so (scripts/build-dist/README.md). `make check` never builds or needs it: the code that uses the core is tested against a fake, and the real core only in `make ffmpeg-wasm-test` and CI.
 
 `make dev` and `vite preview` serve the local build at the app's `ffmpeg/` path (`dev-server.ts`), so Save to device converts there too.
 

@@ -10,7 +10,7 @@
  *
  * Building the core takes minutes, so `make check` never does: CI's ffmpeg-wasm job builds it
  * (cached by the recipe's hash) and hands it to `make dist`, and `make ffmpeg-wasm` builds it
- * locally. A dist composed without it (locally, outside CI) converts nothing and says so; in CI,
+ * locally and for releases. A dist composed without it (locally, outside CI) converts nothing and says so; in CI,
  * or with FXM_REQUIRE_FFMPEG_CORE=1, it fails instead.
  */
 import { copyFileSync, mkdirSync } from 'node:fs'

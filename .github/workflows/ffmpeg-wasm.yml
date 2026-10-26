@@ -2,7 +2,8 @@ name: ffmpeg core
 
 # Builds FXM's LGPL, audio-only ffmpeg core for WebAssembly (stage 4.2, tools/ffmpeg-wasm),
 # checks it and hands it on: deploy.yml calls this workflow on every push and ships the core
-# with the app (make dist puts it at /app/ffmpeg/).
+# with the app (make dist puts it at /app/ffmpeg/). release.yml builds its own, without caches,
+# as it builds everything a release ships.
 #
 # The checks fail the job when the WebAssembly file is 25 MiB or larger (Cloudflare Pages'
 # limit per file), when FFmpeg's configure reported a licence other than LGPL, or when the
