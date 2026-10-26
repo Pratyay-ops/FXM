@@ -6,6 +6,7 @@
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative } from 'node:path'
+import { APP_HEADERS, headersRevision } from '../../../apps/web/pwa/host.ts'
 import { serializePolicy, sha256Source } from './csp.ts'
 import type { InventoryEntry } from './licenses.ts'
 import type { Part } from './parts.ts'
@@ -158,6 +159,12 @@ export function fakeSitePart(root: string, options: { privacy?: string } = {}): 
 
 export const APP_THEME_SCRIPT = "document.documentElement.dataset.theme = 'dark'"
 
+/**
+ * A service worker as the web app's build writes it (5.1): its precache revision of the page ends
+ * in the stand-in rule's, which make dist replaces (src/service-worker.ts).
+ */
+export const FAKE_SERVICE_WORKER = `self.precache([{url:"index.html",revision:"0123456789abcdef0123456789abcdef-${headersRevision(APP_HEADERS)}"},{url:"assets/index.js",revision:null}])\n`
+
 /** A single-page app (the web app, or the embed) bundling the given packages. */
 export function fakeAppPart(
   root: string,
@@ -165,6 +172,8 @@ export function fakeAppPart(
     name?: 'app' | 'embed'
     packages?: readonly FakePackage[]
     cssPackage?: FakePackage
+    /** Adds the web app's service worker, sw.js, with its source map. */
+    serviceWorker?: boolean
   } = {},
 ): Part {
   const name = options.name ?? 'app'
@@ -179,6 +188,12 @@ export function fakeAppPart(
     'index.html': `<!doctype html><html lang="en"><head><title>FXM</title><script>${APP_THEME_SCRIPT}</script><script type="module" crossorigin src="/${name}/assets/index.js"></script><link rel="stylesheet" href="/${name}/assets/index.css"></head><body><div id="root"></div></body></html>`,
     ...bundle(outDir, 'assets/index.js', sources),
     'assets/index.css': `${css ? `/*! ${css.name} v${css.version} | ${css.license} License | https://example.com */\n` : ''}body{margin:0}`,
+    ...(options.serviceWorker
+      ? {
+          'sw.js': FAKE_SERVICE_WORKER,
+          ...sourceMap(outDir, 'sw.js.map', [join(root, `apps/web/src/${name}.ts`)]),
+        }
+      : {}),
   }))
 }
 

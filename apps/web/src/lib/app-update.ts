@@ -28,3 +28,17 @@ export const APP_UPDATED_MESSAGE = 'FXM was updated. Reload to get the new versi
 export function reloadApp(): void {
   window.location.reload()
 }
+
+/**
+ * Whether `error` is a failed `import()` of a code file, as the browsers word it: Chromium's
+ * "dynamically imported module", Safari's "importing a module script", Firefox's "module
+ * script failed", Vite's preload "loading chunk".
+ */
+export function isChunkLoadError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    /dynamically imported module|module script failed|importing a module script|loading chunk/i.test(
+      error.message,
+    )
+  )
+}

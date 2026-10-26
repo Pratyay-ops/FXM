@@ -10,10 +10,16 @@ export const SITE_URL = 'https://fxmusic.pages.dev'
 export const APP_PATH = '/app/'
 
 /**
+ * The licences of the open-source packages the site and the apps bundle, which `make dist`
+ * writes next to them at deploy time (scripts/build-dist/README.md).
+ */
+export const NOTICES_PATH = '/third-party-notices.txt'
+
+/**
  * Paths that exist in production but are not part of this site's build output. The
  * build-time link check skips them (see src/lib/build-check.ts).
  */
-export const EXTERNAL_PATHS = [APP_PATH] as const
+export const EXTERNAL_PATHS = [APP_PATH, NOTICES_PATH] as const
 
 /** <meta name="theme-color"> per theme: the page background (tokens.test.ts keeps them in sync). */
 export const THEME_COLOR = { dark: '#0b0b0f', light: '#f6f6f8' } as const
@@ -27,10 +33,12 @@ export const LICENSE_URL = `${REPO_URL}/blob/main/LICENSE`
 
 export type Feature =
   | 'lite'
+  | 'jamendo'
   | 'homeFeed'
   | 'radio'
   | 'spotifyAccount'
   | 'downloads'
+  | 'conversions'
   | 'pwa'
   | 'embed'
   | 'android'
@@ -38,28 +46,56 @@ export type Feature =
   | 'firefox'
 
 /**
+ * The environment the site is built in: Node's while Astro renders the pages (and in the tests),
+ * none in the browser. Flags that depend on how the deploy builds the site read it, so they
+ * matter to the pages' HTML only: a page's script in the browser sees them off.
+ */
+const BUILD_ENV: Readonly<Record<string, string | undefined>> =
+  (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env ?? {}
+
+/**
  * What is released, feature by feature. The site goes live with the web app at milestone
  * M1 (docs/PLAN.md); everything still false here is marked "Coming soon": the badges, the
  * download cards and their buttons, the device suggestion and a few sentences read these
  * flags. When a stage ships a feature, flip its flag, then search the site for
- * `AVAILABLE.<name>` to review the copy around it.
+ * `AVAILABLE.<name>` to review the copy around it, and update the feature list in the
+ * repository's README.md, which marks the same features "(coming soon)".
  */
 export const AVAILABLE: Readonly<Record<Feature, boolean>> = {
   /**
    * The experimental Lite tier: YouTube Music in the web app without FXM Connect, in browsers that
-   * pass its check (stage 1.10). Stage 2.8 turns it on once Lite plays a song on the deployed site,
-   * and leaves it off while Lite's kill switch is on. The sentences it changes are in
+   * pass its check (stage 1.10). On since Lite played a song on the deployed site in Chromium on
+   * 2026-10-26 (scripts/build-dist/README.md, "Lite on the deployed site", which says how to
+   * check again). Turn it off while Lite's kill switch is on. The sentences it changes are in
    * src/lib/tiers.ts.
    */
-  lite: false,
-  /** Home feed with quick picks, daily mixes and endless radio: stages 3.3 and 3.4 (M2) */
-  homeFeed: false,
+  lite: true,
+  /**
+   * Free music from Jamendo (stage 1.6), which needs FXM's public Jamendo client_id: the deploy
+   * passes the repository variable FXM_JAMENDO_CLIENT_ID to make dist as
+   * VITE_FXM_JAMENDO_CLIENT_ID once the owner has registered one and confirmed Jamendo's terms
+   * (packages/sources/src/jamendo/README.md). The same variable turns Jamendo on in the web app
+   * and in its policy, so all three follow it together. The sentences it changes are in
+   * src/lib/tiers.ts, the privacy page and the lossless lines of Features.astro and Faq.astro.
+   */
+  jamendo: Boolean(BUILD_ENV.VITE_FXM_JAMENDO_CLIENT_ID?.trim()),
+  /**
+   * The home feed with quick picks and daily mixes, made on the device from YouTube Music radio,
+   * Spotify, Last.fm and ListenBrainz: stage 3.3, wired into the app by 2.9b. Endless radio is
+   * `radio` (3.4).
+   */
+  homeFeed: true,
   /** Song radio from YouTube Music and Spotify, in the app: stages 3.3 and 3.4 (M2) */
   radio: false,
   /** A read-only sync of a Spotify account's recommendations, likes and playlists: 3.5 (M2) */
   spotifyAccount: false,
-  /** Downloads in any format, with tags and cover art: 4.1 and 4.2 (M3) */
-  downloads: false,
+  /**
+   * Downloads for offline listening, in the format the source has (the original file): 4.1,
+   * wired into the app by 2.9b. Converting to other formats is `conversions`.
+   */
+  downloads: true,
+  /** Converting downloads to FLAC, ALAC, WAV, MP3, AAC or Opus, with tags and cover art: 4.2 */
+  conversions: false,
   /** Installing the web app as a PWA: 5.1 (M4) */
   pwa: true,
   /** The embeddable mini-player: 5.2 (M4) */

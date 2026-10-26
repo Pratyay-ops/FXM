@@ -347,10 +347,7 @@ export function SponsorBlockNotices() {
   const closeAnswer = useCallback(() => setAnswer(undefined), [])
   const stackNotice = placement === 'stack' ? notice : undefined
   const stack = useRef<HTMLDivElement>(null)
-  const covered = useCoveredHeight(
-    stack,
-    showOffer || answer !== undefined || stackNotice !== undefined,
-  )
+  useCoveredRoom(stack, showOffer || answer !== undefined || stackNotice !== undefined)
 
   useEffect(() => syncSponsorBlockAcrossTabs(), [])
 
@@ -364,8 +361,6 @@ export function SponsorBlockNotices() {
   return (
     <>
       <Announcer notice={notice} answer={answer} />
-      {/* Room at the end of the page, so its last content can scroll clear of the cards. */}
-      {covered > 0 && <div aria-hidden="true" style={{ height: covered }} />}
       <div
         ref={stack}
         className="pointer-events-none fixed inset-x-safe bottom-[calc(var(--shell-bottom)+0.75rem)] z-30 flex flex-col gap-2 px-gutter md:left-auto md:w-96 md:pr-4 md:pl-0"
@@ -388,26 +383,20 @@ export function SponsorBlockNotices() {
 export const CARDS_HEIGHT_PROPERTY = '--shell-cards'
 
 /**
- * How much of the page the cards cover above the bars, in pixels, while `active`. Meanwhile the
- * page's `scroll-padding-bottom` grows by as much, so the browser scrolls keyboard focus clear
- * of them (WCAG 2.4.11), as it does for the bars (`--shell-bottom`), and so does the toast's
- * place (`CARDS_HEIGHT_PROPERTY`).
+ * Keeps how much of the page the cards cover above the bars, in pixels, in
+ * `CARDS_HEIGHT_PROPERTY` while `active`. The page's `scroll-padding-bottom` and the room at its
+ * end (`pb-shell`) grow by as much (styles/index.css), so the browser scrolls keyboard focus clear
+ * of the cards (WCAG 2.4.11), as it does for the bars (`--shell-bottom`), and the last of the page
+ * scrolls clear of them; so does the toast's place.
  */
-function useCoveredHeight(ref: RefObject<HTMLElement | null>, active: boolean): number {
-  const [height, setHeight] = useState(0)
+function useCoveredRoom(ref: RefObject<HTMLElement | null>, active: boolean): void {
   useLayoutEffect(() => {
     const element = ref.current
-    if (!active || element === null) {
-      setHeight(0)
-      return
-    }
+    if (!active || element === null) return
     const root = document.documentElement
     const update = () => {
       // The cards, plus the gap between them and the bars.
       const covered = element.offsetHeight > 0 ? element.offsetHeight + 12 : 0
-      setHeight(covered)
-      root.style.scrollPaddingBottom =
-        covered > 0 ? `calc(var(--shell-bottom) + ${covered}px + 0.5rem)` : ''
       if (covered > 0) root.style.setProperty(CARDS_HEIGHT_PROPERTY, `${covered}px`)
       else root.style.removeProperty(CARDS_HEIGHT_PROPERTY)
     }
@@ -416,9 +405,7 @@ function useCoveredHeight(ref: RefObject<HTMLElement | null>, active: boolean): 
     observer?.observe(element)
     return () => {
       observer?.disconnect()
-      root.style.scrollPaddingBottom = ''
       root.style.removeProperty(CARDS_HEIGHT_PROPERTY)
     }
   }, [ref, active])
-  return height
 }

@@ -5,8 +5,10 @@ name: Release
 # "Releases"). Every other push to main ends after the plan job.
 #
 #   plan            reads the version and decides whether to release (scripts/release-plan.sh)
-#   bundles         builds the web app, landing page and FXM Connect zips (scripts/release-build.sh)
-#                   and runs AMO's linter on the Firefox zip (apps/extension/store/firefox.ts)
+#   bundles         builds the web zip, which is make dist's dist/pages (the landing page, the web
+#                   app, _headers and the third-party notices, as Cloudflare Pages serves them), and
+#                   the FXM Connect zips (scripts/release-build.sh), and runs AMO's linter on the
+#                   Firefox zip (apps/extension/store/firefox.ts)
 #   firefox         with AMO_CHANNEL unlisted (the default): has Firefox Add-ons (AMO) sign that
 #                   Firefox zip and passes on the signed XPI (apps/extension/store/firefox.ts)
 #   desktop         builds the desktop app's installers for macOS, Windows and Linux, signs the
@@ -14,7 +16,8 @@ name: Release
 #                   (desktop-release.yml, which apps/desktop/README.md explains)
 #   publish         collects the artifact jobs' files (scripts/release-collect.sh), writes
 #                   SHA256SUMS, attests every file's build provenance, creates tag vX.Y.Z and
-#                   publishes the release with git-cliff notes (scripts/release-publish.sh)
+#                   publishes the release (scripts/release-publish.sh) with the version's notes:
+#                   its summary in docs/releases/ and git-cliff's list (scripts/release-notes.sh)
 #   firefox-listed  with AMO_CHANNEL listed: once the release is out, submits its Firefox zip to
 #                   AMO's public listing (apps/extension/store/firefox.ts)
 #   edge            once the release is out, submits its Chromium zip to Edge Add-ons
@@ -115,7 +118,11 @@ jobs:
       - name: Set up toolchain and dependencies (frozen lockfile)
         run: make ci-setup
 
+      # The same Jamendo switch as the deploy's make dist (deploy.yml), so the web zip is what
+      # Cloudflare Pages serves.
       - name: Build the release files
+        env:
+          VITE_FXM_JAMENDO_CLIENT_ID: ${{ vars.FXM_JAMENDO_CLIENT_ID }}
         run: scripts/release-build.sh dist/release
 
       # AMO's linter (web-ext lint) on the Firefox zip, here where no store key is around. The

@@ -151,9 +151,8 @@ describe('EmbedApp', () => {
       capabilities: CAPABILITIES.free,
       layout: 'compact',
     })
-    expect(screen.getByRole('status')).toHaveTextContent(
-      'Needs FXM Connect or the FXM app to play here.',
-    )
+    // Only FXM Connect until the desktop or Android app is out (RELEASED).
+    expect(screen.getByRole('status')).toHaveTextContent('Needs FXM Connect to play here.')
     expect(screen.getAllByRole('link', { name: 'Get FXM (opens a new tab)' })).toHaveLength(2)
     expect(
       screen.queryByRole('link', { name: 'Open in FXM (opens a new tab)' }),

@@ -8,7 +8,10 @@ import Icon from './Icon.astro'
 // The Firefox steps appear once the signed add-on is out (AVAILABLE.firefox).
 const finePrint = installFinePrint(AVAILABLE.firefox)
 const firefoxUpdate = AVAILABLE.firefox ? 'In Firefox, install the new file the same way.' : ''
-const noExtension = noExtensionNote(AVAILABLE.firefox, { lite: AVAILABLE.lite })
+const noExtension = noExtensionNote(AVAILABLE.firefox, {
+  lite: AVAILABLE.lite,
+  jamendo: AVAILABLE.jamendo,
+})
 ---
 
 <section id="get" class="section" aria-labelledby="get-title">

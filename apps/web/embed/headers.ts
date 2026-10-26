@@ -8,12 +8,14 @@
 
 /**
  * The `/app/*` policy of docs/PLAN.md, with `script-src 'self'`: the embed has no inline
- * script, so the app's theme-script hash isn't needed (the deploy's copy may keep it).
+ * script, so the app's theme-script hash isn't needed (the deploy's copy may keep it). Workers
+ * only from its own origin, as the deploy's policy allows them (`WORKER_SOURCES` in
+ * scripts/build-dist/src/policies.ts).
  */
 export const APP_POLICY = [
   "default-src 'self'",
   "script-src 'self'",
-  "worker-src 'self' blob:",
+  "worker-src 'self'",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https://*.ytimg.com https://*.googleusercontent.com https://*.ggpht.com https://*.scdn.co https://*.spotifycdn.com https://archive.org https://*.archive.org https://*.jamendo.com",
   "media-src 'self' blob: https:",
@@ -37,11 +39,14 @@ export const EMBED_POLICY = APP_POLICY.replace("; frame-ancestors 'none'", '')
  * Every header of the `/embed/*` rule. `Cross-Origin-Opener-Policy: same-origin` cuts a player
  * opened at top level off from the page that opened it, which otherwise could count the
  * player's frames (`window.length`) and tell whether the visitor has FXM Connect. Browsers
- * ignore it in frames, so it doesn't get in the way of embedding.
+ * ignore it in frames, so it doesn't get in the way of embedding. The deploy sends both it and
+ * the Permissions-Policy with every path (`COMMON_HEADERS` in scripts/build-dist/src/policies.ts).
  */
 export const EMBED_HEADERS: Readonly<Record<string, string>> = Object.freeze({
   'content-security-policy': EMBED_POLICY,
   'cross-origin-opener-policy': 'same-origin',
+  'permissions-policy':
+    'camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), hid=(), midi=()',
   'referrer-policy': 'no-referrer',
   'x-content-type-options': 'nosniff',
 })

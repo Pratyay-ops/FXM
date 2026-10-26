@@ -8,7 +8,7 @@ FXM hosts nothing: no server, no gateway, no proxy. The web app is a static site
 
 - YouTube's InnerTube API (`www.youtube.com`, `music.youtube.com`, `youtubei.googleapis.com`) answers any foreign `Origin` with HTTP 403 and no CORS headers.
 - googlevideo media servers send the audio to anyone, so a plain `<audio src>` plays. They only send `Access-Control-Allow-Origin` to YouTube origins, though, and `fetch()`, downloads and MediaSource need it.
-- Spotify's `open.spotify.com/api/token`, `/api/server-time` and `clienttoken.spotify.com` send no CORS headers. Last.fm's station JSON doesn't either.
+- Spotify's `open.spotify.com/api/token` and `/api/server-time` send no CORS headers. Last.fm's station JSON doesn't either.
 
 FXM Connect fixes this with a fixed list of declarativeNetRequest (DNR) rules that rewrite a few request and response headers, only for requests the FXM pages make, only to these services. All YouTube and Spotify logic stays in the web app, so when YouTube changes something, FXM is fixed by redeploying the static site. The extension needs no update for that. Its only Spotify-specific code is the bridge (below): an always-on, cookie-free server-time relay and the optional login token.
 
@@ -20,7 +20,7 @@ FXM Connect fixes this with a fixed list of declarativeNetRequest (DNR) rules th
    |---|---|---|
    | `www.youtube.com`, `music.youtube.com`, `youtubei.googleapis.com` | `Origin` and `Referer` set to `https://www.youtube.com` (`https://music.youtube.com` for YouTube Music). Preflights (`OPTIONS`) get the other YouTube origin, the one InnerTube accepts them from | ACAO, `Access-Control-Allow-Methods`, `-Allow-Headers` (InnerTube headers), `-Expose-Headers: content-length`, `-Max-Age: 600` |
    | `*.googlevideo.com` | `Origin` set to `https://www.youtube.com` on preflights (`OPTIONS`) only | ACAO, `Access-Control-Expose-Headers: content-length, content-range, accept-ranges, content-type` |
-   | `open.spotify.com/api/token`, `/api/server-time`, `clienttoken.spotify.com` | `Origin` and `Referer` set to `https://open.spotify.com` | ACAO, allowed methods and Spotify headers, `-Max-Age: 600` |
+   | `open.spotify.com/api/token`, `/api/server-time` | `Origin` and `Referer` set to `https://open.spotify.com` | ACAO, allowed methods and Spotify headers, `-Max-Age: 600` |
    | `api-partner.spotify.com`, `spclient.wg.spotify.com` | none | ACAO, allowed methods and Spotify headers, `-Max-Age: 600` |
    | `www.last.fm/player/station/*` | none | ACAO |
 
@@ -51,7 +51,7 @@ The options page (click the toolbar button, or open the extension's options) sho
 | `https://www.youtube.com/*`, `https://music.youtube.com/*`, `https://youtubei.googleapis.com/*` | YouTube and YouTube Music InnerTube API (search, browse, player data) |
 | `https://*.googlevideo.com/*` | YouTube media bytes |
 | `https://open.spotify.com/*` | Spotify web token and server time (the rules only touch `/api/token` and `/api/server-time`) |
-| `https://clienttoken.spotify.com/*`, `https://api-partner.spotify.com/*`, `https://spclient.wg.spotify.com/*` | Spotify client token, GraphQL (pathfinder) and spclient APIs |
+| `https://api-partner.spotify.com/*`, `https://spclient.wg.spotify.com/*` | Spotify's GraphQL (pathfinder) and spclient APIs |
 | `https://www.last.fm/*` | Keyless Last.fm recommendation stations (the rule only touches `/player/station/`) |
 
 There is no `<all_urls>`, no `cookies`, `tabs`, `scripting` or `webRequest` permission, and no `externally_connectable`.
@@ -73,6 +73,8 @@ Each GitHub release carries FXM Connect in these files:
 | `fxm-connect-firefox-<version>.xpi` | Firefox 140 or later and Firefox for Android 142 or later. Signed by Mozilla, so it stays installed. Releases have it while AMO signing runs in the unlisted channel ([Store channels](#store-channels)) |
 | `fxm-connect-chromium-<version>.zip` | Chrome, Edge, Brave and other Chromium browsers, version 120 or later, loaded unpacked |
 | `fxm-connect-firefox-<version>.zip` | Unsigned: for review, or for a temporary install in Firefox, which removes it when it restarts. A release's `.xpi` has the same files |
+
+Each of them also holds the repository's `LICENSE` (Apache-2.0) and FXM Connect's [`NOTICE`](NOTICE), which says that it bundles no third-party code.
 
 FXM Connect is not in the Chrome Web Store and isn't submitted there by default: its policy bans extensions that facilitate unauthorized streaming or downloading, and names YouTube downloads as a common reason for rejection. Its store channels are Firefox Add-ons and Edge Add-ons; [Store channels](#store-channels) has their status.
 
@@ -166,7 +168,7 @@ Always fetch with `credentials: 'omit'`. Credentialed requests fail, because the
 
 - **googlevideo:** `GET` with a single `Range: bytes=start-end` header (CORS-safelisted, so no preflight) or a `&range=` query is readable. Requests that need a preflight, such as a `POST` with a protobuf body, work too, because only the preflight gets a YouTube `Origin`. googlevideo then answers 204 with its own allow lists. A plain `<audio src>` plays even without the extension. Add `crossorigin="anonymous"` (which needs the extension) only when Web Audio must read the samples.
 - **googlevideo redirects to another host stay unreadable.** googlevideo sometimes answers a media request with a 302 to another `rr…---sn-….googlevideo.com` host (the new URL carries `cms_redirect=yes`). After a redirect to another origin, the browser sends the next request with `Origin: null` and only accepts `Access-Control-Allow-Origin: null`. No rule can send that without breaking the requests that weren't redirected, so `fetch()`, MediaSource, download and `crossorigin` reads of such a URL fail with a network error. Treat that failure as retryable: resolve the stream URL again, or fall back to a plain `<audio src>`, which follows redirects without CORS. How often live range requests get such a redirect has not been measured yet.
-- **Spotify:** the token and server-time endpoints, clienttoken, pathfinder and spclient accept preflights, so these headers work: `authorization`, `content-type`, `client-token`, `app-platform`, `spotify-app-version`, `accept`. For a token of the user's own login, use the bridge.
+- **Spotify:** the token and server-time endpoints, pathfinder and spclient accept preflights, so these headers work: `authorization`, `content-type`, `client-token`, `app-platform`, `spotify-app-version`, `accept`. For a token of the user's own login, use the bridge.
 - **Last.fm:** `GET https://www.last.fm/player/station/...` JSON.
 
 ### Bridge messages
@@ -210,9 +212,11 @@ scripts/run.sh pnpm --filter @fxm/extension lint:firefox   # AMO's linter on dis
 
 Those are Vite's default ports, so the dev build treats any app served there as FXM: other projects, their dependencies and any local tool that binds the ports. Its options page warns about this. Localhost pages only get your Spotify login if you also turn on **Also let localhost pages use my Spotify login**, which only the dev build shows. Keep that off, or use a separate browser profile for development.
 
+The dev build's own parts of the options page (its badge, that warning and the localhost toggle) are marked `data-dev` in `src/options/options.html`, and the release build leaves them out (`scripts/options-page.ts`), so its page names no localhost origin. `options.ts` looks them up only in the dev build.
+
 DNR matches the page that starts a request by host name only, not port, so each localhost origin gets its own static ruleset. When an FXM page opens on one of them, the background enables that origin's ruleset and disables the other, and the content script holds back its replies, the pong included, until the switch is done. So requests the app sends after the pong get the rules; requests sent earlier may not. If both are open at once, the most recently loaded one gets the CORS rules.
 
-**Tests.** Unit tests (Vitest, offline) cover the rule generation, both manifests, message validation, the bridge, Firefox's consent, the settings store, the rate limit, the icons and the zips. The end-to-end test loads `dist/chromium` into Playwright's Chromium in the new headless mode. A local HTTPS mock on port 5240 (`FXM_CONNECT_E2E_PORT` to change it) reproduces the measured behaviour of every host the rules cover: the three InnerTube hosts, googlevideo (including redirects), `open.spotify.com`, `clienttoken`, pathfinder, `spclient` and Last.fm. Chromium's `--host-resolver-rules` points the real host names, `fxmusic.pages.dev` included, at it, so the DNR rules apply as they do online and nothing reaches the network. The test builds the extension first, installs Chromium into `.tools/playwright` on the first run, and needs `openssl` for the throwaway certificate. `make test` does not run it.
+**Tests.** Unit tests (Vitest, offline) cover the rule generation, both manifests, message validation, the bridge, Firefox's consent, the settings store, the rate limit, the icons and the zips, and they make a release build in a temporary folder to check its zips: `LICENSE` and `NOTICE` in both, scripts bundled from `src/` alone, and an options page without the dev build's parts. The end-to-end test loads `dist/chromium` into Playwright's Chromium in the new headless mode. A local HTTPS mock on port 5240 (`FXM_CONNECT_E2E_PORT` to change it) reproduces the measured behaviour of every host the rules cover: the three InnerTube hosts, googlevideo (including redirects), `open.spotify.com`, pathfinder, `spclient` and Last.fm, plus `clienttoken`, which no rule touches. Chromium's `--host-resolver-rules` points the real host names, `fxmusic.pages.dev` included, at it, so the DNR rules apply as they do online and nothing reaches the network. The test builds the extension first, installs Chromium into `.tools/playwright` on the first run, and needs `openssl` for the throwaway certificate. `make test` does not run it.
 
 **Keep the FXM host permissions exact.** DNR's `initiatorDomains` also matches sub-domains, so `fxmusic.pages.dev` alone would cover every preview deployment. Browsers only modify headers for a request when the extension has host access to the page that started it as well (the e2e test checks this in Chromium; MDN documents it for Firefox, and a manual run in Firefox 158 confirmed it), and FXM Connect only asks for `https://fxmusic.pages.dev/*`. Adding a pattern such as `https://*.fxmusic.pages.dev/*` would quietly widen every rule to all sub-domains; a unit test refuses it.
 
@@ -229,7 +233,9 @@ DNR matches the page that starts a request by host name only, not port, so each 
 | `src/consent.ts` | Firefox's consent for the Spotify login (optional data collection) |
 | `src/messages.ts` | Message protocol and validation |
 | `src/options/` | Options page |
-| `scripts/build.ts` | Build: Vite bundles, manifests, rulesets, icons (the FXM mark, rendered at build time) and zips |
+| `scripts/build.ts` | Build: Vite bundles, manifests, rulesets, icons (the FXM mark, rendered at build time), the licence files and zips |
+| `scripts/options-page.ts` | The options page each build ships: the release build drops the elements marked `data-dev` |
+| `NOTICE` | The notice every build ships next to the repository's `LICENSE` |
 | `e2e/` | Playwright end-to-end test and the HTTPS mock |
 | `store/` | Store listings and the release workflow's store jobs ([Store channels](#store-channels)) |
 

@@ -88,12 +88,12 @@ body=$(mktemp)
 trap 'rm -f "$sums" "$body"' EXIT
 cp "$notes" "$body"
 fxm_release_fit "$body" 115000 \
-  "The full list is in [CHANGELOG.md](https://github.com/$repo/blob/$tag/CHANGELOG.md)."
+  "The list goes on in [CHANGELOG.md](https://github.com/$repo/blob/$tag/CHANGELOG.md), which has every change."
 {
   echo
   echo "---"
   echo
-  echo "### Files"
+  echo "## Files"
   echo
   echo "| File | What it is |"
   echo "|---|---|"
@@ -104,6 +104,8 @@ fxm_release_fit "$body" 115000 \
   echo
   echo "Install FXM Connect with the [steps in its README](https://github.com/$repo/blob/$tag/apps/extension/README.md#install)."
   echo "Install the desktop app with the [steps in its install guide](https://github.com/$repo/blob/$tag/apps/desktop/INSTALL.md), which also say what to do when macOS or Windows warns about it."
+  echo
+  echo "To host the website and web app yourself, serve \`fxm-web-$version.zip\` as the [self-hosting steps](https://github.com/$repo/blob/$tag/scripts/build-dist/README.md#self-hosting) describe."
   echo
   echo "To verify a download, run these in its folder:"
   echo

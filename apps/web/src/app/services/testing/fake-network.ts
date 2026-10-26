@@ -11,7 +11,10 @@
  *   and a request from the start of the file (what a media element sends) with `audio`;
  * - Internet Archive: a recorded search, recorded items by identifier (others are unknown), and
  *   `audio` for every file download;
- * - MusicBrainz: nothing found, as for a Spotify track no recording links.
+ * - MusicBrainz: nothing found, as for a Spotify track no recording links;
+ * - when the fixtures have them: other InnerTube searches by their filter's `params`, a radio
+ *   (`next` with `RDAMVM…`), `browse` pages by `browseId`, and ListenBrainz's labs answers by
+ *   endpoint (`acr-lookup/json`, `similar-artists/json`).
  *
  * Anything else is refused with a network error, like a host that does not answer. Both the
  * Vitest tests and the Playwright test (`e2e/playback.spec.ts`) use it, so it imports nothing:
@@ -30,6 +33,14 @@ export interface FakeNetworkFixtures {
   readonly archiveSearch: unknown
   /** Internet Archive items (`/metadata/<identifier>`), by identifier. */
   readonly archiveItems: Readonly<Record<string, unknown>>
+  /** Other searches, by the filter's `params`, e.g. the artists filter's; the rest get `songs`. */
+  readonly searches?: Readonly<Record<string, unknown>>
+  /** A radio, the answer to every `next` call for a `RDAMVM…` playlist. */
+  readonly radio?: unknown
+  /** `browse` answers by `browseId`: artist pages, playlists. */
+  readonly browse?: Readonly<Record<string, unknown>>
+  /** ListenBrainz's labs API, by endpoint: `acr-lookup/json`, `similar-artists/json`. */
+  readonly listenbrainz?: Readonly<Record<string, unknown>>
 }
 
 /** Options for {@link createFakeNetwork}. */
@@ -199,8 +210,20 @@ export function createFakeNetwork(options: FakeNetworkOptions): FakeNetwork {
 
   function innerTube(endpoint: string, body: Record<string, unknown>): Response {
     switch (endpoint) {
-      case 'search':
-        return json(fixtures.songs)
+      case 'search': {
+        const params = typeof body.params === 'string' ? body.params : ''
+        return json(fixtures.searches?.[params] ?? fixtures.songs)
+      }
+      case 'next': {
+        const playlistId = typeof body.playlistId === 'string' ? body.playlistId : ''
+        if (fixtures.radio === undefined || !playlistId.startsWith('RDAMVM')) break
+        return json(fixtures.radio)
+      }
+      case 'browse': {
+        const page = fixtures.browse?.[String(body.browseId)]
+        if (page === undefined) break
+        return json(page)
+      }
       case 'music/get_search_suggestions':
         return json({ responseContext: { visitorData }, contents: [] })
       case 'player': {
@@ -209,8 +232,9 @@ export function createFakeNetwork(options: FakeNetworkOptions): FakeNetwork {
         return json(playerFor(fixtures.player, videoId, now()))
       }
       default:
-        return json({ error: { code: 404, status: 'NOT_FOUND' } }, 404)
+        break
     }
+    return json({ error: { code: 404, status: 'NOT_FOUND' } }, 404)
   }
 
   function googleVideo(url: URL, headers: Readonly<Record<string, string>>): Response {
@@ -272,6 +296,10 @@ export function createFakeNetwork(options: FakeNetworkOptions): FakeNetwork {
     if (url.hostname.endsWith('.googlevideo.com')) return googleVideo(url, request.headers)
     if (url.hostname === 'archive.org') return archive(url, request.headers)
     if (url.hostname === 'musicbrainz.org') return json({ error: 'Not Found' }, 404)
+    if (url.hostname === 'labs.api.listenbrainz.org' && fixtures.listenbrainz !== undefined) {
+      const answer = fixtures.listenbrainz[url.pathname.slice(1)]
+      return answer === undefined ? json([], 404) : json(answer)
+    }
     throw new TypeError(`Failed to fetch: the fake network has no ${url.host}`)
   }
 

@@ -190,7 +190,6 @@ describe('sendsBrowserAgent', () => {
     'i.ytimg.com',
     '*.ggpht.com',
     'open.spotify.com',
-    'clienttoken.spotify.com',
     'api-partner.spotify.com',
     'spclient.wg.spotify.com',
     'i.scdn.co',

@@ -16,8 +16,7 @@ import {
   type ProviderContext,
   type SourceId,
 } from '@fxm/core'
-import { AppUpdatedError } from '../../lib/app-update'
-import { isChunkLoadError } from '../errors'
+import { AppUpdatedError, isChunkLoadError } from '../../lib/app-update'
 
 /** Loads a module once, and again after a failure (a chunk that did not download, say). */
 export interface Loader<T> {

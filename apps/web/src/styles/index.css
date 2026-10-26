@@ -44,10 +44,17 @@
   html {
     /*
      * The bars cover the page: keep focused and scrolled-to elements clear of them
-     * (WCAG 2.4.11), with room for the focus ring.
+     * (WCAG 2.4.11), with room for the focus ring. At the bottom, so do the layers that float
+     * above the bars while they show, which set their height on <html>: SponsorBlock's cards
+     * (--shell-cards) and the FXM Connect notice (--connect-notice-space).
      */
     scroll-padding-top: calc(var(--shell-top) + 0.5rem);
-    scroll-padding-bottom: calc(var(--shell-bottom) + 0.5rem);
+    scroll-padding-bottom: calc(
+      var(--shell-bottom) +
+      var(--shell-cards, 0px) +
+      var(--connect-notice-space, 0px) +
+      0.5rem
+    );
     background-color: var(--color-background);
     color: var(--color-text);
     font-family: var(--font-sans);
@@ -279,9 +286,17 @@
   padding-bottom: var(--safe-bottom);
 }
 
-/* Room at the end of the page for whatever fixed bars cover it (see --shell-bottom). */
+/*
+ * Room at the end of the page for whatever covers it: the fixed bars (see --shell-bottom), and
+ * SponsorBlock's cards and the FXM Connect notice while they float above them.
+ */
 @utility pb-shell {
-  padding-bottom: calc(var(--shell-bottom) + 2rem);
+  padding-bottom: calc(
+    var(--shell-bottom) +
+    var(--shell-cards, 0px) +
+    var(--connect-notice-space, 0px) +
+    2rem
+  );
 }
 
 /* --- Window Controls Overlay ---------------------------------------------------- */
