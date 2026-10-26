@@ -96,7 +96,8 @@ function focusPage(): void {
 
 /**
  * The CSS variable with the room the notice takes above the bottom bars (`0px` without one), so
- * other floating layers, such as the app's toast (`FeedbackToast`), can sit above it:
+ * other floating layers, such as the app's toasts (`FeedbackToast`, and the installable app's
+ * `UpdateToast`), can sit above it:
  * `bottom: calc(var(--shell-bottom) + var(--connect-notice-space, 0px) + 0.75rem)`. The notice
  * itself sits above the cards SponsorBlock stacks over the bars (`--shell-cards`).
  */

@@ -38,8 +38,9 @@ function useSpaceAbovePlayer(toast: RefObject<HTMLElement | null>, active: boole
 }
 
 /**
- * Offers a waiting new version of FXM, above the player and the cards SponsorBlock stacks there
- * (`--shell-cards`, stage 8.7). The app never reloads by itself, because that would stop the
+ * Offers a waiting new version of FXM, above the player, the cards SponsorBlock stacks there
+ * (`--shell-cards`, stage 8.7) and the FXM Connect notice (`--connect-notice-space`, stage 2.7).
+ * The app never reloads by itself, because that would stop the
  * music: "Reload" switches to the new version now, "Not now" (or Escape) keeps this one, and the
  * new version starts the next time FXM opens.
  *
@@ -71,7 +72,7 @@ export function UpdateToast({ fullScreen = false }: { fullScreen?: boolean }) {
     <div
       aria-live="polite"
       className={cn(
-        'pointer-events-none fixed inset-x-safe bottom-[calc(var(--shell-bottom)+var(--shell-cards,0px)+0.75rem)] z-50 flex justify-center px-gutter md:pl-[calc(var(--spacing-rail)+var(--spacing-gutter))] lg:pl-[calc(var(--spacing-sidebar)+var(--spacing-gutter))]',
+        'pointer-events-none fixed inset-x-safe bottom-[calc(var(--shell-bottom)+var(--shell-cards,0px)+var(--connect-notice-space,0px)+0.75rem)] z-50 flex justify-center px-gutter md:pl-[calc(var(--spacing-rail)+var(--spacing-gutter))] lg:pl-[calc(var(--spacing-sidebar)+var(--spacing-gutter))]',
         fullScreen && 'max-md:top-[calc(var(--shell-top)+0.5rem)] max-md:bottom-auto',
       )}
     >
