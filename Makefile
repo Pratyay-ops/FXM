@@ -75,6 +75,16 @@ extension: ## Build the FXM Connect extension and its zips (FXM_EXTENSION_DEV=1:
 dist: ## Compose what Cloudflare Pages serves (site, app, headers, notices) into dist/pages
 	@$(RUN) pnpm --silent --filter @fxm/deploy dist
 
+# The app as it ships: make dist served like Cloudflare Pages, in Playwright's Chromium (installed
+# into .tools/playwright on first use), headless, muted and offline but for this machine
+# (apps/web/e2e/README.md). CI runs both in the E2E workflow; make check doesn't.
+.PHONY: e2e budgets
+e2e: dist ## End-to-end tests of the critical flows against make dist (Chromium, offline)
+	@$(RUN) pnpm --filter @fxm/web e2e:flows
+
+budgets: dist ## Performance budgets of make dist's app: chunk sizes, transfer, LCP, CLS, INP
+	@$(RUN) pnpm --filter @fxm/web budgets
+
 ci-setup: ## CI only: setup with a frozen lockfile
 	@scripts/setup.sh --frozen-lockfile
 

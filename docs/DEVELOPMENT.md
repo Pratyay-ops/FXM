@@ -69,6 +69,8 @@ source .venv/bin/activate   # optional: activate the Python venv (or use `uv run
 | `make live-smoke` | The live smoke tests against the real services (`FXM_LIVE=1`), from a residential connection: see [Live smoke tests](#live-smoke-tests) |
 | `make extension` | Build the FXM Connect browser extension: unpacked folders and zips in `apps/extension/dist/` (`FXM_EXTENSION_DEV=1`: the localhost dev build, in `dist/dev/`) |
 | `make dist` | Compose what Cloudflare Pages serves (the site, the web app, `_headers`, the third-party notices) into `dist/pages/`, with its licence, header and privacy checks |
+| `make e2e` | `make dist`, then the web app's critical flows end to end against it, in Playwright's Chromium (installed into `.tools/playwright` on first use), headless, muted and offline: see [apps/web/e2e/README.md](../apps/web/e2e/README.md) |
+| `make budgets` | `make dist`, then its performance budgets: the chunks' sizes, a first visit's transfer, and LCP, CLS and INP on a mid-range phone over Slow 4G |
 | `make ci` | Reproduce CI locally: setup with a frozen lockfile, then `check` |
 | `make wt-new BRANCH=…` / `wt-list` / `wt-remove BRANCH=…` | Stage worktrees, see [WORKFLOW.md](WORKFLOW.md) |
 | `make release-pr VERSION=x.y.z` | Open the release pull request from `develop` into `main` (`DRY_RUN=1`: only show the checks, the plan and the notes), see [Releases](#releases) |
@@ -111,6 +113,8 @@ git-cliff and actionlint are pinned, checksum-verified binaries in `.tools/bin`,
 ## Continuous integration
 
 `.github/workflows/ci.yml` runs on every push and pull request. It uses the same isolated layout as your machine (`make ci-setup`, `make doctor`, `make check`, then `make release-check`) and caches `.tools/` between runs. A stage is merged into `develop` only when `make check` passes locally and CI is green on its branch.
+
+`.github/workflows/e2e.yml` runs alongside it, so `make check` stays fast: `make dist`, then the web app's critical flows and its performance budgets in Chromium, with a time limit for each step and one retry at most for a failed test. Run the same locally with `make e2e` and `make budgets` ([apps/web/e2e/README.md](../apps/web/e2e/README.md)).
 
 `.github/workflows/deploy.yml` runs `make dist` on every push, then deploys `develop` to the preview (`https://develop.fxmusic.pages.dev`) and `main` to production (`https://fxmusic.pages.dev`, once a candidate of it passed the checks, and for a release once its GitHub Release is out), the Cloudflare Pages project `fxmusic`, and checks each deployment's headers. How it works, and what a stage that contacts a new service changes, is in [scripts/build-dist/README.md](../scripts/build-dist/README.md). Its Cloudflare secrets live only in the GitHub environments `preview` and `production`, which only `develop` and `main` can use; [Deploying](../scripts/build-dist/README.md#deploying) has the setup.
 

@@ -21,8 +21,10 @@ From the repository root (tools run through `make` or `scripts/run.sh`, see [DEV
 | `scripts/run.sh pnpm --filter @fxm/web preview` | Serve the build at http://localhost:4173/app/ |
 | `scripts/run.sh pnpm --filter @fxm/web dev:embed` | The embeddable player's dev server at http://localhost:5174/embed/…, with the sandbox documents at `/sandbox/` (`preview:embed` serves its build on port 4174) |
 | `scripts/run.sh pnpm --filter @fxm/web e2e:embed` | The player's browser tests in Chromium and Firefox, on another origin, in the Lite tier ([src/embed/README.md](src/embed/README.md#tests)) |
+| `make e2e` | The critical flows end to end against `make dist`, served as Cloudflare Pages serves it ([e2e/README.md](e2e/README.md)); CI runs them in the E2E workflow |
+| `make budgets` | The performance budgets of `make dist`'s app: chunk sizes, a first visit's transfer, LCP, CLS and INP ([e2e/README.md](e2e/README.md#performance-budgets)); in the E2E workflow too |
 
-End-to-end tests and screenshots use Playwright and are **not** part of `make check`. Install Chromium once (it lands in `.tools/playwright/`):
+End-to-end tests and screenshots use Playwright and are **not** part of `make check`. The critical flows and the performance budgets run against `make dist` (`make e2e`, `make budgets`, and in CI); [e2e/README.md](e2e/README.md) describes all of the browser tests. The specs below run against `vite preview`. Install Chromium once (it lands in `.tools/playwright/`):
 
 ```sh
 scripts/run.sh pnpm --filter @fxm/web exec playwright install chromium
@@ -67,7 +69,7 @@ src/
   styles/               index.css (base, components, utilities) and tokens.css (design tokens)
   test/                 Vitest setup and the renderApp() helper
 embed/                  the embeddable player's page and entry (stage 5.2), built by vite.embed.config.ts
-e2e/                    Playwright smoke test, Now playing and SponsorBlock tests (with now-playing-seed.ts), local files test (with local-files-fixture.ts), PWA test and screenshot capture; fixtures/ holds a library backup to restore, embed/ the embeddable player's browser tests
+e2e/                    Playwright smoke test, Now playing and SponsorBlock tests (with now-playing-seed.ts), local files test (with local-files-fixture.ts), PWA test and screenshot capture; fixtures/ holds a library backup to restore, embed/ the embeddable player's browser tests, flows/ the critical flows against make dist and budgets/ the performance budgets (e2e/README.md)
 ```
 
 `src/embed/` is the embeddable player (stage 5.2): its own page under `/embed/`, which any site may frame, with a postMessage API. `src/features/share/` is the share dialog that copies its code; the "Share" entry of the album and playlist pages' "More options" menus opens it. Both are described in [src/embed/README.md](src/embed/README.md).
