@@ -72,6 +72,13 @@ fxm_release_has_summary() {
   grep -q '[^[:space:]]' "$FXM_ROOT/$(fxm_release_summary_file "$1")" 2>/dev/null
 }
 
+# fxm_release_summary_is_draft <x.y.z>: whether the summary still has a line that starts with
+# "<!-- draft", the mark of a summary written ahead of the release that someone must check
+# against what the release ships. make release-pr refuses it until the line is gone.
+fxm_release_summary_is_draft() {
+  grep -q '^<!-- draft' "$FXM_ROOT/$(fxm_release_summary_file "$1")" 2>/dev/null
+}
+
 # fxm_release_github <api path> <jq filter>: a GET request to the GitHub API through gh. Prints
 # the filtered answer, or nothing when GitHub answers 404; any other failure (a 5xx, a 403, no
 # network) is fatal. Its fxm_die can only end the $(...) it runs in, so call it as

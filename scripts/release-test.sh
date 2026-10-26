@@ -542,6 +542,17 @@ run "$work" env DRY_RUN=1 scripts/release-pr.sh 0.2.0
 expect "and DRY_RUN=1 reports it" test "$status" -eq 0 \
   -a -n "$(grep 'v0.2.0.md is missing or empty' <<<"$out")" \
   -a -n "$(grep 'would stop a real run' <<<"$out")"
+# A summary written ahead of the release carries the draft mark until someone has checked it.
+# Here it is only in the working tree, which fails the clean-tree check too.
+cp "$work/docs/releases/v0.1.0.md" "$tmp/pr/summary.md"
+{ echo "<!-- draft: check it against what v0.1.0 ships -->" && cat "$tmp/pr/summary.md"; } \
+  >"$work/docs/releases/v0.1.0.md"
+refuses "a summary that is still a draft" "docs/releases/v0.1.0.md is still a draft"
+run "$work" env DRY_RUN=1 scripts/release-pr.sh 0.1.0
+expect "and DRY_RUN=1 reports it" test "$status" -eq 0 \
+  -a -n "$(grep 'v0.1.0.md is still a draft' <<<"$out")" \
+  -a -n "$(grep 'would stop a real run' <<<"$out")"
+cp "$tmp/pr/summary.md" "$work/docs/releases/v0.1.0.md"
 echo https://github.com/test/fxm/pull/3 >"$GH_STUB_DIR/open-pr"
 refuses "while a release pull request is open" "already open: https://github.com/test/fxm/pull/3"
 : >"$GH_STUB_DIR/open-pr"

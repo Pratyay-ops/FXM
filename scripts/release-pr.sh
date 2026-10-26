@@ -3,9 +3,10 @@
 #
 #   1. Checks that develop is checked out, clean, equal to origin/develop and contains
 #      origin/main and every release tag; that the version is higher than the current one, has
-#      no tag and has a summary (docs/releases/vX.Y.Z.md); that no release pull request is open;
-#      and that the release commit passes make lint and the release script tests, by making its
-#      changes in a temporary worktree and running them there.
+#      no tag and has a finished summary (docs/releases/vX.Y.Z.md, not marked as a draft); that
+#      no release pull request is open; and that the release commit passes make lint and the
+#      release script tests, by making its changes in a temporary worktree and running them
+#      there.
 #   2. Sets the version everywhere (release-version.sh) and regenerates CHANGELOG.md (git-cliff).
 #   3. Commits "chore(release): vX.Y.Z" on develop and pushes develop.
 #   4. Opens the pull request "Release vX.Y.Z" with the version's notes (release-notes.sh: the
@@ -141,11 +142,14 @@ fi
 
 # The notes start with the release's own summary, written for the people who use FXM.
 summary=$(fxm_release_summary_file "$version")
-if fxm_release_has_summary "$version"; then
-  pass "$summary has the release's summary"
-else
+if ! fxm_release_has_summary "$version"; then
   problem "$summary is missing or empty: write the release's summary for the people who use" \
     "FXM (docs/WORKFLOW.md, \"Releases\"), then commit and push it on develop"
+elif fxm_release_summary_is_draft "$version"; then
+  problem "$summary is still a draft: check it against what $tag ships, delete its" \
+    "'<!-- draft' line, then commit and push it on develop"
+else
+  pass "$summary has the release's summary"
 fi
 
 gh_ready=false
