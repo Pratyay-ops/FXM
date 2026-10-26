@@ -112,6 +112,7 @@ describe('@fxm/platform', () => {
       'resolveCapabilities',
       'sandboxDocumentHeader',
       'sandboxDocumentPolicy',
+      'serviceHostRule',
       'siteOrigin',
       'systemClock',
       'takeScript',
