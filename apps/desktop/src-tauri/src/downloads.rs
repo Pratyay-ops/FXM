@@ -45,6 +45,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
         mpsc,
     },
+    time::Duration,
 };
 
 use base64::Engine as _;
@@ -95,6 +96,11 @@ pub const MAX_RANGE_BYTES: u64 = 1024 * 1024;
 pub const EXTENSIONS: &[&str] = &[
     "webm", "weba", "m4a", "mp4", "mp3", "ogg", "oga", "opus", "flac", "wav", "aac",
 ];
+
+/// How old a copy left half saved must be before a start deletes it: older than any save takes,
+/// so a start never deletes a copy another FXM is still saving (the smoke build's, say, which has
+/// an identifier of its own but the same default folder).
+const UNFINISHED_SAVE_AGE: Duration = Duration::from_secs(60 * 60);
 
 /// The longest name, in characters, a file gets before its number and extension.
 const MAX_STEM_CHARS: usize = 150;
@@ -355,7 +361,8 @@ pub struct Downloads {
 impl Downloads {
     /// Loads the choice of folder and the index from `state_file`. A missing or damaged file gives
     /// the default folder and an empty index, and entries that aren't FXM's names or absolute
-    /// paths are dropped. Copies left half saved by an FXM that stopped are deleted.
+    /// paths are dropped. Copies left half saved by an FXM that stopped go once they are an hour
+    /// old.
     pub fn load(state_file: PathBuf, default_folder: Option<PathBuf>) -> Self {
         let stored = fs::read(&state_file)
             .ok()
@@ -410,7 +417,8 @@ impl Downloads {
             } else {
                 Err(CommandError::new(
                     "folder-missing",
-                    "The downloads folder you chose is missing. Connect its drive, or choose another folder in Settings.",
+                    "The downloads folder you chose is missing. Connect its drive, or choose \
+                     another folder in Settings.",
                 ))
             };
         }
@@ -463,7 +471,8 @@ impl Downloads {
         fs::rename(&partial, file).map_err(|error| failed(&error))
     }
 
-    /// Deletes copies left half saved in the current folder by an FXM that stopped.
+    /// Deletes copies left half saved in the current folder by an FXM that stopped, once they are
+    /// older than [`UNFINISHED_SAVE_AGE`].
     fn delete_unfinished_saves(&self) {
         let inner = self.lock();
         let Some(folder) = self.current_folder(&inner) else {
@@ -473,9 +482,15 @@ impl Downloads {
             return;
         };
         for entry in entries.flatten() {
-            let name = entry.file_name();
-            if name.to_string_lossy().ends_with(SAVE_SUFFIX) && is_file(&entry.path()) {
-                let _ = fs::remove_file(entry.path());
+            let path = entry.path();
+            let stale = fs::symlink_metadata(&path)
+                .ok()
+                .filter(|metadata| metadata.is_file())
+                .and_then(|metadata| metadata.modified().ok())
+                .and_then(|modified| modified.elapsed().ok())
+                .is_some_and(|age| age >= UNFINISHED_SAVE_AGE);
+            if stale && entry.file_name().to_string_lossy().ends_with(SAVE_SUFFIX) {
+                let _ = fs::remove_file(path);
             }
         }
     }
@@ -782,7 +797,8 @@ impl Downloads {
             .map_err(|error| io_error(error, "create the folder for downloads"))?;
         inner.next_save += 1;
         let id = inner.next_save;
-        let temp = partial.join(format!(".{id}{SAVE_SUFFIX}"));
+        // The process in the name, so two FXMs saving at once never share a file.
+        let temp = partial.join(format!(".{}-{id}{SAVE_SUFFIX}", std::process::id()));
         let file = File::create(&temp).map_err(|error| io_error(error, "start the copy"))?;
         let file_name = free_name(&folder, &stem, &extension);
         inner.saves.insert(
@@ -1845,7 +1861,7 @@ mod tests {
     }
 
     #[test]
-    fn copies_left_half_saved_go_at_the_next_start() {
+    fn copies_left_half_saved_go_at_a_later_start() {
         let temp = TempFolder::new("unfinished");
         let state = temp.path().join(STATE_FILE);
         let default = default_folder_of(&temp);
@@ -1854,10 +1870,23 @@ mod tests {
         downloads.save_write(started.id, 0, b"half").unwrap();
         download(&downloads, "abc", b"a download on its way");
         drop(downloads);
-        let restarted = Downloads::load(state, Some(default.clone()));
-        assert_eq!(entries(&default.join(PARTIAL_FOLDER)), ["abc"]);
+        let partial = default.join(PARTIAL_FOLDER);
+        let saving = format!(".{}-{}{SAVE_SUFFIX}", std::process::id(), started.id);
+        // A copy saved just now may be another FXM's, still on its way: it stays.
+        let restarted = Downloads::load(state.clone(), Some(default.clone()));
+        assert_eq!(entries(&partial), [saving.as_str(), "abc"]);
+        // An old one goes.
+        File::options()
+            .write(true)
+            .open(partial.join(&saving))
+            .unwrap()
+            .set_modified(std::time::SystemTime::now() - 2 * UNFINISHED_SAVE_AGE)
+            .unwrap();
+        drop(restarted);
+        let later = Downloads::load(state, Some(default.clone()));
+        assert_eq!(entries(&partial), ["abc"]);
         assert_eq!(
-            restarted.list().unwrap(),
+            later.list().unwrap(),
             Listing {
                 partial: vec!["abc".into()],
                 named: vec![]
@@ -2117,7 +2146,10 @@ mod tests {
     #[test]
     fn the_partial_folder_is_hidden_and_saves_are_never_download_names() {
         assert!(PARTIAL_FOLDER.starts_with('.'));
-        assert!(!is_safe_name(&format!(".1{SAVE_SUFFIX}")));
+        assert!(!is_safe_name(&format!(
+            ".{}-1{SAVE_SUFFIX}",
+            std::process::id()
+        )));
         assert!(is_partial(Path::new("/music/FXM/.fxm-partial/abc")));
         assert!(!is_partial(Path::new("/music/FXM/Song.mp3")));
     }
