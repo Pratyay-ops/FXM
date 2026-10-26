@@ -1,58 +1,21 @@
 import { APP_NAME, APP_TAGLINE, APP_VERSION } from '@fxm/core'
 import { ExternalLink } from 'lucide-react'
-import { type ReactNode, useId } from 'react'
+import { useId } from 'react'
 import { buttonClasses } from '../../components/ui/button'
 import { LogoMark } from '../../components/ui/logo'
 import { PageTitle } from '../../components/ui/page'
 import { SegmentedControl } from '../../components/ui/segmented-control'
+import { SpotifySwitchControl, SpotifySwitchHelp } from '../search/spotify-setting'
+import { SponsorBlockCredit, SponsorBlockSetting } from '../sponsorblock/sponsorblock-setting'
 import { SyncSettings } from '../sync/sync-settings'
 import { CatalogModeControl } from './catalog-mode-control'
 import { CATALOG_MODE_DESCRIPTIONS, THEME_OPTIONS } from './options'
+import { ASSUMED_CAPABILITIES } from './quality-options'
+import { QualitySection } from './quality-section'
+import { SettingRow, SettingsSection } from './settings-layout'
 import { useSettingsStore } from './settings-store'
 
 export const REPOSITORY_URL = 'https://github.com/Pratyay-ops/FXM'
-
-function SettingsSection({ title, children }: { title: string; children: ReactNode }) {
-  const headingId = useId()
-  return (
-    <section aria-labelledby={headingId} className="space-y-3">
-      <h2 id={headingId} className="px-1 text-lg font-bold tracking-tight">
-        {title}
-      </h2>
-      <div className="divide-y divide-border rounded-xl border border-border bg-surface">
-        {children}
-      </div>
-    </section>
-  )
-}
-
-/**
- * One setting: a label with optional help beside its control. Phones stack them as
- * label, control, help, so help whose length changes with the value (catalog mode)
- * never moves the control under the user's finger.
- */
-function SettingRow({
-  label,
-  labelId,
-  help,
-  children,
-}: {
-  label: string
-  labelId: string
-  help?: ReactNode
-  children: ReactNode
-}) {
-  return (
-    // From 768px: label and help (up to 20rem, narrower if needed) left, the whole control right.
-    <div className="grid gap-3 p-4 sm:p-5 md:grid-cols-[minmax(0,20rem)_max-content] md:grid-rows-[auto_1fr] md:justify-between md:gap-x-8 md:gap-y-1">
-      <p id={labelId} className="font-semibold md:col-start-1 md:row-start-1">
-        {label}
-      </p>
-      <div className="min-w-0 md:col-start-2 md:row-span-2 md:row-start-1">{children}</div>
-      {help && <div className="md:col-start-1 md:row-start-2">{help}</div>}
-    </div>
-  )
-}
 
 export function SettingsPage() {
   const catalogMode = useSettingsStore((state) => state.catalogMode)
@@ -61,6 +24,8 @@ export function SettingsPage() {
   const modeLabelId = useId()
   const modeHelpId = useId()
   const themeLabelId = useId()
+  const spotifyLabelId = useId()
+  const spotifyHelpId = useId()
 
   return (
     <div className="max-w-3xl space-y-8 pt-2 md:pt-4">
@@ -82,7 +47,25 @@ export function SettingsPage() {
             className="w-full md:w-auto"
           />
         </SettingRow>
+        <SponsorBlockSetting />
       </SettingsSection>
+
+      <SettingsSection title="Sources">
+        <SettingRow
+          label="Spotify"
+          labelId={spotifyLabelId}
+          help={<SpotifySwitchHelp id={spotifyHelpId} />}
+        >
+          <SpotifySwitchControl
+            labelledBy={spotifyLabelId}
+            describedBy={spotifyHelpId}
+            className="w-full md:w-auto"
+          />
+        </SettingRow>
+      </SettingsSection>
+
+      {/* The platform's capabilities once the app has them (stage 2.9). */}
+      <QualitySection capabilities={ASSUMED_CAPABILITIES} />
 
       <SettingsSection title="Appearance">
         <SettingRow
@@ -133,6 +116,7 @@ export function SettingsPage() {
             <span className="sr-only">(opens in a new tab)</span>
           </a>
         </div>
+        <SponsorBlockCredit />
       </SettingsSection>
     </div>
   )

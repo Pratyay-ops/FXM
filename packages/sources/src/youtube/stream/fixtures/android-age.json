@@ -1,0 +1,20 @@
+{
+  "responseContext": {
+    "visitorData": "CgtGWE1fZml4dHVyZSiAgICAgICAgIAB"
+  },
+  "playabilityStatus": {
+    "status": "LOGIN_REQUIRED",
+    "reason": "This video may be inappropriate for some users.",
+    "reasonTitle": "You must sign in to view this video",
+    "desktopLegacyAgeGateReason": 1
+  },
+  "videoDetails": {
+    "videoId": "HtVdAasjOgU",
+    "title": "The Witcher 3: Wild Hunt - The Sword Of Destiny Trailer",
+    "lengthSeconds": "142",
+    "channelId": "UCzybXLxv08IApdjdN0mJhEg",
+    "author": "The Witcher",
+    "isLiveContent": false,
+    "isPrivate": false
+  }
+}
