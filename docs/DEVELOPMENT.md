@@ -94,7 +94,7 @@ A release goes from `develop` to `main` through a pull request, and a workflow p
 
 | Command | What it does |
 |---|---|
-| `make release-pr VERSION=x.y.z DRY_RUN=1` | Run every check and print the plan and the release notes. Changes, commits and pushes nothing |
+| `make release-pr VERSION=x.y.z DRY_RUN=1` | Run every check and print the plan and the release notes. Changes, commits and pushes nothing. One check makes the release commit's changes in a temporary worktree and runs `make lint` and the release script tests there, which takes a minute or two |
 | `make release-pr VERSION=x.y.z` | On a clean `develop` equal to `origin/develop`, with the release's summary in `docs/releases/vX.Y.Z.md`: set the version, regenerate `CHANGELOG.md`, commit `chore(release): vX.Y.Z`, push `develop` and open the pull request "Release vX.Y.Z" into `main`. It prints the URL and never merges. Run again with the version `develop` already has, it updates that release: `CHANGELOG.md`, the pull request's notes, or the pull request itself if it was closed |
 | `make release-notes` | Print the notes of the changes since the last release (`VERSION=x.y.z`: the notes of that release, its summary first) |
 | `make release-build` | Build what a release ships into `dist/release/`, with `SHA256SUMS`: the web zip, which is `make dist`'s `dist/pages/` (what Cloudflare Pages serves), and the FXM Connect zips. Every package must have the release version, as on `main` and on `develop` after `make release-pr`. To try it before then, run `scripts/release-version.sh x.y.z` and the build in a throwaway worktree (`make wt-new`), and never commit that change. Needs `zip` (preinstalled on macOS; `sudo apt install zip` on Debian and Ubuntu) |

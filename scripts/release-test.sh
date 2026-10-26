@@ -162,12 +162,22 @@ write_pnpm_stub() {
 # make started, and so on). make dist's command replaces dist/pages with a copy of
 # $PNPM_STUB_DIR/pages, modes and dates included; FXM Connect's build writes its two zips, named
 # with its package.json's version. While $PNPM_STUB_DIR/no-match exists, it does what pnpm does
-# when a filter matches no package: nothing, successfully.
+# when a filter matches no package: nothing, successfully. The install and the lint that
+# release-pr.sh runs on the release commit log where they run, and fail while install-fails or
+# lint-fails exists there.
 set -euo pipefail
 state=${PNPM_STUB_DIR:?}
 printf '%s (make level %s)\n' "$*" "${MAKELEVEL:-0}" >>"$state/calls.log"
 [ ! -e "$state/no-match" ] || exit 0
 case " $* " in
+  *" install --frozen-lockfile "*)
+    printf 'install in %s\n' "$PWD" >>"$state/calls.log"
+    [ ! -e "$state/install-fails" ] || { echo "ERR_PNPM_OUTDATED_LOCKFILE" >&2 && exit 1; }
+    ;;
+  *" run lint "*)
+    printf 'lint in %s\n' "$PWD" >>"$state/calls.log"
+    [ ! -e "$state/lint-fails" ] || { echo "Found 1 error." >&2 && exit 1; }
+    ;;
   *" --filter @fxm/deploy dist "*)
     rm -rf dist/pages
     mkdir -p dist
@@ -186,14 +196,31 @@ STUB
   chmod +x "$1"
 }
 
+write_release_test_stub() {
+  cat >"$1" <<'STUB'
+#!/usr/bin/env bash
+# Stand-in for scripts/release-test.sh in the throwaway repositories, where release-pr.sh runs it
+# on the release commit: logs to $PNPM_STUB_DIR/calls.log where it runs, the version there and
+# the changelog's newest release, and fails while $PNPM_STUB_DIR/release-test-fails exists.
+set -euo pipefail
+state=${PNPM_STUB_DIR:?}
+version=$(node -p 'require("./package.json").version')
+newest=$(grep -m1 '^## \[' CHANGELOG.md | cut -d']' -f1 || true)
+printf 'release-test in %s: version %s, changelog %s]\n' "$PWD" "$version" "$newest" \
+  >>"$state/calls.log"
+[ ! -e "$state/release-test-fails" ] || { echo "1 of 9 release script tests failed" >&2 && exit 1; }
+STUB
+  chmod +x "$1"
+}
+
 package_json() { # <file> <name> <version>
   mkdir -p "$(dirname "$1")"
   printf '{\n  "name": "%s",\n  "version": "%s",\n  "private": true\n}\n' "$2" "$3" >"$1"
 }
 
 # new_repo <name>: a repository like FXM's, as far as the release scripts look, with this
-# checkout's Makefile and scripts and an origin. Prints its path. The stub's state is in
-# <name>/gh.
+# checkout's Makefile and scripts and an origin, and a stand-in for the release script tests.
+# Prints its path. The gh stub's state is in <name>/gh.
 new_repo() {
   local root=$tmp/$1 work=$tmp/$1/work
   mkdir -p "$root/gh" "$work/scripts" "$work/.tools/bin" "$work/packages/core/src"
@@ -204,6 +231,8 @@ new_repo() {
   cp "$FXM_ROOT/Makefile" "$FXM_ROOT/cliff.toml" "$FXM_ROOT/cliff.notes.toml" "$work/"
   # The repository's changelog without its release sections, which every release adds to.
   awk '/^## \[/ { exit } { print }' "$FXM_ROOT/CHANGELOG.md" >"$work/CHANGELOG.md"
+  # release-pr.sh runs the release script tests on the release commit; these would start again.
+  write_release_test_stub "$work/scripts/release-test.sh"
   ln -s "$cliff" "$work/.tools/bin/git-cliff"
   write_gh_stub "$work/.tools/bin/gh"
   printf '/.tools/\n' >"$work/.gitignore"
@@ -415,7 +444,9 @@ expect "says so when nothing notable changed" has "$notes" "No notable changes."
 
 echo "release-pr.sh"
 work=$(new_repo pr)
-export GH_STUB_DIR=$tmp/pr/gh
+export GH_STUB_DIR=$tmp/pr/gh PNPM_STUB_DIR=$tmp/pr/pnpm
+mkdir -p "$PNPM_STUB_DIR"
+write_pnpm_stub "$work/.tools/bin/pnpm"
 git -C "$work" switch -q -c develop
 commit "$work" "feat(core): add a thing"
 mkdir -p "$work/docs/releases"
@@ -488,12 +519,43 @@ if [ "$status" -eq 0 ] && says "every check passed" && says "Add a thing" && unc
 else
   bad "DRY_RUN=1 prints the plan and the notes and changes nothing"
 fi
+checks=$PNPM_STUB_DIR/calls.log
+# The folder the release script tests ran in, as their stand-in logged it last.
+checked_in() { sed -n 's/^release-test in \(.*\): version .*/\1/p' "$checks" | tail -1; }
+checked_release_commit() {
+  grep -q "^install in $(checked_in)\$" "$checks" && grep -q "^lint in $(checked_in)\$" "$checks" &&
+    grep -q ': version 0.1.0, changelog ## \[0.1.0\]$' "$checks"
+}
+expect "DRY_RUN=1 checks the release commit: its install, make lint and the release tests" \
+  checked_release_commit
+expect "with the lockfile frozen" grep -q '^install --frozen-lockfile' "$checks"
+in_temporary_worktree() {
+  [ -n "$(checked_in)" ] && [ "$(checked_in)" != "$work" ] && [ ! -e "$(checked_in)" ] &&
+    [ "$(git -C "$work" worktree list | wc -l | tr -d ' ')" = 1 ]
+}
+expect "in a temporary worktree, which it removes" in_temporary_worktree
+expect "and says how many entries the changelog gets" says "v0.1.0 gets 3 entries"
 echo stray >"$work/stray.txt"
 run "$work" env DRY_RUN=1 scripts/release-pr.sh 0.1.0
 dry_status=$status
 expect "DRY_RUN=1 reports failed checks instead of stopping" \
   test "$dry_status" -eq 0 -a -n "$(grep 'would stop a real run' <<<"$out")"
 rm "${work:?}/stray.txt"
+touch "$PNPM_STUB_DIR/lint-fails"
+run "$work" env DRY_RUN=1 scripts/release-pr.sh 0.1.0
+expect "DRY_RUN=1 reports a release commit that fails make lint" test "$status" -eq 0 \
+  -a -n "$(grep 'fails make lint' <<<"$out")" -a -n "$(grep 'would stop a real run' <<<"$out")" \
+  -a -n "$(grep 'Found 1 error.' <<<"$out")"
+rm "$PNPM_STUB_DIR/lint-fails"
+touch "$PNPM_STUB_DIR/install-fails"
+run "$work" env DRY_RUN=1 scripts/release-pr.sh 0.1.0
+expect "or whose dependencies don't install from the lockfile" test "$status" -eq 0 \
+  -a -n "$(grep "don't install from the lockfile" <<<"$out")"
+rm "$PNPM_STUB_DIR/install-fails"
+touch "$PNPM_STUB_DIR/release-test-fails"
+refuses "a release commit that fails the release script tests" "fails the release script tests"
+expect "and removes its worktree then too" in_temporary_worktree
+rm "$PNPM_STUB_DIR/release-test-fails"
 run "$work" scripts/release-pr.sh 0.1.0
 expect "a real run succeeds" test "$status" -eq 0
 expect "commits chore(release) on develop" \

@@ -3,8 +3,9 @@
 #
 #   1. Checks that develop is checked out, clean, equal to origin/develop and contains
 #      origin/main and every release tag; that the version is higher than the current one, has
-#      no tag and has a summary (docs/releases/vX.Y.Z.md); and that no release pull request is
-#      open.
+#      no tag and has a summary (docs/releases/vX.Y.Z.md); that no release pull request is open;
+#      and that the release commit passes make lint and the release script tests, by making its
+#      changes in a temporary worktree and running them there.
 #   2. Sets the version everywhere (release-version.sh) and regenerates CHANGELOG.md (git-cliff).
 #   3. Commits "chore(release): vX.Y.Z" on develop and pushes develop.
 #   4. Opens the pull request "Release vX.Y.Z" with the version's notes (release-notes.sh: the
@@ -35,16 +36,26 @@ if fxm_release_flag DRY_RUN "${DRY_RUN:-}"; then dry_run=true; fi
 tag=v$version
 cd "$FXM_ROOT"
 
-work=$(mktemp -d)
+work=$(cd "$(mktemp -d)" && pwd -P)
+# The temporary worktree the release commit's checks run in (check_release_commit below).
+release_commit=$work/release-commit
 step=checks
 finish() {
-  local status=$?
+  local status=$? worktrees
+  worktrees=$(git worktree list --porcelain 2>/dev/null || true)
+  if grep -qxF "worktree $release_commit" <<<"$worktrees" &&
+    ! git worktree remove --force "$release_commit" 2>/dev/null; then
+    fxm_warn "Could not remove the temporary worktree $release_commit: git worktree prune drops it"
+  fi
   rm -rf "$work"
   if [ "$status" -ne 0 ] && [ "$step" = changes ]; then
     fxm_warn "Stopped before the release commit. Undo its changes with: git restore --staged --worktree ."
   fi
 }
 trap finish EXIT
+# An interrupted run cleans up too.
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 problems=0
 pass() { printf '  \033[32m✔\033[0m %s\n' "$*"; }
@@ -161,6 +172,52 @@ else
   fxm_die "could not install git-cliff"
 fi
 
+# The release commit's own checks. CI runs make check and make release-check on the commit this
+# script makes, and its changes alone, the versions and CHANGELOG.md, can break them: the
+# generated changelog may trip a lint rule, or a test that reads it. So the same changes go into
+# a temporary worktree of HEAD, which gets the dependencies from the lockfile, and make lint and
+# the release script tests run there; the checkout itself stays untouched. A real run skips this
+# when another check failed already, since it stops anyway.
+release_log=$work/release-commit.log
+changelog_entries=
+show_release_log() { tail -15 "$release_log" | sed 's/^/      | /'; }
+check_release_commit() {
+  local where="the release commit (checked in a temporary worktree)"
+  if ! git worktree add --quiet --detach "$release_commit" HEAD >"$release_log" 2>&1; then
+    problem "could not add a temporary worktree to check the release commit in"
+    show_release_log
+    return
+  fi
+  if ! (cd "$release_commit" && scripts/release-version.sh "$version" &&
+    scripts/release-notes.sh --changelog "$version") >"$release_log" 2>&1; then
+    problem "could not make $where: release-version.sh or release-notes.sh --changelog failed"
+    show_release_log
+    return
+  fi
+  changelog_entries=$(awk -v start="## [$version]" \
+    'index($0, start) == 1 { on = 1; next } /^## / { on = 0 } on && /^- /' \
+    "$release_commit/CHANGELOG.md" | wc -l | tr -d ' ')
+  if ! (cd "$release_commit" && scripts/run.sh pnpm install --frozen-lockfile --prefer-offline) \
+    >"$release_log" 2>&1; then
+    problem "the dependencies of $where don't install from the lockfile (pnpm install --frozen-lockfile)"
+    show_release_log
+    return
+  fi
+  if (cd "$release_commit" && make lint) >"$release_log" 2>&1; then
+    pass "$where passes make lint"
+  else
+    problem "$where fails make lint"
+    show_release_log
+  fi
+  if (cd "$release_commit" && scripts/release-test.sh) >"$release_log" 2>&1; then
+    pass "$where passes the release script tests"
+  else
+    problem "$where fails the release script tests (scripts/release-test.sh)"
+    show_release_log
+  fi
+}
+if $dry_run || [ "$problems" -eq 0 ]; then check_release_commit; fi
+
 if ! $dry_run && [ "$problems" -gt 0 ]; then
   fxm_die "$problems check(s) failed: fix them and run make release-pr again"
 fi
@@ -191,7 +248,7 @@ if $dry_run; then
     echo "  1. Set the version (scripts/release-version.sh $version):"
   fi
   "$here/release-version.sh" --dry-run "$version" | sed 's/^/   /'
-  echo "  2. Regenerate CHANGELOG.md with git-cliff"
+  echo "  2. Regenerate CHANGELOG.md with git-cliff${changelog_entries:+: $tag gets $changelog_entries entries}"
   if $update; then
     echo "  3. If either changed, commit \"chore(release): $tag\" on develop and push develop"
   else
