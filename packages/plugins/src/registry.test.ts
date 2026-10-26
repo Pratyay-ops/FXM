@@ -1,14 +1,21 @@
 import { formatId } from '@fxm/core'
 import { memoryStorage } from '@fxm/platform'
-import { createFakeClock, createInProcessEvaluator } from '@fxm/platform/testing'
+import { createFakeClock } from '@fxm/platform/testing'
 import { describe, expect, it } from 'vitest'
 import { isPluginError } from './errors'
 import { parseManifest } from './manifest'
 import { createPluginFile, type DownloadFetch } from './package'
-import { budgetKey, createPluginRegistry, memoryPluginStore, type StoredPlugin } from './registry'
-import { isolatedSandboxes } from './sandboxes'
+import {
+  budgetKey,
+  createPluginRegistry,
+  type PluginStore,
+  pluginReserves,
+  type StoredPlugin,
+} from './registry'
 import {
   fakeCatalogFetch,
+  inProcessSandboxes,
+  memoryPluginStore,
   TEST_CATALOG_HOST,
   TEST_MEDIA_HOST,
   TEST_PLUGIN_CODE,
@@ -20,14 +27,16 @@ import {
 const T0 = Date.UTC(2026, 9, 26, 9)
 const T1 = formatId('plugin.test-catalog', 'track', 't1')
 
-function setup(initial: StoredPlugin[] = [], appVersion = '1.0.0') {
-  const store = memoryPluginStore(initial)
+function setup(
+  initial: StoredPlugin[] = [],
+  appVersion = '1.0.0',
+  store: PluginStore = memoryPluginStore(initial),
+) {
   const clock = createFakeClock(T0)
   const budgetStorage = memoryStorage()
   let documents = 0
-  const sandboxes = isolatedSandboxes(() => {
+  const sandboxes = inProcessSandboxes(() => {
     documents += 1
-    return createInProcessEvaluator()
   })
   const registry = createPluginRegistry({ store, sandboxes, budgetStorage, clock, appVersion })
   let changes = 0
@@ -77,6 +86,15 @@ function site(url: string, initial: string) {
   }
 }
 
+async function failure(work: () => Promise<unknown>): Promise<unknown> {
+  try {
+    await work()
+  } catch (error) {
+    return error
+  }
+  return undefined
+}
+
 const ADDRESS = 'https://plugins.example.org/test-catalog.fxmplugin.json'
 
 describe('the plugin registry', () => {
@@ -84,7 +102,7 @@ describe('the plugin registry', () => {
     const { registry, store, changes } = setup()
     await registry.load()
     expect(registry.entries()).toEqual([])
-    const offer = registry.offerFromFile(testPluginFile(), 'test-catalog.fxmplugin.json')
+    const offer = await registry.offerFromFile(testPluginFile(), 'test-catalog.fxmplugin.json')
     expect(offer).toMatchObject({
       addedHosts: [TEST_CATALOG_HOST, TEST_MEDIA_HOST],
       removedHosts: [],
@@ -97,12 +115,14 @@ describe('the plugin registry', () => {
     const entry = await registry.install(offer)
     expect(entry).toMatchObject({
       id: 'test-catalog',
+      name: 'Test Catalog',
+      version: '1.0.0',
       enabled: true,
       installedAt: T0,
       updatedAt: T0,
       origin: { kind: 'file', name: 'test-catalog.fxmplugin.json' },
     })
-    expect(entry).not.toHaveProperty('problem')
+    expect(entry.problem).toBeUndefined()
     expect(await store.list()).toHaveLength(1)
     expect(registry.providers().map((providers) => providers.source)).toEqual([
       'plugin.test-catalog',
@@ -114,7 +134,7 @@ describe('the plugin registry', () => {
   it('runs the installed plugin’s providers in their own document', async () => {
     const { registry, documents } = setup()
     await registry.load()
-    await registry.install(registry.offerFromFile(testPluginFile(), 'x.json'))
+    await registry.install(await registry.offerFromFile(testPluginFile(), 'x.json'))
     const providers = registry.providers()[0]
     expect(documents()).toBe(0)
     const track = await providers?.metadata?.getTrack(T1, testContext(fakeCatalogFetch()))
@@ -125,22 +145,16 @@ describe('the plugin registry', () => {
   it('offers only higher versions, and shows what an update changes', async () => {
     const { registry } = setup([stored()])
     await registry.load()
-    const same = (() => {
-      try {
-        return registry.offerFromFile(testPluginFile(), 'x.json')
-      } catch (error) {
-        return error
-      }
-    })()
+    const same = await failure(() => registry.offerFromFile(testPluginFile(), 'x.json'))
     expect(isPluginError(same, 'not-newer')).toBe(true)
     expect((same as Error).message).toBe('Test Catalog 1.0.0 is already installed')
     for (const older of [{ version: '0.9.0' }, { version: '1.0.0', description: 'changed' }]) {
       const code = `${TEST_PLUGIN_CODE}\n// ${JSON.stringify(older)}`
-      expect(() => registry.offerFromFile(testPluginFile(older, code), 'x.json')).toThrow(
+      await expect(registry.offerFromFile(testPluginFile(older, code), 'x.json')).rejects.toThrow(
         /FXM installs only a higher version/u,
       )
     }
-    const update = registry.offerFromFile(
+    const update = await registry.offerFromFile(
       testPluginFile({
         version: '1.1.0',
         hosts: [TEST_CATALOG_HOST, 'images.example.org'],
@@ -148,7 +162,7 @@ describe('the plugin registry', () => {
       }),
       'x.json',
     )
-    expect(update.current?.manifest.version).toBe('1.0.0')
+    expect(update.current?.version).toBe('1.0.0')
     expect(update.addedHosts).toEqual(['images.example.org'])
     expect(update.removedHosts).toEqual([TEST_MEDIA_HOST])
     expect(update.addedOperations).toEqual([])
@@ -162,6 +176,18 @@ describe('the plugin registry', () => {
     ])
   })
 
+  it('compares a file with the stored copies even before anything loaded them', async () => {
+    const { registry } = setup([stored()])
+    const update = await registry.offerFromFile(
+      testPluginFile({ version: '1.1.0' }, `${TEST_PLUGIN_CODE}// 1.1.0`),
+      'x.json',
+    )
+    expect(update.current?.version).toBe('1.0.0')
+    await expect(registry.offerFromFile(testPluginFile(), 'x.json')).rejects.toMatchObject({
+      pluginCode: 'not-newer',
+    })
+  })
+
   it('replaces the installed version with an approved update, in a new document', async () => {
     const { registry, documents } = setup([stored()])
     await registry.load()
@@ -171,10 +197,9 @@ describe('the plugin registry', () => {
     expect(documents()).toBe(1)
     const code = `${TEST_PLUGIN_CODE}\n// 1.1.0`
     const entry = await registry.install(
-      registry.offerFromFile(testPluginFile({ version: '1.1.0' }, code), 'new.json'),
+      await registry.offerFromFile(testPluginFile({ version: '1.1.0' }, code), 'new.json'),
     )
-    expect(entry).toMatchObject({ installedAt: T0 - 1000, updatedAt: T0 })
-    expect(entry.manifest.version).toBe('1.1.0')
+    expect(entry).toMatchObject({ installedAt: T0 - 1000, updatedAt: T0, version: '1.1.0' })
     await expect(before?.metadata?.getTrack(T1, ctx)).rejects.toMatchObject({
       pluginCode: 'disabled',
     })
@@ -185,18 +210,49 @@ describe('the plugin registry', () => {
   it('checks again at install time, so a stale offer can’t downgrade', async () => {
     const { registry } = setup([stored()])
     await registry.load()
-    const stale = registry.offerFromFile(
+    const stale = await registry.offerFromFile(
       testPluginFile({ version: '1.1.0' }, `${TEST_PLUGIN_CODE}//a`),
       'a.json',
     )
     await registry.install(
-      registry.offerFromFile(
+      await registry.offerFromFile(
         testPluginFile({ version: '1.2.0' }, `${TEST_PLUGIN_CODE}//b`),
         'b.json',
       ),
     )
     await expect(registry.install(stale)).rejects.toMatchObject({ pluginCode: 'not-newer' })
-    expect(registry.entries()[0]?.manifest.version).toBe('1.2.0')
+    expect(registry.entries()[0]?.version).toBe('1.2.0')
+  })
+
+  it('checks the package itself again at install time, so a hand-built offer gets nowhere', async () => {
+    const { registry, store } = setup()
+    await registry.load()
+    const offer = await registry.offerFromFile(testPluginFile(), 'x.json')
+    for (const [forged, code] of [
+      [
+        { ...offer, package: { ...offer.package, code: `${TEST_PLUGIN_CODE}// more` } },
+        'checksum-mismatch',
+      ],
+      [
+        {
+          ...offer,
+          package: {
+            ...offer.package,
+            manifest: { ...offer.package.manifest, hosts: ['open.spotify.com'] },
+          },
+        },
+        'invalid-manifest',
+      ],
+      [
+        { ...offer, package: { ...offer.package, origin: { kind: 'url', url: 'javascript:1' } } },
+        'invalid-file',
+      ],
+    ] as const) {
+      const error = await failure(() => registry.install(forged))
+      expect(isPluginError(error, code), String(error)).toBe(true)
+    }
+    expect(await store.list()).toEqual([])
+    expect(registry.entries()).toEqual([])
   })
 
   it('switches a plugin off and on: off, it has no providers, no hosts and no document', async () => {
@@ -228,7 +284,7 @@ describe('the plugin registry', () => {
     expect(budgetStorage.getItem(budgetKey('test-catalog'))).toBeNull()
   })
 
-  it('lists stored copies that fail the checks with their problem, and never runs them', async () => {
+  it('lists stored copies that can’t run with their problem, as data, and never runs them', async () => {
     const tampered = stored({ code: `${TEST_PLUGIN_CODE}\nfetch('https://evil.example')` })
     const newer = stored(
       { id: 'future' },
@@ -236,20 +292,66 @@ describe('the plugin registry', () => {
     )
     const broken = {
       ...stored({ id: 'broken' }),
-      manifest: { name: 'Broken\nOne', version: 'x' },
+      manifest: { name: 'Broken\nOne', version: '01.0.0' },
     } as unknown as StoredPlugin
     const { registry } = setup([tampered, newer, broken])
     await registry.load()
-    expect(registry.entries().map((entry) => [entry.manifest.name, entry.problem])).toEqual([
-      ['Broken One', 'Its stored copy is damaged: remove it and add it again'],
-      ['Future', 'Future needs FXM 9.0.0 or later; this is FXM 1.0.0'],
-      ['Test Catalog', 'Its stored copy is damaged: remove it and add it again'],
+    expect(registry.entries()).toEqual([
+      expect.objectContaining({
+        id: 'broken',
+        name: 'Broken One',
+        problem: { code: 'damaged', message: expect.any(String) },
+      }),
+      expect.objectContaining({
+        id: 'future',
+        name: 'Future',
+        version: '1.0.0',
+        problem: {
+          code: 'needs-newer-fxm',
+          message: 'Future needs FXM 9.0.0 or later; this is FXM 1.0.0',
+          minFxmVersion: '9.0.0',
+          appVersion: '1.0.0',
+        },
+      }),
+      expect.objectContaining({
+        id: 'test-catalog',
+        problem: expect.objectContaining({ code: 'damaged' }),
+      }),
     ])
+    // Neither the manifest nor a version that isn't one is passed off as real.
+    expect(registry.entries()[0]).not.toHaveProperty('manifest')
+    expect(registry.entries()[0]).not.toHaveProperty('version')
     expect(registry.providers()).toEqual([])
     expect(registry.hosts()).toEqual([])
-    // A damaged copy can be replaced by the same version.
-    const offer = registry.offerFromFile(testPluginFile(), 'fixed.json')
-    expect(offer.current?.problem).toBeDefined()
+  })
+
+  it('checks a stored copy whose code changed again, even with the same length and dates', async () => {
+    const store = memoryPluginStore([stored()])
+    const { registry } = setup([], '1.0.0', store)
+    await registry.load()
+    expect(registry.providers()).toHaveLength(1)
+    // One character changed, nothing else: a damaged or altered copy.
+    const altered = TEST_PLUGIN_CODE.replace('Not in the test catalog', 'Not in the test katalog')
+    expect(altered).toHaveLength(TEST_PLUGIN_CODE.length)
+    await store.put(stored({ code: altered }))
+    await registry.reload()
+    expect(registry.entries()[0]?.problem?.code).toBe('damaged')
+    expect(registry.providers()).toEqual([])
+  })
+
+  it('lets any version replace a plugin that can’t run, which repairs it', async () => {
+    const newer = stored({}, testPluginManifest({ version: '2.0.0', minFxmVersion: '9.0.0' }))
+    const { registry } = setup([newer])
+    await registry.load()
+    expect(registry.entries()[0]?.problem?.code).toBe('needs-newer-fxm')
+    // An older version that runs on this FXM.
+    const older = await registry.offerFromFile(testPluginFile({ version: '1.0.0' }), 'old.json')
+    expect(older.current?.problem?.code).toBe('needs-newer-fxm')
+    expect(older.addedHosts).toEqual([TEST_CATALOG_HOST, TEST_MEDIA_HOST])
+    const entry = await registry.install(older)
+    expect(entry).toMatchObject({ version: '1.0.0' })
+    expect(entry.problem).toBeUndefined()
+    expect(registry.providers()).toHaveLength(1)
   })
 
   it('downloads from an address with its host allowed for the download only', async () => {
@@ -280,13 +382,25 @@ describe('the plugin registry', () => {
     const update = await registry.checkForUpdate('test-catalog', plugins.fetch)
     expect(update).toMatchObject({ removedHosts: [TEST_MEDIA_HOST], addedHosts: [] })
     // Still the installed version until the user approves.
-    expect(registry.entries()[0]?.manifest.version).toBe('1.0.0')
+    expect(registry.entries()[0]?.version).toBe('1.0.0')
     plugins.serve(
       createPluginFile(testPluginManifest({ id: 'other', version: '3.0.0' }), TEST_PLUGIN_CODE),
     )
     await expect(registry.checkForUpdate('test-catalog', plugins.fetch)).rejects.toMatchObject({
       pluginCode: 'id-mismatch',
     })
+  })
+
+  it('offers whatever its address serves for a plugin that can’t run', async () => {
+    const damaged = stored({
+      code: `${TEST_PLUGIN_CODE} `,
+      origin: { kind: 'url', url: ADDRESS },
+    })
+    const { registry } = setup([damaged])
+    const plugins = site(ADDRESS, testPluginFile())
+    const repair = await registry.checkForUpdate('test-catalog', plugins.fetch)
+    expect(repair?.current?.problem?.code).toBe('damaged')
+    expect(repair?.package.manifest.version).toBe('1.0.0')
   })
 
   it('updates a plugin added from a file only from a newer file', async () => {
@@ -310,6 +424,29 @@ describe('the plugin registry', () => {
     expect(registry.providers()).toHaveLength(1)
   })
 
+  it('tries the store again after it failed, so a busy moment at start disables nothing', async () => {
+    const inner = memoryPluginStore([stored()])
+    let busy = true
+    const store: PluginStore = {
+      ...inner,
+      list: () => (busy ? Promise.reject(new Error('IndexedDB is busy')) : inner.list()),
+    }
+    const { registry } = setup([], '1.0.0', store)
+    await expect(registry.load()).rejects.toThrow('IndexedDB is busy')
+    busy = false
+    await registry.load()
+    expect(registry.entries()).toHaveLength(1)
+    // A reload that worked takes the place of a load that didn't.
+    busy = true
+    const again = setup([], '1.0.0', store).registry
+    await expect(again.load()).rejects.toThrow('IndexedDB is busy')
+    busy = false
+    await again.reload()
+    const plugins = site(ADDRESS, testPluginFile({ version: '1.1.0' }, `${TEST_PLUGIN_CODE}//1.1`))
+    const update = await again.offerFromAddress(ADDRESS, plugins.fetch)
+    expect(update.current?.version).toBe('1.0.0')
+  })
+
   it('keeps a plugin running across reads that change nothing', async () => {
     const { registry, documents } = setup([
       stored(),
@@ -324,15 +461,26 @@ describe('the plugin registry', () => {
     expect(documents()).toBe(1)
   })
 
+  it('keeps part of each plugin’s hour for the song that is playing', () => {
+    expect(pluginReserves(120)).toEqual({
+      'current-track': 0,
+      prefetch: 12,
+      interactive: 30,
+      bulk: 60,
+    })
+    // A budget of one request still lets every kind of request use it.
+    expect(pluginReserves(1)).toEqual({ 'current-track': 0, prefetch: 0, interactive: 0, bulk: 0 })
+  })
+
   it('stops everything when disposed', async () => {
     const { registry } = setup([stored()])
     await registry.load()
     registry.dispose()
     expect(registry.providers()).toEqual([])
     expect(registry.hosts()).toEqual([])
-    expect(() => registry.offerFromFile(testPluginFile(), 'x.json')).toThrow(/shut down/u)
     // Changes reject, rather than throw, so a caller's .then() sees them.
     const disabled = { pluginCode: 'disabled' }
+    await expect(registry.offerFromFile(testPluginFile(), 'x.json')).rejects.toMatchObject(disabled)
     await expect(registry.setEnabled('test-catalog', false)).rejects.toMatchObject(disabled)
     await expect(registry.remove('test-catalog')).rejects.toMatchObject(disabled)
     await expect(registry.reload()).rejects.toMatchObject(disabled)

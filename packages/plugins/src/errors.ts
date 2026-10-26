@@ -1,7 +1,13 @@
 /**
- * Typed errors of the plugin system. Every failure is a {@link PluginError}: an `FxmError`
- * whose `code` the app already knows, plus a `pluginCode` that says exactly what went wrong, so
- * the settings page can explain it without parsing messages.
+ * Typed errors of the plugin system. Its failures are {@link PluginError}s: `FxmError`s whose
+ * `code` the app already knows, plus a `pluginCode` that says exactly what went wrong, so the
+ * settings page can explain it without parsing messages.
+ *
+ * The `code` decides what the player does with a failed track (`classifyFailure` of
+ * `@fxm/player`): `Unavailable`, `NotFound` and `GeoBlocked` skip it, `Unsupported` stops the
+ * player until the user acts, and the rest are retried. So a plugin's failures are `Unsupported`
+ * only where plugins can't run or reach anything here: one broken plugin track is skipped, never a
+ * reason to stop the queue.
  *
  * @module
  */
@@ -27,6 +33,8 @@ export const PLUGIN_ERROR_CODES = [
   'timeout',
   'too-many-requests',
   'disabled',
+  'wrong-source',
+  'unreachable',
   'unavailable',
 ] as const
 
@@ -42,20 +50,43 @@ export const PLUGIN_ERROR_CODES = [
  * - `not-newer`: an update whose version is not higher than the installed one
  * - `id-mismatch`: an update that names another plugin
  * - `download-failed`: the manifest or the code could not be downloaded
- * - `load-failed`: the plugin's code threw while it loaded, or registered no handlers
+ * - `load-failed`: the plugin's code does not compile, threw while it loaded, or registered no
+ *   handlers
  * - `not-implemented`: the plugin has no handler for an operation its manifest declares
- * - `plugin-failed`: a handler threw (its own `code`, when it gave a known one, is the error's)
- * - `bad-result`: a handler returned something that is not what the operation returns
- * - `bad-reply`: the evaluator document answered outside the plugin protocol
- * - `timeout`: an operation took longer than its time limit
+ * - `plugin-failed`: a handler threw, or one of its requests broke the plugin's rules (see
+ *   {@link PLUGIN_FAIL_CODES} for the codes a plugin may fail with)
+ * - `bad-result`: a handler returned something that is not what the operation returns, or more
+ *   than a result may hold
+ * - `bad-reply`: the plugin's worker or document answered outside the plugin protocol
+ * - `timeout`: an operation took longer than its time limit, or the plugin stopped answering
  * - `too-many-requests`: an operation asked for more network requests than one may make
  * - `disabled`: the plugin is switched off or was removed
- * - `unavailable`: plugins can't run here (no isolated evaluator on this platform)
+ * - `wrong-source`: a plugin was asked about an entity or a candidate of another source
+ * - `unreachable`: the platform can't reach the plugin's hosts right now (its route for them is
+ *   closed, e.g. without the web app's sandbox documents); the `cause` says what would open it
+ * - `unavailable`: plugins can't run here: no isolated evaluator, or no worker in it
  */
 export type PluginErrorCode = (typeof PLUGIN_ERROR_CODES)[number]
 
+/**
+ * The `FxmError` codes a plugin may fail with (`fxm.fail(code)`): what a source says about one
+ * item or one request. A plugin can't claim a bot check, a login or that FXM can't reach
+ * something here: those are the platform's to report, and they would stop the player. Any other
+ * code becomes `Unavailable`.
+ */
+export const PLUGIN_FAIL_CODES: readonly FxmErrorCode[] = [
+  'NotFound',
+  'Unavailable',
+  'GeoBlocked',
+  'RateLimited',
+  'Network',
+  'Parse',
+  'Expired',
+]
+
 /** The `FxmError` code of each failure, unless the error names another. */
 const FXM_CODES: Readonly<Record<PluginErrorCode, FxmErrorCode>> = {
+  // Adding and updating, where the dialog explains them: never during playback.
   'invalid-manifest': 'Parse',
   'invalid-file': 'Parse',
   'checksum-mismatch': 'Parse',
@@ -65,14 +96,18 @@ const FXM_CODES: Readonly<Record<PluginErrorCode, FxmErrorCode>> = {
   'not-newer': 'Unsupported',
   'id-mismatch': 'Unsupported',
   'download-failed': 'Network',
-  'load-failed': 'Parse',
-  'not-implemented': 'Unsupported',
+  // A plugin's operations: one broken plugin or item is skipped, and slow ones are retried.
+  'load-failed': 'Unavailable',
+  'not-implemented': 'Unavailable',
   'plugin-failed': 'Unavailable',
-  'bad-result': 'Parse',
-  'bad-reply': 'Parse',
+  'bad-result': 'Unavailable',
+  'bad-reply': 'Unavailable',
   timeout: 'Network',
-  'too-many-requests': 'RateLimited',
-  disabled: 'Unsupported',
+  'too-many-requests': 'Unavailable',
+  disabled: 'Unavailable',
+  'wrong-source': 'NotFound',
+  // Plugins can't run or reach anything here: the user must act.
+  unreachable: 'Unsupported',
   unavailable: 'Unsupported',
 }
 

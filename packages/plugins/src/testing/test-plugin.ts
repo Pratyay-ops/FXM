@@ -24,7 +24,7 @@ const API = 'https://catalog.fxm-plugin.test'
 const MEDIA = 'https://media.fxm-plugin.test'
 
 async function get(ctx, path) {
-  const response = await ctx.fetch(API + path, { headers: { accept: 'application/json' } })
+  const response = await ctx.fetch(API + path)
   if (response.status === 404) fxm.fail('NotFound', 'Not in the test catalog')
   if (!response.ok) throw new Error('The test catalog answered ' + response.status)
   return response.json()
@@ -55,38 +55,38 @@ function album(item) {
 }
 
 fxm.register({
-  async search(query, options, ctx) {
-    const cursor = options.cursor ? '&cursor=' + encodeURIComponent(options.cursor) : ''
-    const data = await get(ctx, '/search?q=' + encodeURIComponent(query) + cursor)
+  async search({ query, cursor }, ctx) {
+    const more = cursor ? '&cursor=' + encodeURIComponent(cursor) : ''
+    const data = await get(ctx, '/search?q=' + encodeURIComponent(query) + more)
     return {
       tracks: { items: data.tracks.map(track), nextCursor: data.next },
       albums: data.albums.map(album),
       artists: data.artists.map((item) => ({ id: item.id, name: item.name })),
     }
   },
-  async suggest(query, ctx) {
+  async suggest({ query }, ctx) {
     return (await get(ctx, '/suggest?q=' + encodeURIComponent(query))).suggestions
   },
-  async track(id, ctx) {
+  async track({ id }, ctx) {
     return track(await get(ctx, '/tracks/' + encodeURIComponent(id)))
   },
-  async album(id, ctx) {
+  async album({ id }, ctx) {
     return album(await get(ctx, '/albums/' + encodeURIComponent(id)))
   },
-  async artist(id, ctx) {
+  async artist({ id }, ctx) {
     const data = await get(ctx, '/artists/' + encodeURIComponent(id))
     return { id: data.id, name: data.name, topTracks: data.tracks.map(track) }
   },
-  async playlist(id, options, ctx) {
-    const cursor = options.cursor ? '?cursor=' + encodeURIComponent(options.cursor) : ''
-    const data = await get(ctx, '/playlists/' + encodeURIComponent(id) + cursor)
+  async playlist({ id, cursor }, ctx) {
+    const more = cursor ? '?cursor=' + encodeURIComponent(cursor) : ''
+    const data = await get(ctx, '/playlists/' + encodeURIComponent(id) + more)
     return { id: data.id, name: data.title, tracks: { items: data.tracks.map(track), nextCursor: data.next } }
   },
-  async radio(seed, ctx) {
+  async radio({ seed }, ctx) {
     const data = await get(ctx, '/radio?title=' + encodeURIComponent(seed.title || seed.name))
     return data.tracks.map(track)
   },
-  async match(wanted, ctx) {
+  async match({ track: wanted }, ctx) {
     const data = await get(ctx, '/search?q=' + encodeURIComponent(wanted.title))
     return data.tracks.map((item) => ({
       id: item.id,
@@ -96,7 +96,7 @@ fxm.register({
       confidence: item.title === wanted.title ? 0.9 : 0.3,
     }))
   },
-  async resolve(candidate, ctx) {
+  async resolve({ candidate }, ctx) {
     const [mp3, flac] = await Promise.all([
       get(ctx, '/streams/' + encodeURIComponent(candidate.id) + '?format=mp3'),
       get(ctx, '/streams/' + encodeURIComponent(candidate.id) + '?format=flac'),
@@ -124,7 +124,7 @@ export function testPluginManifest(
     description: 'An invented catalog for FXM’s own tests.',
     author: 'FXM tests',
     license: 'Apache-2.0',
-    minFxmVersion: '0.0.0',
+    minFxmVersion: '0.1.0',
     hosts: [TEST_CATALOG_HOST, TEST_MEDIA_HOST],
     entry: 'plugin.js',
     sha256: sha256Hex(utf8(code)),

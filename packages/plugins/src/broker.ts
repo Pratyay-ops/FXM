@@ -1,63 +1,57 @@
 /**
  * The fetch broker: the only way a plugin reaches the network. A plugin's `ctx.fetch` hands its
- * request to the host (`runtime/document.ts`), and the broker decides:
+ * request to the host (`runtime/worker.ts`), and the broker decides:
  *
  * 1. **Declared hosts only.** The URL must be `https:`, without credentials, on a host the
- *    manifest declares (`host` or `host:port`, exactly). Anything else is refused before a byte
- *    is sent.
- * 2. **A request shape FXM can carry.** `GET`, `HEAD` or `POST`; only the `Accept`,
- *    `Accept-Language`, `Content-Type` and `Range` headers; a text body only on a `POST`, at
- *    most 256 KiB.
- * 3. **The plugin's request budget.** Each request takes a slot from the plugin's own budget,
- *    a `RequestBudget` of `@fxm/platform` (stage 1.2) with the manifest's `requestsPerHour` as
- *    its hourly limit, kept in storage so a reload doesn't reset it. A `429` from one of its
- *    hosts pauses the plugin's requests for the `Retry-After` time, at least a minute and at most
- *    an hour.
+ *    manifest declares (`host` or `host:port`, exactly), and not on a host of FXM's own services
+ *    that the platform reaches with FXM's privileges (`reservedServiceOf`). Anything else is
+ *    refused before a byte is sent.
+ * 2. **What every platform can carry.** Plugin API 1 sends `GET` and `HEAD` only, without request
+ *    headers and without a body: a plugin's hosts are user hosts of the platform, whose route on
+ *    every platform (`@fxm/platform`'s transports) carries exactly that. A later API may widen
+ *    this; narrowing it would break plugins.
+ * 3. **The plugin's request budget.** Each request takes a slot from the plugin's own budget, a
+ *    `RequestBudget` of `@fxm/platform` (stage 1.2) with the manifest's `requestsPerHour` as its
+ *    hourly limit, at the priority of the operation (the stream of a playing song first), kept in
+ *    storage so a reload doesn't reset it. A `429` from one of its hosts pauses the plugin's
+ *    requests for the `Retry-After` time, at least a minute and at most an hour.
  * 4. **The platform's `fetch`.** The request goes out through the `ctx.fetch` of the provider
  *    call, so the platform's own rules apply on top: its host table (a plugin's own hosts are the
- *    user hosts the app passes to `createPlatform`, which go only as `GET` or `HEAD`, without
- *    headers), `credentials: 'omit'`, and the shared YouTube request budget for any request to a
- *    YouTube API host.
+ *    user hosts the app passes to `createPlatform`) and `credentials: 'omit'`.
  * 5. **The answer.** A response that ended on an undeclared host (a redirect) is refused; the
  *    body is read as UTF-8 text, at most 2 MiB, within 20 s.
  *
  * Refusals and failures resolve as failed {@link WireResponse}s, which reject the plugin's
- * `ctx.fetch` with an error naming the reason; only a cancelled caller rejects.
+ * `ctx.fetch` with an error naming the reason; only a cancelled caller rejects. A broken rule is
+ * the plugin's fault and fails with `Unavailable` (the item is skipped); only a route the platform
+ * has closed fails with `Unsupported`, and the broker reports it to the host, which trusts it.
  *
  * @module
  */
 
-import { isFxmError, type ProviderContext } from '@fxm/core'
+import { FXM_ERROR_CODES, type FxmErrorCode, isFxmError, type ProviderContext } from '@fxm/core'
 import {
   type Clock,
   isBudgetError,
   isRouteUnavailable,
   isTransportError,
   type RequestBudget,
+  type RequestPriority,
+  type RouteUnavailableError,
   systemClock,
 } from '@fxm/platform'
 import { fetchWithTimeout } from '@fxm/sources/shared'
-import { cleanText } from './errors'
-import { hostOfUrl } from './manifest'
+import { cleanText, PLUGIN_FAIL_CODES } from './errors'
+import { hostOfUrl, reservedServiceOf } from './manifest'
 import type { WireFailure, WireRequest, WireResponse } from './runtime/protocol'
 
-/** The methods a plugin may use. */
-export const PLUGIN_METHODS = ['GET', 'HEAD', 'POST'] as const
-
-/** The request headers a plugin may send (lower case). Every other header is refused. */
-export const PLUGIN_REQUEST_HEADERS = [
-  'accept',
-  'accept-language',
-  'content-type',
-  'range',
-] as const
+/** The methods a plugin may use (plugin API 1). */
+export const PLUGIN_METHODS = ['GET', 'HEAD'] as const
 
 /** The broker's limits. */
 export interface BrokerLimits {
   /** A response body, in bytes. */
   readonly responseBytes: number
-  /** A request body, in characters. */
-  readonly requestBodyChars: number
   /** One request, body included, in milliseconds. */
   readonly timeoutMs: number
   /** The shortest pause after a `429`, in milliseconds. */
@@ -69,7 +63,6 @@ export interface BrokerLimits {
 /** The defaults of {@link BrokerLimits}. */
 export const BROKER_LIMITS: BrokerLimits = {
   responseBytes: 2 * 1024 * 1024,
-  requestBodyChars: 256 * 1024,
   timeoutMs: 20_000,
   minPauseMs: 60_000,
   maxPauseMs: 60 * 60_000,
@@ -87,13 +80,29 @@ export interface FetchBrokerOptions {
   readonly clock?: Clock
 }
 
+/** What became of one request. */
+export interface BrokerOutcome {
+  /** The answer the plugin gets. */
+  readonly response: WireResponse
+  /**
+   * When the platform refused the request because its route to the host is closed right now
+   * (`RouteUnavailableError`): that error. The host reports the call as `unreachable` then.
+   */
+  readonly closedRoute?: RouteUnavailableError
+}
+
 /** The broker of one plugin. */
 export interface FetchBroker {
   /**
-   * Checks one request and sends it through `ctx.fetch`. Resolves with the response or with why
-   * it failed; rejects only with the reason of `ctx.signal` when the caller cancels.
+   * Checks one request and sends it through `ctx.fetch`, taking a slot of the plugin's budget at
+   * `priority` (default `interactive`). Resolves with the response or with why it failed; rejects
+   * only with the reason of `ctx.signal` when the caller cancels.
    */
-  fetch(request: WireRequest, ctx: ProviderContext): Promise<WireResponse>
+  fetch(
+    request: WireRequest,
+    ctx: ProviderContext,
+    priority?: RequestPriority,
+  ): Promise<BrokerOutcome>
   /** The plugin's request budget. */
   readonly budget: RequestBudget
   /** While a `429` pauses the plugin's requests: when the pause ends, in epoch milliseconds. */
@@ -144,62 +153,55 @@ export function createFetchBroker(options: FetchBrokerOptions): FetchBroker {
   const limits = { ...BROKER_LIMITS, ...options.limits }
   let pausedUntil = 0
 
-  function failed(id: number, error: WireFailure): WireResponse {
-    return { id, ok: false, error }
+  function failed(id: number, error: WireFailure): BrokerOutcome {
+    return { response: { id, ok: false, error } }
   }
 
-  async function send(request: WireRequest, ctx: ProviderContext): Promise<WireResponse> {
+  /** A request that breaks the plugin's rules: the plugin's fault, so the item is skipped. */
+  function refused(id: number, code: string, message: string): BrokerOutcome {
+    return failed(id, { code, fxmCode: 'Unavailable', message })
+  }
+
+  async function send(
+    request: WireRequest,
+    ctx: ProviderContext,
+    priority: RequestPriority,
+  ): Promise<BrokerOutcome> {
     const { id } = request
     let url: URL
     try {
       url = new URL(request.url)
     } catch {
-      return failed(id, {
-        code: 'bad-request',
-        fxmCode: 'Unsupported',
-        message: 'ctx.fetch needs an absolute URL',
-      })
+      return refused(id, 'bad-request', 'ctx.fetch needs an absolute URL')
     }
     const host = hostOfUrl(url)
-    if (host === undefined || !plugin.hosts.includes(host)) {
-      return failed(id, {
-        code: 'host-not-declared',
-        fxmCode: 'Unsupported',
-        message: `${plugin.name} may not contact ${cleanText(url.host, 100) || 'that address'}: its manifest doesn't declare it (only https:// addresses on its declared hosts)`,
-      })
+    if (
+      host === undefined ||
+      !plugin.hosts.includes(host) ||
+      reservedServiceOf(host) !== undefined
+    ) {
+      return refused(
+        id,
+        'host-not-declared',
+        `${plugin.name} may not contact ${cleanText(url.host, 100) || 'that address'}: its manifest doesn't declare it (only https:// addresses on its declared hosts)`,
+      )
     }
     if (!(PLUGIN_METHODS as readonly string[]).includes(request.method)) {
-      return failed(id, {
-        code: 'bad-request',
-        fxmCode: 'Unsupported',
-        message: `ctx.fetch sends GET, HEAD or POST, not ${request.method}`,
-      })
+      return refused(
+        id,
+        'bad-request',
+        `ctx.fetch sends GET or HEAD, not ${cleanText(request.method, 10)}`,
+      )
     }
-    const headers: Record<string, string> = {}
-    for (const [rawName, value] of request.headers) {
-      const name = rawName.toLowerCase()
-      if (!(PLUGIN_REQUEST_HEADERS as readonly string[]).includes(name)) {
-        return failed(id, {
-          code: 'bad-request',
-          fxmCode: 'Unsupported',
-          message: `ctx.fetch may not send the ${cleanText(rawName, 60)} header (only ${PLUGIN_REQUEST_HEADERS.join(', ')})`,
-        })
-      }
-      headers[name] = printable(value, 1024)
+    if (request.headers.length > 0) {
+      return refused(
+        id,
+        'bad-request',
+        `ctx.fetch sends no request headers in plugin API 1 (not ${cleanText(request.headers[0]?.[0] ?? '', 60)})`,
+      )
     }
-    if (request.body !== undefined && request.method !== 'POST') {
-      return failed(id, {
-        code: 'bad-request',
-        fxmCode: 'Unsupported',
-        message: 'Only a POST has a body',
-      })
-    }
-    if (request.body !== undefined && request.body.length > limits.requestBodyChars) {
-      return failed(id, {
-        code: 'bad-request',
-        fxmCode: 'Unsupported',
-        message: `A request body may have at most ${limits.requestBodyChars} characters`,
-      })
+    if (request.body !== undefined) {
+      return refused(id, 'bad-request', 'ctx.fetch sends no request body in plugin API 1')
     }
 
     const now = clock.now()
@@ -212,7 +214,7 @@ export function createFetchBroker(options: FetchBrokerOptions): FetchBroker {
       })
     }
     try {
-      await budget.acquire('interactive')
+      await budget.acquire(priority)
     } catch (error) {
       if (!isBudgetError(error)) throw error
       return failed(id, {
@@ -227,15 +229,13 @@ export function createFetchBroker(options: FetchBrokerOptions): FetchBroker {
     try {
       response = await fetchWithTimeout(ctx.fetch, url.href, {
         method: request.method,
-        headers,
         credentials: 'omit',
         timeoutMs: limits.timeoutMs,
-        ...(request.body === undefined ? {} : { body: request.body }),
         ...(ctx.signal === undefined ? {} : { signal: ctx.signal }),
       })
     } catch (error) {
       if (ctx.signal?.aborted) throw ctx.signal.reason
-      return failed(id, describeFailure(error, limits.timeoutMs))
+      return describeFailure(id, error, limits.timeoutMs)
     }
 
     if (response.url !== '') {
@@ -248,11 +248,11 @@ export function createFetchBroker(options: FetchBrokerOptions): FetchBroker {
       const finalHost = final === undefined ? undefined : hostOfUrl(final)
       if (finalHost === undefined || !plugin.hosts.includes(finalHost)) {
         await response.body?.cancel().catch(() => undefined)
-        return failed(id, {
-          code: 'redirect',
-          fxmCode: 'Unsupported',
-          message: `The answer came from ${cleanText(final?.host ?? 'another address', 100)}, which ${plugin.name} doesn't declare`,
-        })
+        return refused(
+          id,
+          'redirect',
+          `The answer came from ${cleanText(final?.host ?? 'another address', 100)}, which ${plugin.name} doesn't declare`,
+        )
       }
     }
     if (response.status < 200 || response.status > 599) {
@@ -274,14 +274,10 @@ export function createFetchBroker(options: FetchBrokerOptions): FetchBroker {
       body = request.method === 'HEAD' ? '' : await readCapped(response, limits.responseBytes)
     } catch (error) {
       if (ctx.signal?.aborted) throw ctx.signal.reason
-      return failed(id, describeFailure(error, limits.timeoutMs))
+      return describeFailure(id, error, limits.timeoutMs)
     }
     if (body === undefined) {
-      return failed(id, {
-        code: 'too-large',
-        fxmCode: 'Parse',
-        message: `The answer is larger than ${limits.responseBytes} bytes`,
-      })
+      return refused(id, 'too-large', `The answer is larger than ${limits.responseBytes} bytes`)
     }
     const pairs: [string, string][] = []
     response.headers.forEach((value, name) => {
@@ -290,21 +286,23 @@ export function createFetchBroker(options: FetchBrokerOptions): FetchBroker {
       }
     })
     return {
-      id,
-      ok: true,
-      status: response.status,
-      statusText: printable(response.statusText, 100),
-      url: response.url === '' ? url.href : response.url,
-      headers: pairs,
-      body,
+      response: {
+        id,
+        ok: true,
+        status: response.status,
+        statusText: printable(response.statusText, 100),
+        url: response.url === '' ? url.href : response.url,
+        headers: pairs,
+        body,
+      },
     }
   }
 
   return {
     budget,
-    fetch(request, ctx) {
+    fetch(request, ctx, priority = 'interactive') {
       if (ctx.signal?.aborted) return Promise.reject(ctx.signal.reason)
-      return send(request, ctx)
+      return send(request, ctx, priority)
     },
     pausedUntil() {
       return pausedUntil > clock.now() ? pausedUntil : undefined
@@ -312,27 +310,56 @@ export function createFetchBroker(options: FetchBrokerOptions): FetchBroker {
   }
 }
 
+/** The `FxmError` code a plugin's request fails with, from the platform's: one it may pass on. */
+function passedCode(code: FxmErrorCode): FxmErrorCode {
+  return PLUGIN_FAIL_CODES.includes(code) ? code : 'Unavailable'
+}
+
 /** Why a request failed once sent, for the plugin. */
-function describeFailure(error: unknown, timeoutMs: number): WireFailure {
-  if (isTransportError(error) || isRouteUnavailable(error)) {
+function describeFailure(id: number, error: unknown, timeoutMs: number): BrokerOutcome {
+  if (isRouteUnavailable(error)) {
     return {
-      code: 'refused',
-      fxmCode: 'Unsupported',
-      message: cleanText(error.message, 300),
+      response: {
+        id,
+        ok: false,
+        error: { code: 'refused', fxmCode: 'Unsupported', message: cleanText(error.message, 300) },
+      },
+      closedRoute: error,
     }
   }
-  if (isFxmError(error)) {
+  if (isTransportError(error)) {
     return {
-      code: error.code === 'RateLimited' ? 'rate-limited' : 'network',
-      fxmCode: error.code,
-      message: cleanText(error.message, 300),
-      ...(error.retryAfterMs === undefined ? {} : { retryAfterMs: error.retryAfterMs }),
+      response: {
+        id,
+        ok: false,
+        error: { code: 'refused', fxmCode: 'Unavailable', message: cleanText(error.message, 300) },
+      },
+    }
+  }
+  if (isFxmError(error) && FXM_ERROR_CODES.includes(error.code)) {
+    return {
+      response: {
+        id,
+        ok: false,
+        error: {
+          code: error.code === 'RateLimited' ? 'rate-limited' : 'network',
+          fxmCode: passedCode(error.code),
+          message: cleanText(error.message, 300),
+          ...(error.retryAfterMs === undefined ? {} : { retryAfterMs: error.retryAfterMs }),
+        },
+      },
     }
   }
   const timedOut = (error as { name?: unknown } | null)?.name === 'TimeoutError'
   return {
-    code: 'network',
-    fxmCode: 'Network',
-    message: timedOut ? `No answer within ${timeoutMs} ms` : 'The request failed',
+    response: {
+      id,
+      ok: false,
+      error: {
+        code: 'network',
+        fxmCode: 'Network',
+        message: timedOut ? `No answer within ${timeoutMs} ms` : 'The request failed',
+      },
+    },
   }
 }

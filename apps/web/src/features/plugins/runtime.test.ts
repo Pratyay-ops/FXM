@@ -1,5 +1,13 @@
-import { DEFAULT_QUALITY_PREFS, formatId, type QualityPrefs } from '@fxm/core'
-import { StreamLifecycle, type StreamSource } from '@fxm/player'
+import {
+  currentQueueItem,
+  DEFAULT_QUALITY_PREFS,
+  formatId,
+  playbackProblemOf,
+  type QualityPrefs,
+  type Track,
+} from '@fxm/core'
+import { classifyFailure, Player, StreamLifecycle, type StreamSource } from '@fxm/player'
+import { FakeEngine } from '@fxm/player/testing'
 import { parseManifest, type StoredPlugin } from '@fxm/plugins'
 import {
   fakeCatalogFetch,
@@ -81,7 +89,7 @@ describe('the plugin runtime', () => {
     expect(sources.getSnapshot().providers.has('plugin.test-catalog')).toBe(true)
     await registry.remove('test-catalog')
     expect(sources.getSnapshot().providers.size).toBe(0)
-    await registry.install(registry.offerFromFile(testPluginFile(), 'again.json'))
+    await registry.install(await registry.offerFromFile(testPluginFile(), 'again.json'))
     expect(sources.getSnapshot().providers.has('plugin.test-catalog')).toBe(true)
   })
 
@@ -136,6 +144,60 @@ describe('the plugin runtime', () => {
     )
     // The default ceiling on Wi-Fi is High: the 320 kbps MP3, not the FLAC.
     expect(resolved.stream.url).toBe(`https://${TEST_MEDIA_HOST}/audio/t1.mp3`)
+    lifecycle.destroy()
+  })
+
+  it('skips a plugin song whose resolve breaks the plugin’s rules, and the player plays on', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const code = `fxm.register({
+      async search() { return {} },
+      async track({ id }) { return { id, title: id } },
+      async resolve({ candidate }, ctx) {
+        // An address the manifest doesn't declare: the host refuses it, and the plugin fails.
+        if (candidate.id === 'bad') await ctx.fetch('https://tracker.example.com/beacon')
+        return [{ url: 'https://${TEST_MEDIA_HOST}/audio/' + candidate.id + '.mp3', codec: 'mp3', container: 'mp3', bitrateKbps: 192 }]
+      },
+    })`
+    const manifest = parseManifest(
+      testPluginManifest({ provides: ['search', 'track', 'resolve'] }, code),
+    )
+    setupPluginTestRuntime({ initial: [stored({ manifest, code })] })
+    const ctx = testContext(fakeCatalogFetch())
+    const lifecycle = new StreamLifecycle({
+      sources: [],
+      context: () => ctx,
+      qualityPrefs: () => DEFAULT_QUALITY_PREFS as QualityPrefs,
+    })
+    connectPluginAudio(lifecycle)
+    await startPlugins()
+    const engine = new FakeEngine()
+    const player = new Player({ engine, resolver: lifecycle })
+    lifecycle.attach(player)
+    const failed: Error[] = []
+    player.on('trackfailed', ({ error }) => failed.push(error))
+    const song = (id: string): Track => ({
+      id: formatId('plugin.test-catalog', 'track', id),
+      source: 'plugin.test-catalog',
+      title: id,
+      artists: [],
+      artwork: [],
+      kind: 'song',
+    })
+
+    await player.setQueue([song('bad'), song('good')])
+
+    await expect.poll(() => player.getState().status).toBe('playing')
+    expect(currentQueueItem(player.getState().queue)?.track.title).toBe('good')
+    expect(engine.source?.stream.url).toBe(`https://${TEST_MEDIA_HOST}/audio/good.mp3`)
+    // The broken track was skipped: an unplayable item, never a reason to stop the player.
+    expect(failed).toHaveLength(1)
+    expect(classifyFailure(failed[0] as Error)).toBe('skip')
+    expect(playbackProblemOf(failed[0])).toMatchObject({
+      type: 'unavailable',
+      reason: 'unplayable',
+      code: 'Unavailable',
+    })
+    player.destroy()
     lifecycle.destroy()
   })
 

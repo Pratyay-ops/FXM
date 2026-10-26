@@ -1,474 +1,292 @@
 /**
- * The plugin runtime: what runs inside the isolated evaluator document next to a plugin's code.
- * It loads the plugin, runs its handlers, gives them `ctx.fetch`, and speaks the plugin protocol
- * of `protocol.ts` with the host. It reaches nothing itself: the document's policy allows no
- * network (`connect-src 'none'`), and every request a handler makes is handed to the host, which
- * decides.
+ * The plugin relay: what runs in a plugin's evaluator document (stage 1.11's `eval.html`). It
+ * never runs the plugin's code itself. It starts a worker from a `blob:` URL holding the worker's
+ * runtime (`worker.ts`), hands it the plugin's code, as text, then each message of the host, and
+ * gives the host the worker's answer as it came: JSON text.
+ *
+ * Why a worker: a document's own scripts can open WebRTC connections, which no content security
+ * policy covers, and navigate their document, which carries data out in the URL. A worker can do
+ * neither: it has no DOM and no `RTCPeerConnection`, and it inherits the document's policy, so its
+ * `fetch`, sockets and imports reach nothing (`connect-src 'none'`). The document allows workers
+ * from `blob:` URLs only (`worker-src blob:`). And a worker runs on a thread of its own, so the
+ * relay can stop one that loops forever, and the document keeps answering.
+ *
+ * The relay answers for the worker when:
+ *
+ * - it has no answer within `waitMs`: it stops the worker and answers `hung` (the next call starts
+ *   a new one), so a plugin that loops forever is stopped;
+ * - the answer is longer than `maxReplyChars`, or not an answer of the protocol: it stops the
+ *   worker and answers `too-large` or `bad-reply`;
+ * - the worker can't start (it fails before it announces itself, which its own runtime never
+ *   does): `unavailable`, remembered, so every later call gets it at once. Safari's engine, for
+ *   one, refuses workers from the `blob:` URLs of an opaque origin.
+ *
+ * A plugin's code that doesn't compile is the worker's to report (`load-failed`): it compiles the
+ * code it is handed itself.
  *
  * **Self-contained.** The host sends this function's source text to the document
- * ({@link pluginSource}), so it must not use anything from outside its own body: no imports, no
- * module constants, no helpers. Types are fine, since they are gone from the text. Keep its
- * syntax to what the evaluator's webviews run unchanged (ES2022). `document.test.ts` runs the
- * text in a fresh realm to keep it so.
- *
- * ## What a plugin sees
- *
- * The plugin's code is the body of a function of `fxm`, in strict mode. It calls
- * `fxm.register(handlers)` once (or returns the handlers), with one async function per
- * operation its manifest `provides`. Each handler gets the operation's parameters, then `ctx`:
- *
- * - `ctx.fetch(url, { method, headers, body })`: a `Response` once the host fetched it, from a
- *   host the manifest declares, within the plugin's request budget. Bodies are text only.
- * - `ctx.mode` (`music` or `all`), `ctx.platform`, `ctx.locale`, `ctx.region`.
- * - `ctx.signal`: aborts when FXM gives up on the call.
- *
- * `fxm.fail(code, message, { retryAfterMs })` throws an error that FXM reports with that
- * `FxmError` code, such as `NotFound`.
+ * ({@link pluginSource}), so it must not use anything from outside its own body. Keep its syntax
+ * to what the evaluator's webviews run unchanged (ES2022).
  *
  * @module
  */
 
-/** A plugin's code, as the function of `fxm` that {@link pluginSource} wraps it in. */
-export type PluginFactory = (fxm: unknown) => unknown
+import { pluginWorkerScript } from './worker'
 
-// The shapes the runtime works with. Types only: they vanish from the source text.
-
-interface Failure {
-  code: string
-  message: string
-  fxmCode?: string
-  retryAfterMs?: number
-}
-
-interface Reply {
-  fxmPluginReply: 1
-  state: 'done' | 'failed' | 'fetch' | 'idle' | 'cancelled'
-  value?: unknown
-  error?: Failure
-  requests?: unknown[]
-}
-
-interface Waiter {
-  resolve(value: unknown): void
-  reject(reason: unknown): void
-}
-
-interface Call {
-  id: string
-  outbox: unknown[]
-  pending: Map<number, Waiter>
-  nextFetch: number
-  settled: Omit<Reply, 'fxmPluginReply'> | undefined
-  wake: (() => void) | undefined
-  controller: AbortController
-}
-
-interface PluginState {
-  loaded: boolean
-  handlers: Record<string, unknown> | undefined
-  failure: Failure | undefined
-  calls: Map<string, Call>
-}
-
-interface Message {
-  fxmPlugin?: unknown
-  op?: unknown
-  call?: unknown
-  method?: unknown
-  params?: unknown
-  context?: unknown
-  responses?: unknown
-  stepMs?: unknown
-}
-
-/**
- * Handles one message of the host, as `Evaluator.evaluate` passes it (`args`), for the plugin
- * whose code is `factory`. `key` names the plugin and its version; the runtime keeps its state
- * per key on the document's global object, so a new version starts afresh. A document runs at
- * most 32 calls at once, and answers `idle` after the message's `stepMs` (10 ms to 15 s, 10 s
- * when it names none).
- */
-export function pluginRuntime(input: unknown, factory: PluginFactory, key: string): Promise<Reply> {
-  const global = globalThis as unknown as Record<symbol, unknown>
-  const slot = Symbol.for('fxm.plugins.runtime')
-  let plugins = global[slot] as Map<string, PluginState> | undefined
-  if (!(plugins instanceof Map)) {
-    plugins = new Map()
-    Object.defineProperty(global, slot, { value: plugins, configurable: false, writable: false })
-  }
-  let state = plugins.get(key)
-  if (state === undefined) {
-    state = { loaded: false, handlers: undefined, failure: undefined, calls: new Map() }
-    plugins.set(key, state)
-  }
-  const plugin: PluginState = state
-
-  function reply(body: Omit<Reply, 'fxmPluginReply'>): Reply {
-    return { fxmPluginReply: 1, ...body }
-  }
-
-  function text(value: unknown, max: number): string {
-    return String(value).replace(/\s+/gu, ' ').trim().slice(0, max)
-  }
-
-  /** What a thrown value says, for the host. */
-  function describe(error: unknown, code: string): Failure {
-    const failure: Failure = { code, message: '' }
-    if (typeof error === 'object' && error !== null) {
-      const thrown = error as { name?: unknown; message?: unknown; fxmCode?: unknown }
-      const name = typeof thrown.name === 'string' ? thrown.name : 'Error'
-      failure.message = text(
-        typeof thrown.message === 'string' ? `${name}: ${thrown.message}` : name,
-        300,
-      )
-      if (typeof thrown.fxmCode === 'string') failure.fxmCode = text(thrown.fxmCode, 40)
-      const retry = (error as { retryAfterMs?: unknown }).retryAfterMs
-      if (typeof retry === 'number' && Number.isFinite(retry) && retry >= 0) {
-        failure.retryAfterMs = retry
-      }
-    } else {
-      failure.message = text(error, 300)
-    }
-    return failure
-  }
-
-  /** An error with an `FxmError` code, as `fxm.fail` and failed requests throw. */
-  function codedError(
-    message: string,
-    fxmCode: string,
-    extra: { code?: string; retryAfterMs?: number },
-  ): Error {
-    const error = new Error(message) as Error & Record<string, unknown>
-    error.name = 'FxmPluginError'
-    error.fxmCode = fxmCode
-    if (extra.code !== undefined) error.code = extra.code
-    if (extra.retryAfterMs !== undefined) error.retryAfterMs = extra.retryAfterMs
-    return error
-  }
-
-  function load(): void {
-    if (plugin.loaded) return
-    plugin.loaded = true
-    let registered: Record<string, unknown> | undefined
-    const fxm = Object.freeze({
-      api: 1,
-      register(handlers: unknown) {
-        if (registered !== undefined) throw new Error('fxm.register was called twice')
-        if (typeof handlers !== 'object' || handlers === null) {
-          throw new TypeError('fxm.register needs an object of handlers')
-        }
-        registered = handlers as Record<string, unknown>
-      },
-      fail(code: unknown, message?: unknown, options?: { retryAfterMs?: unknown }): never {
-        const retry = options?.retryAfterMs
-        throw codedError(text(message ?? code, 300), text(code, 40), {
-          ...(typeof retry === 'number' && Number.isFinite(retry) && retry >= 0
-            ? { retryAfterMs: retry }
-            : {}),
-        })
-      },
-    })
-    try {
-      const returned = factory.call(undefined, fxm)
-      if (registered === undefined && typeof returned === 'object' && returned !== null) {
-        registered = returned as Record<string, unknown>
-      }
-      if (registered === undefined) throw new Error('The plugin registered no handlers')
-      plugin.handlers = registered
-    } catch (error) {
-      plugin.failure = describe(error, 'load-failed')
-    }
-  }
-
-  function wake(call: Call): void {
-    const waiting = call.wake
-    call.wake = undefined
-    waiting?.()
-  }
-
-  function settle(call: Call, outcome: Omit<Reply, 'fxmPluginReply'>): void {
-    if (call.settled !== undefined) return
-    call.settled = outcome
-    wake(call)
-  }
-
-  /** The value as JSON data, or a `not-json` failure. */
-  function asJson(value: unknown): Omit<Reply, 'fxmPluginReply'> {
-    try {
-      const json = JSON.stringify(value === undefined ? null : value)
-      return { state: 'done', value: json === undefined ? null : JSON.parse(json) }
-    } catch (error) {
-      return { state: 'failed', error: describe(error, 'not-json') }
-    }
-  }
-
-  /** Request headers as pairs, from a plain object, a list of pairs or a `Headers`. */
-  function headerPairs(headers: unknown): [string, string][] {
-    const pairs: [string, string][] = []
-    if (headers === undefined || headers === null) return pairs
-    const asHeaders = headers as { forEach?: unknown; get?: unknown }
-    if (typeof asHeaders.forEach === 'function' && typeof asHeaders.get === 'function') {
-      ;(headers as Headers).forEach((value, name) => {
-        pairs.push([String(name), String(value)])
-      })
-      return pairs
-    }
-    if (Array.isArray(headers)) {
-      for (const pair of headers) pairs.push([String(pair?.[0]), String(pair?.[1])])
-      return pairs
-    }
-    if (typeof headers === 'object') {
-      for (const name of Object.keys(headers)) {
-        pairs.push([name, String((headers as Record<string, unknown>)[name])])
-      }
-    }
-    return pairs
-  }
-
-  function pluginFetch(call: Call, input: unknown, init: unknown): Promise<unknown> {
-    if (call.settled !== undefined || call.controller.signal.aborted) {
-      return Promise.reject(codedError('The call has ended', 'Unavailable', {}))
-    }
-    const options = (typeof init === 'object' && init !== null ? init : {}) as {
-      method?: unknown
-      headers?: unknown
-      body?: unknown
-    }
-    if (options.body !== undefined && options.body !== null && typeof options.body !== 'string') {
-      return Promise.reject(new TypeError('ctx.fetch sends text bodies only'))
-    }
-    const link = input as { href?: unknown; url?: unknown } | null
-    const url =
-      typeof input === 'string'
-        ? input
-        : typeof link?.href === 'string'
-          ? link.href
-          : typeof link?.url === 'string'
-            ? link.url
-            : String(input)
-    const id = call.nextFetch
-    call.nextFetch += 1
-    const request: Record<string, unknown> = {
-      id,
-      url,
-      method: typeof options.method === 'string' ? options.method.toUpperCase() : 'GET',
-      headers: headerPairs(options.headers),
-    }
-    if (typeof options.body === 'string') request.body = options.body
-    return new Promise((resolve, reject) => {
-      call.pending.set(id, { resolve, reject })
-      call.outbox.push(request)
-      wake(call)
-    })
-  }
-
+/** What the host decides about the relay of one plugin, when it builds its source. */
+export interface RelayOptions {
+  /** How long the relay waits for the worker to answer one message, in milliseconds. */
+  readonly waitMs: number
+  /** The longest answer it passes on, in characters of JSON text. */
+  readonly maxReplyChars: number
   /**
-   * Waits until the call settles, asks for requests (collecting every request made in the same
-   * turn), or `stepMs` passes, and answers accordingly.
+   * How long a worker may sit without a message before the relay stops it, in milliseconds:
+   * longer than any call takes, so it never cuts one off. A plugin that keeps working between
+   * calls (a busy loop on a timer, say) stops then; the next call starts a new worker.
    */
-  function step(call: Call, stepMs: number): Promise<Reply> {
-    return new Promise((resolve) => {
-      let finished = false
-      let timer: ReturnType<typeof setTimeout> | undefined
-      const finish = (body: Omit<Reply, 'fxmPluginReply'>) => {
-        if (finished) return
-        finished = true
-        if (timer !== undefined) clearTimeout(timer)
-        call.wake = undefined
-        if (call.settled !== undefined) plugin.calls.delete(call.id)
-        resolve(reply(body))
-      }
-      const check = () => {
-        if (call.settled !== undefined) {
-          finish(call.settled)
-          return
-        }
-        if (call.outbox.length > 0) {
-          // Requests made in the same turn, such as those of a Promise.all, go together.
-          setTimeout(() => {
-            if (call.settled !== undefined) finish(call.settled)
-            else finish({ state: 'fetch', requests: call.outbox.splice(0) })
-          }, 0)
-          return
-        }
-        call.wake = check
-      }
-      timer = setTimeout(() => finish({ state: 'idle' }), stepMs)
-      check()
-    })
-  }
-
-  function stepTime(value: unknown): number {
-    return typeof value === 'number' && Number.isFinite(value)
-      ? Math.min(15_000, Math.max(10, value))
-      : 10_000
-  }
-
-  function start(message: Message): Promise<Reply> {
-    if (typeof message.call !== 'string' || typeof message.method !== 'string') {
-      return Promise.resolve(
-        reply({ state: 'failed', error: { code: 'bad-request', message: 'Malformed call' } }),
-      )
-    }
-    load()
-    if (plugin.failure !== undefined) {
-      return Promise.resolve(reply({ state: 'failed', error: plugin.failure }))
-    }
-    const handlers = plugin.handlers ?? {}
-    // The host asks only for the operations of PLUGIN_OPERATIONS, none of which is a name that
-    // every object inherits, so a class instance's methods count as well as an object's own.
-    const handler = handlers[message.method]
-    if (typeof handler !== 'function') {
-      return Promise.resolve(
-        reply({
-          state: 'failed',
-          error: {
-            code: 'not-implemented',
-            message: `The plugin has no handler for ${text(message.method, 40)}`,
-          },
-        }),
-      )
-    }
-    if (plugin.calls.size >= 32) {
-      return Promise.resolve(
-        reply({ state: 'failed', error: { code: 'busy', message: 'Too many calls at once' } }),
-      )
-    }
-    const call: Call = {
-      id: message.call,
-      outbox: [],
-      pending: new Map(),
-      nextFetch: 1,
-      settled: undefined,
-      wake: undefined,
-      controller: new AbortController(),
-    }
-    plugin.calls.set(call.id, call)
-    const context = (
-      typeof message.context === 'object' && message.context !== null ? message.context : {}
-    ) as Record<string, unknown>
-    const ctx = Object.freeze({
-      mode: context.mode,
-      platform: context.platform,
-      ...(typeof context.locale === 'string' ? { locale: context.locale } : {}),
-      ...(typeof context.region === 'string' ? { region: context.region } : {}),
-      signal: call.controller.signal,
-      fetch: (input: unknown, init?: unknown) => pluginFetch(call, input, init),
-    })
-    const params = Array.isArray(message.params) ? message.params : []
-    Promise.resolve()
-      .then(() => (handler as (...args: unknown[]) => unknown).apply(handlers, [...params, ctx]))
-      .then(
-        (value) => settle(call, asJson(value)),
-        (error: unknown) =>
-          settle(call, { state: 'failed', error: describe(error, 'plugin-failed') }),
-      )
-    return step(call, stepTime(message.stepMs))
-  }
-
-  function resume(message: Message): Promise<Reply> {
-    const call = typeof message.call === 'string' ? plugin.calls.get(message.call) : undefined
-    if (call === undefined) {
-      return Promise.resolve(
-        reply({ state: 'failed', error: { code: 'unknown-call', message: 'The call is gone' } }),
-      )
-    }
-    const responses = Array.isArray(message.responses) ? message.responses : []
-    for (const raw of responses) {
-      const response = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<
-        string,
-        unknown
-      >
-      const id = typeof response.id === 'number' ? response.id : -1
-      const waiter = call.pending.get(id)
-      if (waiter === undefined) continue
-      call.pending.delete(id)
-      if (response.ok === true) {
-        const status = typeof response.status === 'number' ? response.status : 200
-        const empty = status === 204 || status === 205 || status === 304
-        try {
-          const made = new Response(empty ? null : String(response.body ?? ''), {
-            status,
-            statusText: typeof response.statusText === 'string' ? response.statusText : '',
-            headers: Array.isArray(response.headers)
-              ? (response.headers as [string, string][])
-              : [],
-          })
-          Object.defineProperty(made, 'url', {
-            value: typeof response.url === 'string' ? response.url : '',
-          })
-          waiter.resolve(made)
-        } catch (error) {
-          waiter.reject(error)
-        }
-      } else {
-        const failure = (
-          typeof response.error === 'object' && response.error !== null ? response.error : {}
-        ) as Record<string, unknown>
-        const retry = failure.retryAfterMs
-        waiter.reject(
-          codedError(
-            text(failure.message ?? 'The request failed', 300),
-            typeof failure.fxmCode === 'string' ? failure.fxmCode : 'Network',
-            {
-              code: typeof failure.code === 'string' ? failure.code : 'Network',
-              ...(typeof retry === 'number' ? { retryAfterMs: retry } : {}),
-            },
-          ),
-        )
-      }
-    }
-    return step(call, stepTime(message.stepMs))
-  }
-
-  function cancel(message: Message): Promise<Reply> {
-    const call = typeof message.call === 'string' ? plugin.calls.get(message.call) : undefined
-    if (call !== undefined) {
-      plugin.calls.delete(call.id)
-      settle(call, { state: 'cancelled' })
-      call.controller.abort()
-      for (const waiter of call.pending.values()) {
-        waiter.reject(codedError('The call was cancelled', 'Unavailable', {}))
-      }
-      call.pending.clear()
-    }
-    return Promise.resolve(reply({ state: 'cancelled' }))
-  }
-
-  const message = (typeof input === 'object' && input !== null ? input : {}) as Message
-  if (message.fxmPlugin !== 1) {
-    return Promise.resolve(
-      reply({ state: 'failed', error: { code: 'bad-request', message: 'Not a plugin message' } }),
-    )
-  }
-  switch (message.op) {
-    case 'call':
-      return start(message)
-    case 'resume':
-      return resume(message)
-    case 'cancel':
-      return cancel(message)
-    default:
-      return Promise.resolve(
-        reply({ state: 'failed', error: { code: 'bad-request', message: 'Unknown operation' } }),
-      )
-  }
+  readonly idleMs: number
 }
 
-/** The runtime's source text, sent to every document. */
-const RUNTIME_SOURCE = String(pluginRuntime)
+// The shapes the relay works with. Types only: they vanish from the source text.
+
+interface WorkerLike {
+  onmessage: ((event: { data: unknown }) => void) | null
+  onerror: ((event: unknown) => void) | null
+  onmessageerror: ((event: unknown) => void) | null
+  postMessage(message: unknown): void
+  terminate(): void
+}
+
+interface Waiting {
+  resolve(reply: string): void
+  timer: ReturnType<typeof setTimeout>
+}
+
+interface Relay {
+  worker: WorkerLike | undefined
+  url: string | undefined
+  started: boolean
+  seq: number
+  waiting: Map<number, Waiting>
+  idle: ReturnType<typeof setTimeout> | undefined
+  /** The reply every call gets once no worker could start here. */
+  broken: string | undefined
+}
 
 /**
- * The script the host hands `Evaluator.evaluate` for a plugin: the runtime, applied to the
- * evaluator's `args` (the host's message) and to the plugin's code wrapped in a function of
- * `fxm`. The whole script is strict. `key` names the plugin and its version (see
- * {@link pluginRuntime}).
+ * Relays one message of the host (`input`, as `Evaluator.evaluate` passes its `args`) to the
+ * worker of the plugin whose code is `code`, a worker started with `script` (the worker's
+ * runtime), and resolves with the answer, as JSON text. `key` names the plugin's version and
+ * runner: the relay keeps its worker per key on the document's global object, so a new version
+ * starts afresh.
  */
-export function pluginSource(code: string, key: string): string {
+export function pluginRelay(
+  input: unknown,
+  script: string,
+  code: string,
+  key: string,
+  options: RelayOptions,
+): Promise<string> {
+  const global = globalThis as unknown as Record<symbol, unknown> & Record<string, unknown>
+  const slot = Symbol.for('fxm.plugins.relay')
+  let relays = global[slot] as Map<string, Relay> | undefined
+  if (!(relays instanceof Map)) {
+    relays = new Map()
+    Object.defineProperty(global, slot, { value: relays, configurable: false, writable: false })
+  }
+  let found = relays.get(key)
+  if (found === undefined) {
+    found = {
+      worker: undefined,
+      url: undefined,
+      started: false,
+      seq: 0,
+      waiting: new Map(),
+      idle: undefined,
+      broken: undefined,
+    }
+    relays.set(key, found)
+  }
+  const relay: Relay = found
+  const stringify = JSON.stringify
+
+  function failed(code: string, message: string): string {
+    return stringify({
+      fxmPluginReply: 1,
+      state: 'failed',
+      error: { code, message: String(message).replace(/\s+/gu, ' ').trim().slice(0, 300) },
+    })
+  }
+
+  /** Stops the worker and answers every message still waiting for it with `reply`. */
+  function stop(reply: string): void {
+    const { worker, url } = relay
+    relay.worker = undefined
+    relay.url = undefined
+    relay.started = false
+    if (relay.idle !== undefined) clearTimeout(relay.idle)
+    relay.idle = undefined
+    if (worker !== undefined) {
+      worker.onmessage = null
+      worker.onerror = null
+      worker.onmessageerror = null
+      try {
+        worker.terminate()
+      } catch {
+        // Already gone.
+      }
+    }
+    if (url !== undefined) {
+      try {
+        URL.revokeObjectURL(url)
+      } catch {
+        // Nothing to free.
+      }
+    }
+    const waiting = [...relay.waiting.values()]
+    relay.waiting.clear()
+    for (const entry of waiting) {
+      clearTimeout(entry.timer)
+      entry.resolve(reply)
+    }
+  }
+
+  function onMessage(event: { data: unknown }): void {
+    const data = (typeof event.data === 'object' && event.data !== null ? event.data : {}) as {
+      fxmPluginWorker?: unknown
+      hello?: unknown
+      seq?: unknown
+      reply?: unknown
+    }
+    if (data.fxmPluginWorker === 1 && data.hello === true && !relay.started) {
+      relay.started = true
+      return
+    }
+    const entry = typeof data.seq === 'number' ? relay.waiting.get(data.seq) : undefined
+    if (data.fxmPluginWorker !== 1 || entry === undefined || typeof data.reply !== 'string') {
+      stop(failed('bad-reply', 'The plugin answered outside the plugin protocol'))
+      return
+    }
+    if (data.reply.length > options.maxReplyChars) {
+      stop(
+        failed(
+          'too-large',
+          `The plugin answered ${data.reply.length} characters; FXM takes at most ${options.maxReplyChars}`,
+        ),
+      )
+      return
+    }
+    relay.waiting.delete(data.seq as number)
+    clearTimeout(entry.timer)
+    if (relay.waiting.size === 0) {
+      relay.idle = setTimeout(() => stop(failed('hung', 'The plugin was idle')), options.idleMs)
+    }
+    entry.resolve(data.reply)
+  }
+
+  function onError(event: unknown): void {
+    ;(event as { preventDefault?: () => void } | null)?.preventDefault?.()
+    // After it started, an error is the plugin's own (a timer's callback threw, say): the worker
+    // goes on, and so do its calls.
+    if (relay.started) return
+    // Before: the worker's own runtime, which always compiles, didn't get to run here.
+    relay.broken = failed('unavailable', 'The plugin’s worker did not start here')
+    stop(relay.broken)
+  }
+
+  function spawn(): string | undefined {
+    const WorkerClass = global.Worker as (new (url: string) => WorkerLike) | undefined
+    const BlobClass = global.Blob as (new (parts: string[], options: object) => object) | undefined
+    if (
+      typeof WorkerClass !== 'function' ||
+      typeof BlobClass !== 'function' ||
+      typeof URL.createObjectURL !== 'function'
+    ) {
+      return failed('unavailable', 'Plugins need workers, which this document can’t start')
+    }
+    let url: string | undefined
+    try {
+      url = URL.createObjectURL(new BlobClass([script], { type: 'text/javascript' }) as Blob)
+      const worker = new WorkerClass(url)
+      worker.onmessage = onMessage
+      worker.onerror = onError
+      worker.onmessageerror = () =>
+        stop(failed('bad-reply', 'The plugin answered something that can’t be read'))
+      relay.worker = worker
+      relay.url = url
+      relay.started = false
+      // Its code first, which it compiles on its first call: every later message follows it.
+      worker.postMessage({ fxmPluginWorker: 1, code })
+      return undefined
+    } catch (error) {
+      if (url !== undefined) URL.revokeObjectURL(url)
+      const name = (error as { name?: unknown } | null)?.name
+      return failed(
+        'unavailable',
+        `Plugins need workers, which this document can’t start (${typeof name === 'string' ? name : 'Error'})`,
+      )
+    }
+  }
+
+  const message = (typeof input === 'object' && input !== null ? input : {}) as {
+    fxmPlugin?: unknown
+    op?: unknown
+  }
+  if (message.fxmPlugin !== 1) {
+    return Promise.resolve(failed('bad-request', 'Not a plugin message'))
+  }
+  if (relay.broken !== undefined) return Promise.resolve(relay.broken)
+  if (relay.worker === undefined) {
+    // A call that was stopped is gone with its worker: only a new call starts one.
+    if (message.op === 'cancel') {
+      return Promise.resolve(stringify({ fxmPluginReply: 1, state: 'cancelled' }))
+    }
+    if (message.op !== 'call') {
+      return Promise.resolve(failed('unknown-call', 'The call is gone'))
+    }
+    const refused = spawn()
+    if (refused !== undefined) return Promise.resolve(refused)
+  }
+  const worker = relay.worker as WorkerLike
+  if (relay.idle !== undefined) clearTimeout(relay.idle)
+  relay.idle = undefined
+  relay.seq += 1
+  const seq = relay.seq
+  return new Promise<string>((resolve) => {
+    const timer = setTimeout(
+      () => stop(failed('hung', `The plugin did not answer within ${options.waitMs} ms`)),
+      options.waitMs,
+    )
+    relay.waiting.set(seq, { resolve, timer })
+    try {
+      worker.postMessage({
+        fxmPluginWorker: 1,
+        seq,
+        message: input,
+        maxChars: options.maxReplyChars,
+      })
+    } catch {
+      stop(failed('bad-request', 'The message could not be handed to the plugin'))
+    }
+  })
+}
+
+/** The relay's source text, sent to every plugin's document. */
+const RELAY_SOURCE = String(pluginRelay)
+
+/** The worker's script, the same for every plugin. */
+const WORKER_SCRIPT = JSON.stringify(pluginWorkerScript())
+
+/**
+ * The script the host hands `Evaluator.evaluate` for a plugin: the relay, applied to the
+ * evaluator's `args` (the host's message), to the worker's script, to the plugin's code, to `key`
+ * and to `options`. The plugin's code is only text here, never compiled in the document. `key`
+ * names the plugin's version and runner (see {@link pluginRelay}).
+ */
+export function pluginSource(code: string, key: string, options: RelayOptions): string {
+  const values = [JSON.stringify(code), JSON.stringify(key), JSON.stringify(options)]
   return [
     "'use strict';",
-    `return (${RUNTIME_SOURCE})(args, function (fxm) {`,
-    code,
-    `}, ${JSON.stringify(key)});`,
+    `return (${RELAY_SOURCE})(args, ${WORKER_SCRIPT}, ${values.join(', ')});`,
   ].join('\n')
 }

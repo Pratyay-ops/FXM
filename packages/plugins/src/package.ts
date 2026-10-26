@@ -22,13 +22,7 @@
 import { APP_VERSION } from '@fxm/core'
 import { codeText, verifyChecksum } from './checksum'
 import { cleanText, isPluginError, PluginError } from './errors'
-import {
-  checkCompatible,
-  hostOfUrl,
-  MANIFEST_LIMITS,
-  type PluginManifest,
-  parseManifest,
-} from './manifest'
+import { hostOfUrl, MANIFEST_LIMITS, type PluginManifest, parseManifest } from './manifest'
 
 /** The version of the plugin file format: its `fxmPluginFile`. */
 export const PLUGIN_FILE_FORMAT = 1
@@ -89,7 +83,8 @@ function checked(
   origin: PluginOrigin,
   appVersion: string,
 ): PluginPackage {
-  const manifest = parseManifest(rawManifest)
+  // The versions first: a plugin for a newer FXM is refused as that, whatever else it holds.
+  const manifest = parseManifest(rawManifest, { appVersion })
   const bytes = typeof code === 'string' ? new TextEncoder().encode(code) : code
   if (bytes.byteLength > PACKAGE_LIMITS.code) {
     throw new PluginError(
@@ -98,8 +93,38 @@ function checked(
     )
   }
   verifyChecksum(bytes, manifest.sha256)
-  checkCompatible(manifest, appVersion)
   return { manifest, code: typeof code === 'string' ? code : codeText(code), origin }
+}
+
+/** An origin as FXM writes it, checked, or `undefined` when it is none (a damaged record, say). */
+export function parseOrigin(value: unknown): PluginOrigin | undefined {
+  if (typeof value !== 'object' || value === null) return undefined
+  const origin = value as { kind?: unknown; url?: unknown; name?: unknown }
+  if (origin.kind === 'url' && typeof origin.url === 'string') {
+    const url = pluginAddress(origin.url)
+    return url === undefined ? undefined : { kind: 'url', url: url.href }
+  }
+  if (origin.kind === 'file' && typeof origin.name === 'string') {
+    return { kind: 'file', name: cleanText(origin.name, 200) }
+  }
+  return undefined
+}
+
+/**
+ * Checks a package again, whoever built it: its manifest, its code against the manifest's
+ * checksum, its origin and that it runs on `appVersion`. The registry does this before it installs
+ * anything, so an offer can't skip the checks of {@link readPluginFile} and {@link downloadPlugin}.
+ *
+ * @throws PluginError for whatever fails, as those functions do.
+ */
+export function checkPackage(pkg: PluginPackage | undefined, appVersion: string): PluginPackage {
+  if (typeof pkg !== 'object' || pkg === null) {
+    throw new PluginError('invalid-file', 'That is no plugin to install')
+  }
+  const origin = parseOrigin(pkg.origin)
+  if (origin === undefined) throw new PluginError('invalid-file', 'The plugin names no origin')
+  if (typeof pkg.code !== 'string') throw new PluginError('invalid-file', 'The plugin has no code')
+  return checked(pkg.manifest, pkg.code, origin, appVersion)
 }
 
 function parseJson(text: string, what: string): unknown {
@@ -291,7 +316,7 @@ export async function downloadPlugin(
     )
   }
   // Check the manifest before fetching anything it names.
-  const manifest = parseManifest(value)
+  const manifest = parseManifest(value, { appVersion })
   const entry = new URL(manifest.entry, url)
   if (entry.origin !== url.origin) {
     throw new PluginError(

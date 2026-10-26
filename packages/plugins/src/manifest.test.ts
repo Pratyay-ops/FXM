@@ -1,20 +1,21 @@
 import { describe, expect, it } from 'vitest'
 import { isPluginError } from './errors'
 import {
-  checkCompatible,
   compareVersions,
+  DEVELOPMENT_VERSION,
   hostOfUrl,
   isDeclaredUrl,
   normalizeHost,
   parseManifest,
   parseVersion,
   pluginSourceId,
+  reservedServiceOf,
 } from './manifest'
 import { testPluginManifest } from './testing'
 
-function parseError(value: unknown): unknown {
+function parseError(value: unknown, appVersion?: string): unknown {
   try {
-    parseManifest(value)
+    parseManifest(value, appVersion === undefined ? {} : { appVersion })
   } catch (error) {
     return error
   }
@@ -40,7 +41,7 @@ describe('parseManifest', () => {
       description: 'An invented catalog for FXM’s own tests.',
       author: 'FXM tests',
       license: 'Apache-2.0',
-      minFxmVersion: '0.0.0',
+      minFxmVersion: '0.1.0',
       hosts: ['catalog.fxm-plugin.test', 'cdn.example.org:8443'],
       entry: 'plugin.js',
       sha256: 'a'.repeat(64),
@@ -99,6 +100,69 @@ describe('parseManifest', () => {
   it('names the host it refuses', () => {
     const error = parseError(testPluginManifest({ hosts: ['192.168.1.1'] }))
     expect((error as Error).message).toMatch(/"192\.168\.1\.1", which is not a public host name/u)
+  })
+
+  it.each([
+    'music.youtube.com',
+    'www.youtube.com:8443',
+    'youtubei.googleapis.com',
+    'rr3---sn-abc.googlevideo.com',
+    'open.spotify.com',
+    'spclient.wg.spotify.com',
+    'www.last.fm',
+  ])('refuses %s, a host FXM reaches itself with its own privileges', (host) => {
+    const error = parseError(testPluginManifest({ hosts: ['api.example.org', host] }))
+    expect(isPluginError(error, 'invalid-manifest')).toBe(true)
+    expect((error as Error).message).toMatch(/that FXM reaches itself: plugins can't use it/u)
+  })
+
+  it('allows FXM’s open services, whose requests go out as any page’s would', () => {
+    const manifest = parseManifest(
+      testPluginManifest({ hosts: ['musicbrainz.org', 'ia800.us.archive.org'] }),
+    )
+    expect(manifest.hosts).toEqual(['musicbrainz.org', 'ia800.us.archive.org'])
+    expect(reservedServiceOf('musicbrainz.org')).toBeUndefined()
+    expect(reservedServiceOf('music.youtube.com')?.service).toBe('YouTube Music')
+  })
+})
+
+describe('parseManifest with this FXM’s version', () => {
+  it('refuses a plugin for a newer FXM as that, before any field a newer FXM may know', () => {
+    for (const future of [
+      { provides: ['search', 'home'] },
+      { hosts: ['*.example.org'] },
+      { requestsPerHour: 10_000 },
+    ]) {
+      const error = parseError(testPluginManifest({ minFxmVersion: '9.0.0', ...future }), '1.0.0')
+      expect(isPluginError(error, 'needs-newer-fxm'), String(error)).toBe(true)
+      expect((error as Error).message).toBe(
+        'Test Catalog needs FXM 9.0.0 or later; this is FXM 1.0.0',
+      )
+    }
+  })
+
+  it('accepts what this FXM runs, and calls an unknown operation invalid only then', () => {
+    expect(
+      parseManifest(testPluginManifest({ minFxmVersion: '0.4.0' }), { appVersion: '0.4.0' }),
+    ).toBeTruthy()
+    const error = parseError(
+      testPluginManifest({ minFxmVersion: '0.4.0', provides: ['search', 'home'] }),
+      '1.0.0',
+    )
+    expect(isPluginError(error, 'invalid-manifest')).toBe(true)
+    expect((error as Error).message).toMatch(/a plugin that needs a newer FXM says so/u)
+  })
+
+  it('runs any plugin in a development build, which reports 0.0.0', () => {
+    expect(DEVELOPMENT_VERSION).toBe('0.0.0')
+    expect(
+      parseManifest(testPluginManifest({ minFxmVersion: '9.0.0' }), { appVersion: '0.0.0' })
+        .minFxmVersion,
+    ).toBe('9.0.0')
+  })
+
+  it('refuses an app version that is not one', () => {
+    expect(() => parseManifest(testPluginManifest(), { appVersion: 'dev' })).toThrow(RangeError)
   })
 })
 
@@ -172,22 +236,5 @@ describe('versions', () => {
     expect(compareVersions('0.1.0', '0.1.0')).toBe(0)
     expect(compareVersions('0.1.0', '0.2.0')).toBeLessThan(0)
     expect(() => compareVersions('1', '1.0.0')).toThrow(RangeError)
-  })
-
-  it('checks the oldest FXM version a plugin runs on', () => {
-    const manifest = parseManifest(testPluginManifest({ minFxmVersion: '0.4.0' }))
-    expect(() => checkCompatible(manifest, '0.4.0')).not.toThrow()
-    expect(() => checkCompatible(manifest, '1.0.0')).not.toThrow()
-    let error: unknown
-    try {
-      checkCompatible(manifest, '0.3.9')
-    } catch (caught) {
-      error = caught
-    }
-    expect(isPluginError(error, 'needs-newer-fxm')).toBe(true)
-    expect((error as Error).message).toBe(
-      'Test Catalog needs FXM 0.4.0 or later; this is FXM 0.3.9',
-    )
-    expect(() => checkCompatible(manifest, 'dev')).toThrow(RangeError)
   })
 })

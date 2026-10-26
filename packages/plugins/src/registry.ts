@@ -6,9 +6,10 @@
  *
  * - **Installs and updates need the user.** {@link PluginRegistry.offerFromAddress} and
  *   {@link PluginRegistry.offerFromFile} only fetch and check; nothing is stored or run until the
- *   app calls {@link PluginRegistry.install} with the offer the user approved. An update is an
- *   offer too: the registry never installs one by itself, and checks for one only when asked
- *   ({@link PluginRegistry.checkForUpdate}). Versions only go up.
+ *   app calls {@link PluginRegistry.install} with the offer the user approved, which checks the
+ *   package again. An update is an offer too: the registry never installs one by itself, and
+ *   checks for one only when asked ({@link PluginRegistry.checkForUpdate}). Versions only go up,
+ *   except that a plugin which can't run may be replaced by any version.
  * - **Stored copies are checked again** whenever they are read: the manifest, the code's SHA-256
  *   and the FXM version. A copy that fails stays listed, with its problem, but never runs.
  * - **Plugins that are off don't run**: no document, no requests, no providers.
@@ -23,25 +24,28 @@ import {
   type KeyValueStorage,
   memoryStorage,
   type RequestBudget,
+  type RequestPriority,
   systemClock,
 } from '@fxm/platform'
 import { type BrokerLimits, createFetchBroker } from './broker'
 import { verifyChecksum } from './checksum'
-import { cleanText, PluginError } from './errors'
+import { cleanText, isPluginError, PluginError } from './errors'
 import { createPluginRunner, type PluginRunner, type RunnerLimits } from './host'
 import {
-  checkCompatible,
   compareVersions,
   type PluginManifest,
   type PluginOperation,
   parseManifest,
+  parseVersion,
 } from './manifest'
 import {
+  checkPackage,
   type DownloadFetch,
   downloadHosts,
   downloadPlugin,
   type PluginOrigin,
   type PluginPackage,
+  parseOrigin,
   pluginAddress,
   readPluginFile,
 } from './package'
@@ -76,7 +80,7 @@ export interface PluginStore {
   delete(id: string): Promise<void>
 }
 
-/** A store in memory, for tests and for apps without storage. */
+/** A store in memory, for tests. */
 export function memoryPluginStore(initial: readonly StoredPlugin[] = []): PluginStore {
   const plugins = new Map(initial.map((plugin) => [plugin.id, structuredClone(plugin)]))
   return {
@@ -92,12 +96,31 @@ export function memoryPluginStore(initial: readonly StoredPlugin[] = []): Plugin
   }
 }
 
-/** An installed plugin, as the settings page shows it. */
-export interface PluginEntry {
+/**
+ * Why an installed plugin can't run. `message` is English, for logs; the app words each `code`
+ * itself:
+ *
+ * - `damaged`: its stored copy fails the checks (a damaged manifest, code that doesn't match its
+ *   checksum, a missing origin). Removing it, or adding any version of it again, repairs it.
+ * - `needs-newer-fxm`: it needs FXM `minFxmVersion` or later, and this is `appVersion` (FXM went
+ *   back to an older version, say). Updating FXM, or adding a version of the plugin that runs on
+ *   this one, repairs it.
+ */
+export type PluginProblem =
+  | { readonly code: 'damaged'; readonly message: string }
+  | {
+      readonly code: 'needs-newer-fxm'
+      readonly message: string
+      readonly minFxmVersion: string
+      readonly appVersion: string
+    }
+
+/** What every {@link PluginEntry} has. */
+interface PluginEntryBase {
   /** Its ID. */
   readonly id: string
-  /** Its manifest. */
-  readonly manifest: PluginManifest
+  /** Its name for people: the manifest's, or the ID when a damaged copy names none. */
+  readonly name: string
   /** Where it came from. */
   readonly origin: PluginOrigin
   /** Whether it is on. */
@@ -106,25 +129,43 @@ export interface PluginEntry {
   readonly installedAt: number
   /** When this version was installed. */
   readonly updatedAt: number
-  /**
-   * Why it can't run, if it can't: its stored copy fails the checks (a damaged manifest, code
-   * that doesn't match its checksum) or it needs a newer FXM. Such a plugin never runs; the user
-   * can remove it.
-   */
-  readonly problem?: string
 }
+
+/** An installed plugin that can run. */
+export interface RunnablePluginEntry extends PluginEntryBase {
+  /** Its version. */
+  readonly version: string
+  /** Its manifest, which passed every check. */
+  readonly manifest: PluginManifest
+  readonly problem?: undefined
+}
+
+/** An installed plugin that can't run: it never does, and the user can remove or replace it. */
+export interface BrokenPluginEntry extends PluginEntryBase {
+  /** Its version, when the stored copy names a valid one. */
+  readonly version?: string
+  readonly manifest?: undefined
+  /** Why it can't run. */
+  readonly problem: PluginProblem
+}
+
+/** An installed plugin, as the settings page shows it. */
+export type PluginEntry = RunnablePluginEntry | BrokenPluginEntry
 
 /** A plugin offered for the user's approval: a new one, or an update of an installed one. */
 export interface PluginOffer {
   /** The plugin, checked. */
   readonly package: PluginPackage
-  /** The installed version an update replaces; absent for a new plugin. */
+  /** The installed version it replaces; absent for a new plugin. */
   readonly current?: PluginEntry
-  /** Hosts the offered version may contact and the installed one may not (all, when new). */
+  /**
+   * Hosts the offered version may contact and the installed one may not: all of them for a new
+   * plugin, or for one whose installed copy can't run.
+   */
   readonly addedHosts: readonly string[]
   /** Hosts the installed version may contact and the offered one may not. */
   readonly removedHosts: readonly string[]
-  /** What the offered version does and the installed one doesn't (all, when new). */
+  /** What the offered version does and the installed one doesn't (all, as for hosts). */
   readonly addedOperations: readonly PluginOperation[]
   /** What the installed version does and the offered one doesn't. */
   readonly removedOperations: readonly PluginOperation[]
@@ -154,7 +195,10 @@ export interface PluginRegistryOptions {
 
 /** The installed plugins. */
 export interface PluginRegistry {
-  /** Reads the store and starts the plugins that are on. Later calls wait for the first. */
+  /**
+   * Reads the store and starts the plugins that are on. Later calls wait for the first; after a
+   * failure (the store couldn't be read), the next call tries again.
+   */
   load(): Promise<void>
   /** Reads the store again, e.g. after another tab changed it. */
   reload(): Promise<void>
@@ -179,11 +223,13 @@ export interface PluginRegistry {
     options?: { readonly signal?: AbortSignal },
   ): Promise<PluginOffer>
   /** Reads a plugin file the user picked and offers it. Nothing is installed. */
-  offerFromFile(text: string, name: string): PluginOffer
+  offerFromFile(text: string, name: string): Promise<PluginOffer>
   /**
    * Installs an offer the user approved, switched on: a new plugin, or an update that replaces
-   * the installed version (whose document stops). Rejects with `not-newer` when the installed
-   * version changed meanwhile and the offer is no longer newer.
+   * the installed version (whose document stops). The package is checked again first, as if it
+   * had just been read: an offer built by hand gets no further than one that was downloaded.
+   * Rejects with `not-newer` when the installed version changed meanwhile and the offer is no
+   * longer newer.
    */
   install(offer: PluginOffer): Promise<PluginEntry>
   /** Switches a plugin on or off. Off, it stops at once and makes no more requests. */
@@ -192,9 +238,9 @@ export interface PluginRegistry {
   remove(id: string): Promise<void>
   /**
    * Downloads a plugin again from the address it was installed from, and offers the download
-   * when it is a newer version; `undefined` when it isn't. Only when the user asks: FXM never
-   * checks by itself. A plugin installed from a file updates from a newer file instead
-   * ({@link offerFromFile}).
+   * when it is a newer version, or any version when the installed copy can't run; `undefined`
+   * when there is nothing to update. Only when the user asks: FXM never checks by itself. A
+   * plugin installed from a file updates from a newer file instead ({@link offerFromFile}).
    */
   checkForUpdate(
     id: string,
@@ -214,17 +260,40 @@ interface Running {
   readonly budget: RequestBudget
 }
 
+/** What the checks of a stored copy found: its manifest, or why it can't run. */
+type Verdict =
+  | { readonly manifest: PluginManifest; readonly problem?: undefined }
+  | { readonly manifest?: undefined; readonly problem: PluginProblem }
+
+const DAMAGED: Verdict = {
+  problem: { code: 'damaged', message: 'Its stored copy is damaged: remove it and add it again' },
+}
+
 /** Whether two stored copies are the same installed version. */
 function sameInstall(a: StoredPlugin, b: StoredPlugin): boolean {
   return a.updatedAt === b.updatedAt && sha256Of(a) === sha256Of(b) && a.code === b.code
 }
 
-/** The checksum a stored copy's manifest declares, read without trusting its shape. */
-function sha256Of(plugin: StoredPlugin): unknown {
+/** A stored copy's manifest, read without trusting its shape. */
+function rawManifest(plugin: StoredPlugin): Record<string, unknown> {
   const manifest = plugin.manifest as unknown
   return typeof manifest === 'object' && manifest !== null
-    ? (manifest as { sha256?: unknown }).sha256
-    : undefined
+    ? (manifest as Record<string, unknown>)
+    : {}
+}
+
+/** The checksum a stored copy's manifest declares, read without trusting its shape. */
+function sha256Of(plugin: StoredPlugin): unknown {
+  return rawManifest(plugin).sha256
+}
+
+/** JSON text of a value, or `undefined` when it has none (a cycle, say). */
+function jsonOf(value: unknown): string | undefined {
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return undefined
+  }
 }
 
 /** Whether two lists hold the same items, in order. */
@@ -241,48 +310,39 @@ function sameEntries(a: readonly PluginEntry[], b: readonly PluginEntry[]): bool
       return (
         other !== undefined &&
         entry.id === other.id &&
+        entry.name === other.name &&
+        entry.version === other.version &&
         entry.updatedAt === other.updatedAt &&
         entry.enabled === other.enabled &&
-        entry.problem === other.problem &&
-        entry.manifest.sha256 === other.manifest.sha256
+        entry.problem?.message === other.problem?.message &&
+        entry.manifest?.sha256 === other.manifest?.sha256
       )
     })
   )
 }
 
-/**
- * A stored manifest to show: the manifest itself when it passes the checks, else a stand-in
- * with the stored name, no hosts and no operations, for a plugin that never runs.
- */
-function shownManifest(plugin: StoredPlugin): PluginManifest {
-  try {
-    return parseManifest(plugin.manifest)
-  } catch {
-    const raw = (typeof plugin.manifest === 'object' && plugin.manifest !== null
-      ? plugin.manifest
-      : {}) as unknown as Record<string, unknown>
-    const name = typeof raw.name === 'string' ? cleanText(raw.name, 60) : ''
-    return {
-      fxmPlugin: 1,
-      id: plugin.id,
-      name: name === '' ? plugin.id : name,
-      version:
-        typeof raw.version === 'string' && /^\d+\.\d+\.\d+$/u.test(raw.version)
-          ? raw.version
-          : '0.0.0',
-      minFxmVersion: '0.0.0',
-      hosts: [],
-      entry: 'plugin.js',
-      sha256: '0'.repeat(64),
-      provides: [],
-      requestsPerHour: 1,
-    }
-  }
+/** A number from storage, or 0. */
+function timeOf(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0
 }
 
 /** The storage key of a plugin's request budget. */
 export function budgetKey(id: string): string {
   return `fxm.plugins.budget.${id}`
+}
+
+/**
+ * The calls of the hour each priority leaves for the ones above it, in a plugin's budget of
+ * `hourlyLimit` requests: search and pages stop with a quarter left, and prefetching with a tenth,
+ * so the stream of the song the user is waiting for can still be found.
+ */
+export function pluginReserves(hourlyLimit: number): Record<RequestPriority, number> {
+  return {
+    'current-track': 0,
+    prefetch: Math.floor(hourlyLimit * 0.1),
+    interactive: Math.floor(hourlyLimit * 0.25),
+    bulk: Math.floor(hourlyLimit * 0.5),
+  }
 }
 
 /** Creates the registry. Call {@link PluginRegistry.load} before using it. */
@@ -310,32 +370,74 @@ export function createPluginRegistry(options: PluginRegistryOptions): PluginRegi
     return next
   }
 
-  /** Problems found, by stored version, so a copy is checked once. */
-  const problems = new Map<string, string | null>()
+  /**
+   * The last verdict on each plugin's stored copy, with the code and the manifest it was for:
+   * it is reused only for that very code and manifest, so a copy that changed is checked again.
+   */
+  const verdicts = new Map<string, { code: unknown; manifest: string; verdict: Verdict }>()
 
-  /** Why a stored plugin can't run, or `undefined` when it can. */
-  function problemOf(plugin: StoredPlugin): string | undefined {
-    const size = typeof plugin.code === 'string' ? plugin.code.length : -1
-    const key = `${plugin.id}\n${plugin.updatedAt}\n${String(sha256Of(plugin))}\n${size}`
-    const known = problems.get(key)
-    if (known !== undefined) return known ?? undefined
-    const found = findProblem(plugin)
-    problems.set(key, found ?? null)
-    return found
+  /** What the checks find for a stored copy. */
+  function verdictOf(plugin: StoredPlugin): Verdict {
+    const manifestJson = jsonOf(plugin.manifest)
+    const known = verdicts.get(plugin.id)
+    if (
+      known !== undefined &&
+      manifestJson !== undefined &&
+      known.manifest === manifestJson &&
+      known.code === plugin.code
+    ) {
+      return known.verdict
+    }
+    const verdict = check(plugin)
+    if (manifestJson !== undefined) {
+      verdicts.set(plugin.id, { code: plugin.code, manifest: manifestJson, verdict })
+    }
+    return verdict
   }
 
-  function findProblem(plugin: StoredPlugin): string | undefined {
+  function check(plugin: StoredPlugin): Verdict {
     try {
-      const manifest = parseManifest(plugin.manifest)
-      if (manifest.id !== plugin.id) return 'Its stored copy is damaged: remove it and add it again'
+      const manifest = parseManifest(plugin.manifest, { appVersion })
+      if (manifest.id !== plugin.id || typeof plugin.code !== 'string') return DAMAGED
+      if (parseOrigin(plugin.origin) === undefined) return DAMAGED
       verifyChecksum(plugin.code, manifest.sha256)
-      checkCompatible(manifest, appVersion)
-      return undefined
+      return { manifest }
     } catch (error) {
-      if (error instanceof PluginError && error.pluginCode === 'needs-newer-fxm') {
-        return cleanText(error.message, 200)
+      if (isPluginError(error, 'needs-newer-fxm')) {
+        return {
+          problem: {
+            code: 'needs-newer-fxm',
+            message: cleanText(error.message, 200),
+            minFxmVersion: String(rawManifest(plugin).minFxmVersion),
+            appVersion,
+          },
+        }
       }
-      return 'Its stored copy is damaged: remove it and add it again'
+      return DAMAGED
+    }
+  }
+
+  /** The entry the settings page shows for a stored copy. */
+  function entryFor(plugin: StoredPlugin, verdict: Verdict): PluginEntry {
+    const base = {
+      id: plugin.id,
+      origin: parseOrigin(plugin.origin) ?? { kind: 'file' as const, name: '' },
+      enabled: plugin.enabled === true,
+      installedAt: timeOf(plugin.installedAt),
+      updatedAt: timeOf(plugin.updatedAt),
+    }
+    if (verdict.manifest !== undefined) {
+      const { manifest } = verdict
+      return { ...base, name: manifest.name, version: manifest.version, manifest }
+    }
+    const raw = rawManifest(plugin)
+    const name = typeof raw.name === 'string' ? cleanText(raw.name, 60) : ''
+    const version = parseVersion(raw.version) === undefined ? undefined : String(raw.version)
+    return {
+      ...base,
+      name: name === '' ? plugin.id : name,
+      ...(version === undefined ? {} : { version }),
+      problem: verdict.problem,
     }
   }
 
@@ -347,11 +449,10 @@ export function createPluginRegistry(options: PluginRegistryOptions): PluginRegi
     sandboxes.stop(id)
   }
 
-  function start(plugin: StoredPlugin): void {
-    const manifest = parseManifest(plugin.manifest)
+  function start(plugin: StoredPlugin, manifest: PluginManifest): void {
     const budget = createRequestBudget({
       hourlyLimit: manifest.requestsPerHour,
-      reserves: { 'current-track': 0, prefetch: 0, interactive: 0, bulk: 0 },
+      reserves: pluginReserves(manifest.requestsPerHour),
       storage: budgetStorage,
       storageKey: budgetKey(manifest.id),
       clock,
@@ -391,25 +492,17 @@ export function createPluginRegistry(options: PluginRegistryOptions): PluginRegi
   function refresh(): void {
     const next: PluginEntry[] = []
     for (const plugin of stored.values()) {
-      const problem = problemOf(plugin)
-      next.push({
-        id: plugin.id,
-        manifest: shownManifest(plugin),
-        origin: plugin.origin,
-        enabled: plugin.enabled,
-        installedAt: plugin.installedAt,
-        updatedAt: plugin.updatedAt,
-        ...(problem === undefined ? {} : { problem }),
-      })
+      const verdict = verdictOf(plugin)
+      next.push(entryFor(plugin, verdict))
       const current = running.get(plugin.id)
-      const runs = plugin.enabled && problem === undefined && !disposed
+      const runs = plugin.enabled === true && verdict.manifest !== undefined && !disposed
       if (current !== undefined && (!runs || !sameInstall(current.stored, plugin))) {
         stopRunning(plugin.id)
       }
-      if (runs && running.get(plugin.id) === undefined) start(plugin)
+      if (runs && running.get(plugin.id) === undefined) start(plugin, verdict.manifest)
     }
     for (const id of [...running.keys()]) if (!stored.has(id)) stopRunning(id)
-    next.sort((a, b) => a.manifest.name.localeCompare(b.manifest.name) || a.id.localeCompare(b.id))
+    next.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
     const nextProviders = next.flatMap((entry) => {
       const current = running.get(entry.id)
       return current === undefined ? [] : [current.providers]
@@ -452,17 +545,16 @@ export function createPluginRegistry(options: PluginRegistryOptions): PluginRegi
   function offer(pkg: PluginPackage): PluginOffer {
     const current = entryOf(pkg.manifest.id)
     const { manifest } = pkg
-    if (current !== undefined) {
-      const installed = current.manifest
-      const order = compareVersions(manifest.version, installed.version)
-      // A stored copy that fails the checks may be replaced by the same version, to repair it.
-      const repairs = current.problem !== undefined && order === 0
-      if (order < 0 || (order === 0 && !repairs)) {
+    // An installed plugin that runs is replaced only by a higher version; one that can't run, by
+    // any version, which repairs it.
+    if (current !== undefined && current.problem === undefined) {
+      const order = compareVersions(manifest.version, current.version)
+      if (order <= 0) {
         throw new PluginError(
           'not-newer',
-          order === 0 && manifest.sha256 === installed.sha256 && current.problem === undefined
-            ? `${installed.name} ${installed.version} is already installed`
-            : `${installed.name} ${installed.version} is installed; FXM installs only a higher version (this one is ${manifest.version})`,
+          order === 0 && manifest.sha256 === current.manifest.sha256
+            ? `${current.name} ${current.version} is already installed`
+            : `${current.name} ${current.version} is installed; FXM installs only a higher version (this one is ${manifest.version})`,
         )
       }
     }
@@ -498,16 +590,25 @@ export function createPluginRegistry(options: PluginRegistryOptions): PluginRegi
     if (disposed) throw new PluginError('disabled', 'Plugins were shut down')
   }
 
+  /** Reads the store as the latest load; a failed read leaves the next load to try again. */
+  function readAsLoad(): Promise<void> {
+    const attempt = serially(read)
+    loading = attempt
+    attempt.catch(() => {
+      if (loading === attempt) loading = undefined
+    })
+    return attempt
+  }
+
   function load(): Promise<void> {
-    loading ??= serially(read)
-    return loading
+    return loading ?? readAsLoad()
   }
 
   return {
     load,
     async reload() {
       ensureOpen()
-      return serially(read)
+      return readAsLoad()
     },
     entries: () => entries,
     subscribe(listener) {
@@ -529,16 +630,19 @@ export function createPluginRegistry(options: PluginRegistryOptions): PluginRegi
       )
       return offer(pkg)
     },
-    offerFromFile(text, name) {
+    async offerFromFile(text, name) {
       ensureOpen()
+      // Compared with the stored copies, so an update shows what it changes.
+      await load()
       return offer(readPluginFile(text, name, { appVersion }))
     },
     async install(approved) {
       ensureOpen()
       return serially(async () => {
         await read()
-        // Checked again: the installed version may have changed since the offer was made.
-        const fresh = offer(approved.package)
+        // Checked again, whoever built the offer, and against the installed version as it is
+        // now: it may have changed since the offer was made.
+        const fresh = offer(checkPackage(approved?.package, appVersion))
         const { manifest, code, origin } = fresh.package
         const now = clock.now()
         const record: StoredPlugin = {
@@ -575,6 +679,7 @@ export function createPluginRegistry(options: PluginRegistryOptions): PluginRegi
       return serially(async () => {
         await store.delete(id)
         stored.delete(id)
+        verdicts.delete(id)
         try {
           budgetStorage.removeItem(budgetKey(id))
         } catch {
@@ -591,7 +696,7 @@ export function createPluginRegistry(options: PluginRegistryOptions): PluginRegi
       if (current.origin.kind !== 'url') {
         throw new PluginError(
           'invalid-file',
-          `${current.manifest.name} was added from a file: add a newer file to update it`,
+          `${current.name} was added from a file: add a newer file to update it`,
         )
       }
       const { url } = current.origin
@@ -607,7 +712,13 @@ export function createPluginRegistry(options: PluginRegistryOptions): PluginRegi
           `${url} now serves another plugin (${pkg.manifest.id}), not ${id}`,
         )
       }
-      if (compareVersions(pkg.manifest.version, current.manifest.version) <= 0) return undefined
+      // A plugin that can't run takes whatever version its address serves.
+      if (
+        current.problem === undefined &&
+        compareVersions(pkg.manifest.version, current.version) <= 0
+      ) {
+        return undefined
+      }
       return offer(pkg)
     },
     dispose() {

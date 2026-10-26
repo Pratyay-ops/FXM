@@ -1,14 +1,14 @@
 import { DEFAULT_QUALITY_PREFS, formatId, type QualityPrefs, type Track } from '@fxm/core'
-import { createRequestBudget } from '@fxm/platform'
-import { createInProcessEvaluator } from '@fxm/platform/testing'
+import { createRequestBudget, type RequestPriority } from '@fxm/platform'
 import { describe, expect, it } from 'vitest'
 import { createFetchBroker } from './broker'
+import { isPluginError } from './errors'
 import { createPluginRunner } from './host'
 import { parseManifest } from './manifest'
 import { createPluginProviders } from './provider'
-import { isolatedSandboxes } from './sandboxes'
 import {
   fakeCatalogFetch,
+  inProcessSandboxes,
   TEST_CATALOG_HOST,
   TEST_MEDIA_HOST,
   TEST_PLUGIN_CODE,
@@ -18,22 +18,26 @@ import {
 
 const prefs = DEFAULT_QUALITY_PREFS as QualityPrefs
 
-function providers(manifestOverrides: Record<string, unknown> = {}) {
-  const manifest = parseManifest(testPluginManifest(manifestOverrides))
+function providers(manifestOverrides: Record<string, unknown> = {}, code = TEST_PLUGIN_CODE) {
+  const manifest = parseManifest(testPluginManifest(manifestOverrides, code))
+  const budget = createRequestBudget({
+    hourlyLimit: 120,
+    reserves: { 'current-track': 0, prefetch: 0, interactive: 0, bulk: 0 },
+  })
+  const priorities: RequestPriority[] = []
+  const acquire = budget.acquire.bind(budget)
+  budget.acquire = (priority, options) => {
+    priorities.push(priority)
+    return acquire(priority, options)
+  }
   const runner = createPluginRunner({
     manifest,
-    code: TEST_PLUGIN_CODE,
-    sandboxes: isolatedSandboxes(() => createInProcessEvaluator()),
-    broker: createFetchBroker({
-      plugin: manifest,
-      budget: createRequestBudget({
-        hourlyLimit: 120,
-        reserves: { 'current-track': 0, prefetch: 0, interactive: 0, bulk: 0 },
-      }),
-    }),
+    code,
+    sandboxes: inProcessSandboxes(),
+    broker: createFetchBroker({ plugin: manifest, budget }),
   })
   const fetch = fakeCatalogFetch()
-  return { ...createPluginProviders(runner), fetch, ctx: testContext(fetch) }
+  return { ...createPluginProviders(runner), fetch, ctx: testContext(fetch), priorities }
 }
 
 const spotifyTrack: Track = {
@@ -110,15 +114,17 @@ describe('plugin providers', () => {
   })
 
   it('pass on NotFound, and refuse IDs of other sources without asking the plugin', async () => {
-    const { metadata, fetch, ctx } = providers()
+    const { metadata, fetch, ctx, priorities } = providers()
     await expect(
       metadata?.getTrack(formatId('plugin.test-catalog', 'track', 'nope'), ctx),
     ).rejects.toMatchObject({ code: 'NotFound' })
     const before = fetch.requests.length
-    await expect(metadata?.getTrack(spotifyTrack.id, ctx)).rejects.toMatchObject({
-      code: 'NotFound',
-    })
+    const error = await metadata?.getTrack(spotifyTrack.id, ctx).catch((caught: unknown) => caught)
+    expect(isPluginError(error, 'wrong-source')).toBe(true)
+    expect(error).toMatchObject({ code: 'NotFound' })
     expect(fetch.requests).toHaveLength(before)
+    // What the user browses draws on the budget as interactive work.
+    expect(priorities).toEqual(['interactive'])
   })
 
   it('match its own tracks without a search, and other sources’ tracks through the plugin', async () => {
@@ -144,6 +150,13 @@ describe('plugin providers', () => {
       },
     ])
     expect(fetch.requests).toEqual([])
+    // A track of another source that FXM already linked to the plugin's: its ID, no search.
+    const linked = await audio?.match(
+      { ...spotifyTrack, externalIds: { 'plugin.test-catalog': 't3' } },
+      ctx,
+    )
+    expect(linked).toMatchObject([{ ref: 't3', confidence: 1, evidence: ['known id'] }])
+    expect(fetch.requests).toEqual([])
     const matched = await audio?.match(spotifyTrack, ctx)
     expect(matched?.[0]).toMatchObject({
       source: 'plugin.test-catalog',
@@ -157,8 +170,17 @@ describe('plugin providers', () => {
     ])
   })
 
+  it('say that other sources’ tracks go to the plugin only when the user asks it', () => {
+    const { metadata, audio, recommendations } = providers()
+    expect([metadata, audio, recommendations].map((provider) => provider?.requestPolicy)).toEqual([
+      'explicit',
+      'explicit',
+      'explicit',
+    ])
+  })
+
   it('resolve its candidates to streams on its media host, best first', async () => {
-    const { audio, ctx } = providers()
+    const { audio, ctx, priorities } = providers()
     const own = { ...spotifyTrack, id: formatId('plugin.test-catalog', 'track', 't2') }
     const [candidate] = (await audio?.match({ ...own, source: 'plugin.test-catalog' }, ctx)) ?? []
     if (candidate === undefined) throw new Error('no candidate')
@@ -168,21 +190,74 @@ describe('plugin providers', () => {
       ['mp3', 'high', 'unverified'],
     ])
     expect(streams?.[0]?.url).toBe(`https://${TEST_MEDIA_HOST}/audio/t2.flac`)
+    // A song is waiting: the plugin's budget keeps a share of the hour for it.
+    expect(priorities).toEqual(['current-track', 'current-track'])
     await expect(audio?.resolve({ ...candidate, source: 'ytm' }, ctx, prefs)).rejects.toMatchObject(
-      { code: 'Unsupported' },
+      { code: 'NotFound', pluginCode: 'wrong-source' },
     )
   })
 
   it('play radio from a track or an artist', async () => {
-    const { recommendations, ctx } = providers()
+    const { recommendations, ctx, fetch } = providers()
     expect(recommendations?.id).toBe('plugin.test-catalog')
     const tracks = await recommendations?.radio(spotifyTrack, ctx)
     expect(tracks?.map((track) => track.title)).toEqual(['Harbour Lights Out', 'Copper Tide'])
+    expect(fetch.requests.map((request) => request.url)).toEqual([
+      `https://${TEST_CATALOG_HOST}/radio?title=Lantern%20Weather`,
+    ])
     const fromArtist = await recommendations?.radio(
       { id: formatId('plugin.test-catalog', 'artist', 'a1'), name: 'The Paper Moths' },
       ctx,
     )
     expect(fromArtist).toHaveLength(2)
+  })
+
+  it('hand each handler one input object, with the plugin’s own IDs only', async () => {
+    // A plugin that answers with what it was given, as a track's title.
+    const echo = providers(
+      { provides: ['search', 'radio', 'match', 'resolve'] },
+      `fxm.register({
+        async search(input) { return { tracks: [{ id: 'q', title: JSON.stringify(input) }] } },
+        async radio(input) { return [{ id: 'r', title: JSON.stringify(input) }] },
+        async match(input) { return [{ id: 'm', title: JSON.stringify(input), confidence: 0.5 }] },
+        async resolve() { return [] },
+      })`,
+    )
+    const searched = await echo.metadata?.search(
+      'moths',
+      { types: ['track'], limit: 500, cursor: 'c2' },
+      echo.ctx,
+    )
+    expect(JSON.parse(searched?.tracks?.items[0]?.title ?? '')).toEqual({
+      query: 'moths',
+      types: ['track'],
+      limit: 50,
+      cursor: 'c2',
+    })
+    const linked = { ...spotifyTrack, externalIds: { 'plugin.test-catalog': 't9' } }
+    const [radio] = (await echo.recommendations?.radio(linked, echo.ctx)) ?? []
+    expect(JSON.parse(radio?.title ?? '')).toEqual({
+      seed: {
+        type: 'track',
+        title: 'Lantern Weather',
+        artists: ['The Paper Moths'],
+        id: 't9',
+        album: 'Night Ferries',
+        durationMs: 201_000,
+        isrc: 'ZZTST2600001',
+      },
+    })
+    const [candidate] = (await echo.audio?.match(spotifyTrack, echo.ctx)) ?? []
+    // Another source's ID never reaches the plugin.
+    expect(JSON.parse(candidate?.title ?? '')).toEqual({
+      track: {
+        title: 'Lantern Weather',
+        artists: ['The Paper Moths'],
+        album: 'Night Ferries',
+        durationMs: 201_000,
+        isrc: 'ZZTST2600001',
+      },
+    })
   })
 
   it('provide only what the manifest declares', () => {

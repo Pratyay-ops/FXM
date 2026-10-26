@@ -11,7 +11,13 @@ import { showStatus } from '../library/status'
 import { SettingSwitch } from '../settings/setting-switch'
 import { SettingRow, SettingsSection } from '../settings/settings-layout'
 import { AddressDialog, OfferDialog, RemoveDialog } from './plugin-dialogs'
-import { operationsText, originText, pluginFailureText, pluginTitle } from './plugin-text'
+import {
+  operationsText,
+  originText,
+  pluginFailureText,
+  pluginTitle,
+  problemText,
+} from './plugin-text'
 import { usePluginsSettingsStore } from './plugins-store'
 import {
   announcePluginChange,
@@ -45,7 +51,7 @@ function PluginRow({
   const nameId = useId()
   const detailsId = useId()
   const [checking, setChecking] = useState(false)
-  const { manifest, problem } = entry
+  const { manifest, name } = entry
   return (
     <li className="space-y-3 p-4 sm:p-5">
       <div className="flex items-start gap-4">
@@ -54,24 +60,26 @@ function PluginRow({
             {pluginTitle(entry)}
           </p>
           <div id={detailsId} className="mt-1 space-y-1 text-sm text-text-muted">
-            {manifest.author !== undefined && <p>By {manifest.author}</p>}
-            {manifest.description !== undefined && <p>{manifest.description}</p>}
-            {problem === undefined ? (
+            {manifest?.author !== undefined && <p>By {manifest.author}</p>}
+            {manifest?.description !== undefined && <p>{manifest.description}</p>}
+            {entry.problem === undefined ? (
               <>
-                {manifest.provides.length > 0 && <p>Adds {operationsText(manifest.provides)}.</p>}
+                {entry.manifest.provides.length > 0 && (
+                  <p>Adds {operationsText(entry.manifest.provides)}.</p>
+                )}
                 <p className="wrap-anywhere">
-                  {manifest.hosts.length === 0
+                  {entry.manifest.hosts.length === 0
                     ? 'Contacts no addresses.'
-                    : `Contacts ${manifest.hosts.join(', ')}.`}
+                    : `Contacts ${entry.manifest.hosts.join(', ')}.`}
                 </p>
               </>
             ) : (
-              <p className="font-semibold text-danger">{problem}.</p>
+              <p className="font-semibold text-danger">{problemText(entry.problem)}</p>
             )}
             <p className="wrap-anywhere">{originText(entry.origin)}.</p>
           </div>
         </div>
-        {problem === undefined && (
+        {entry.problem === undefined && (
           <SettingSwitch
             labelledBy={nameId}
             describedBy={detailsId}
@@ -80,7 +88,7 @@ function PluginRow({
               registry.setEnabled(entry.id, enabled).then(
                 () => {
                   announcePluginChange()
-                  showStatus(`${manifest.name} is ${enabled ? 'on' : 'off'}`)
+                  showStatus(`${name} is ${enabled ? 'on' : 'off'}`)
                 },
                 (error: unknown) => showStatus(pluginFailureText(error)),
               )
@@ -92,7 +100,7 @@ function PluginRow({
         {entry.origin.kind === 'url' && (
           <button
             type="button"
-            aria-label={`Check for an update of ${manifest.name}`}
+            aria-label={`Check for an update of ${name}`}
             aria-disabled={checking}
             className={buttonClasses({ variant: 'secondary' })}
             onClick={() => {
@@ -118,7 +126,7 @@ function PluginRow({
         )}
         <button
           type="button"
-          aria-label={`Remove ${manifest.name}`}
+          aria-label={`Remove ${name}`}
           className={buttonClasses({ variant: 'ghost' })}
           onClick={() => onRemove(entry)}
         >
@@ -150,8 +158,8 @@ function PluginManager() {
     setOffer(undefined)
     showStatus(
       approved.current === undefined
-        ? `Added ${entry.manifest.name}`
-        : `Updated ${entry.manifest.name} to ${entry.manifest.version}`,
+        ? `Added ${entry.name}`
+        : `Updated ${entry.name} to ${entry.version ?? approved.package.manifest.version}`,
     )
   }
 
@@ -162,7 +170,7 @@ function PluginManager() {
     }
     try {
       const text = await file.text()
-      setOffer(registry.offerFromFile(text, file.name))
+      setOffer(await registry.offerFromFile(text, file.name))
     } catch (error) {
       showStatus(pluginFailureText(error))
     }
@@ -253,7 +261,7 @@ function PluginManager() {
           registry.remove(entry.id).then(
             () => {
               announcePluginChange()
-              showStatus(`Removed ${entry.manifest.name}`)
+              showStatus(`Removed ${entry.name}`)
             },
             (error: unknown) => showStatus(pluginFailureText(error)),
           )

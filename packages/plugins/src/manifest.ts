@@ -17,10 +17,16 @@
  * }
  * ```
  *
+ * **Forward compatible.** Later versions of FXM will know more operations and maybe more forms
+ * of host. So the manifest's plugin API version, then its `minFxmVersion`, are checked before any
+ * field whose values can grow: a plugin for a newer FXM is refused as `needs-newer-fxm`, which
+ * says what to do, never as an invalid manifest.
+ *
  * @module
  */
 
 import { isPluginSourceId, type PluginSourceId } from '@fxm/core'
+import { type HostRule, serviceHostRule } from '@fxm/platform'
 import { cleanText, PluginError } from './errors'
 
 /** The version of the plugin API this FXM speaks: the manifest's `fxmPlugin`. */
@@ -135,6 +141,13 @@ export function isPluginId(id: unknown): id is string {
   return typeof id === 'string' && isPluginSourceId(pluginSourceId(id))
 }
 
+/**
+ * The version a build of FXM made from source between releases reports (`APP_VERSION` of
+ * `@fxm/core` until the release scripts set it). Such a development build runs plugins whatever
+ * their `minFxmVersion`, so plugin authors and contributors can test with it.
+ */
+export const DEVELOPMENT_VERSION = '0.0.0'
+
 /** `major.minor.patch`, each part a whole number without leading zeros. */
 const VERSION = /^(0|[1-9]\d{0,8})\.(0|[1-9]\d{0,8})\.(0|[1-9]\d{0,8})$/u
 
@@ -175,6 +188,14 @@ const LOCAL_NAMES = ['localhost', 'local', 'internal', 'lan', 'home', 'corp', 'i
  * label, a name in the user's own network (`localhost`, `.local`, `.home.arpa` and the like), a
  * wildcard, Unicode (use the `xn--` form, so lookalike letters can't hide a host) or a port
  * outside 1–65535.
+ *
+ * **A check of the name only.** Nothing is resolved here, so a public name whose DNS points at
+ * `127.0.0.1` or a private address (wildcard DNS services do that) passes, and so does a name
+ * that changes its address between requests (DNS rebinding). On the web, what a plugin can read
+ * there is limited by the opaque origin its requests come from (they need
+ * `Access-Control-Allow-Origin`) and by Chromium's Private Network Access. Native user-host
+ * fetches have neither: before plugins run in the desktop and Android apps, those must refuse
+ * loopback, private, link-local and unique-local addresses on every connection (see the README).
  */
 export function normalizeHost(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined
@@ -196,6 +217,21 @@ export function normalizeHost(value: unknown): string | undefined {
   if (/^\d+$/u.test(top)) return undefined
   if (LOCAL_NAMES.includes(top) || name.endsWith('.home.arpa')) return undefined
   return port === undefined || port === 443 ? name : `${name}:${port}`
+}
+
+/**
+ * The service FXM itself runs on a declared host, when a plugin may not use that host: one of
+ * the host table of `@fxm/platform` that the platform reaches by a privileged route (FXM Connect,
+ * the Lite tier's InnerTube document) or that draws on the device's shared YouTube budget:
+ * YouTube's and YouTube Music's hosts, googlevideo, Spotify and Last.fm's stations. A plugin's
+ * request to such a host would leave with FXM's privileges, so none may declare one, whatever
+ * the port. FXM's open services (MusicBrainz, Internet Archive and the like) stay allowed: their
+ * requests go out as any page's would.
+ */
+export function reservedServiceOf(host: string): HostRule | undefined {
+  const name = host.includes(':') ? host.slice(0, host.lastIndexOf(':')) : host
+  const rule = serviceHostRule(name)
+  return rule === undefined || rule.hostClass === 'open' ? undefined : rule
 }
 
 /** The host of an `https:` URL in a manifest's spelling, or `undefined` for any other URL. */
@@ -259,15 +295,34 @@ function optionalText(
   return text === '' ? undefined : text
 }
 
+/** Options for {@link parseManifest}. */
+export interface ManifestOptions {
+  /**
+   * This FXM's version, to refuse a plugin that needs a newer one (`needs-newer-fxm`) before the
+   * fields a newer FXM may read differently. A {@link DEVELOPMENT_VERSION} build runs any.
+   * Without it, `minFxmVersion` is only checked for its form.
+   */
+  readonly appVersion?: string
+}
+
 /**
  * Checks an untrusted manifest, such as the JSON of a downloaded `fxm-plugin.json`, and returns
  * it in its one spelling: hosts normalized, operations de-duplicated and ordered, texts cleaned,
  * the request rate filled in. Fields FXM doesn't know are ignored.
  *
- * @throws PluginError `invalid-manifest` for anything it doesn't accept (the message names the
- * field), `unsupported-api` for a manifest written for another plugin API version.
+ * The plugin API version and, given `options.appVersion`, the oldest FXM version come first, so
+ * a plugin written for a newer FXM is refused for that, whatever else its manifest holds.
+ *
+ * @throws PluginError `unsupported-api` for a manifest written for another plugin API version,
+ * `needs-newer-fxm` for one that needs a newer FXM, `invalid-manifest` for anything else it
+ * doesn't accept (the message names the field).
+ * @throws RangeError when `options.appVersion` is not `major.minor.patch`.
  */
-export function parseManifest(value: unknown): PluginManifest {
+export function parseManifest(value: unknown, options: ManifestOptions = {}): PluginManifest {
+  const { appVersion } = options
+  if (appVersion !== undefined && parseVersion(appVersion) === undefined) {
+    throw new RangeError(`Not a version: ${appVersion}`)
+  }
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw invalid('The manifest is not a JSON object')
   }
@@ -302,6 +357,16 @@ export function parseManifest(value: unknown): PluginManifest {
   if (typeof minFxmVersion !== 'string' || parseVersion(minFxmVersion) === undefined) {
     throw invalid('"minFxmVersion" must be major.minor.patch, such as 0.1.0')
   }
+  if (
+    appVersion !== undefined &&
+    appVersion !== DEVELOPMENT_VERSION &&
+    compareVersions(appVersion, minFxmVersion) < 0
+  ) {
+    throw new PluginError(
+      'needs-newer-fxm',
+      `${name} needs FXM ${minFxmVersion} or later; this is FXM ${appVersion}`,
+    )
+  }
 
   const description = optionalText(record, 'description', MANIFEST_LIMITS.description)
   const author = optionalText(record, 'author', MANIFEST_LIMITS.author)
@@ -325,6 +390,12 @@ export function parseManifest(value: unknown): PluginManifest {
         `"hosts" has ${JSON.stringify(cleanText(String(entry), 80))}, which is not a public host name (host or host:port)`,
       )
     }
+    const reserved = reservedServiceOf(host)
+    if (reserved !== undefined) {
+      throw invalid(
+        `"hosts" has ${host}, a host of ${reserved.service} that FXM reaches itself: plugins can't use it`,
+      )
+    }
     if (!hosts.includes(host)) hosts.push(host)
   }
 
@@ -345,7 +416,7 @@ export function parseManifest(value: unknown): PluginManifest {
   for (const operation of rawProvides) {
     if (!(PLUGIN_OPERATIONS as readonly unknown[]).includes(operation)) {
       throw invalid(
-        `"provides" has ${JSON.stringify(cleanText(String(operation), 40))}: it may list ${PLUGIN_OPERATIONS.join(', ')}`,
+        `"provides" has ${JSON.stringify(cleanText(String(operation), 40))}: it may list ${PLUGIN_OPERATIONS.join(', ')} (a plugin that needs a newer FXM says so in "minFxmVersion")`,
       )
     }
   }
@@ -385,23 +456,5 @@ export function parseManifest(value: unknown): PluginManifest {
     sha256: sha256.toLowerCase(),
     provides,
     requestsPerHour: rate,
-  }
-}
-
-/**
- * Checks that this FXM can run a plugin: its plugin API version (already checked by
- * {@link parseManifest}) and its oldest FXM version.
- *
- * @throws PluginError `needs-newer-fxm` when `appVersion` is older than `minFxmVersion`.
- */
-export function checkCompatible(manifest: PluginManifest, appVersion: string): void {
-  if (parseVersion(appVersion) === undefined) {
-    throw new RangeError(`Not a version: ${appVersion}`)
-  }
-  if (compareVersions(appVersion, manifest.minFxmVersion) < 0) {
-    throw new PluginError(
-      'needs-newer-fxm',
-      `${manifest.name} needs FXM ${manifest.minFxmVersion} or later; this is FXM ${appVersion}`,
-    )
   }
 }

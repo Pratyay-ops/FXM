@@ -1,21 +1,16 @@
 /**
  * Test helpers for the plugins feature: the runtime with an in-memory store, in-process
- * evaluators (the real runtime of `eval.html`, run in the test's realm), a fake download site
- * and fresh sources. Never import this from app code.
+ * evaluators (the real runtime of `eval.html`, run in the test's realm, starting each plugin's
+ * worker in a fresh realm), a fake download site and fresh sources. Never import this from app
+ * code.
  *
  * @module
  */
 
 import type { Distribution, Environment } from '@fxm/platform'
 import { memoryStorage } from '@fxm/platform'
-import { createInProcessEvaluator } from '@fxm/platform/testing'
-import {
-  type DownloadFetch,
-  isolatedSandboxes,
-  memoryPluginStore,
-  type PluginStore,
-  type StoredPlugin,
-} from '@fxm/plugins'
+import type { DownloadFetch, PluginStore, StoredPlugin } from '@fxm/plugins'
+import { inProcessSandboxes, memoryPluginStore } from '@fxm/plugins/testing'
 import { createSources, type Sources } from '../search/sources'
 import { usePluginsSettingsStore } from './plugins-store'
 import { configurePluginRuntime, resetPluginRuntime } from './runtime'
@@ -62,6 +57,7 @@ export function setupPluginTestRuntime(
     environment?: Environment
     distribution?: Distribution
     sources?: Sources
+    appVersion?: string
   } = {},
 ): PluginTestRuntime {
   const store = memoryPluginStore(options.initial ?? [])
@@ -69,12 +65,13 @@ export function setupPluginTestRuntime(
   const sources = options.sources ?? createSources()
   configurePluginRuntime({
     store: () => store,
-    sandboxes: () => isolatedSandboxes(() => createInProcessEvaluator()),
+    sandboxes: () => inProcessSandboxes(),
     budgetStorage: () => memoryStorage(),
     download: async () => site.fetch,
     sources,
     environment: options.environment ?? 'browser',
     distribution: options.distribution ?? 'standard',
+    ...(options.appVersion === undefined ? {} : { appVersion: options.appVersion }),
   })
   return { store, site, sources }
 }

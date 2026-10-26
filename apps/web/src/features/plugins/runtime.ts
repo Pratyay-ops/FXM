@@ -1,7 +1,8 @@
 /**
  * The web app's plugins (stage 8.3): one registry of `@fxm/plugins` for the whole app, its
- * plugins kept in IndexedDB (`plugins-db.ts`), each run in a sandboxed evaluator document of its
- * own (`createSandboxEvaluator` of `@fxm/platform`, stage 1.11), never in the app's page.
+ * plugins kept in IndexedDB (`plugins-db.ts`), each run in a worker of a sandboxed evaluator
+ * document of its own (`createSandboxEvaluator` of `@fxm/platform`, stage 1.11), never in the
+ * app's page.
  *
  * - **Sources.** The catalog of every plugin that is on is registered with the app's sources
  *   (`appSources`), so it shows in the search page's source switch. A plugin's catalog is called
@@ -76,6 +77,8 @@ export interface PluginRuntimeOptions {
   readonly environment?: Environment
   /** The build's distribution. Default: {@link BUILD_DISTRIBUTION}. */
   readonly distribution?: Distribution
+  /** This FXM's version, which plugins' `minFxmVersion` is compared with. Default: the build's. */
+  readonly appVersion?: string
 }
 
 /** Where the plugins' resolvers go: the app's stream lifecycle (`StreamLifecycle.addSource`). */
@@ -127,6 +130,7 @@ export function getPluginRegistry(): PluginRegistry {
     store: options.store?.() ?? createDexiePluginStore(openPluginsDatabase()),
     sandboxes: options.sandboxes?.() ?? isolatedSandboxes(() => createSandboxEvaluator()),
     budgetStorage: options.budgetStorage?.() ?? browserStorage() ?? memoryStorage(),
+    ...(options.appVersion === undefined ? {} : { appVersion: options.appVersion }),
   })
   return registry
 }

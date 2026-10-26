@@ -1,24 +1,31 @@
 /**
- * The plugin protocol: the messages between the host (`host.ts`, in FXM's page) and the plugin
- * runtime (`document.ts`, inside the isolated evaluator document), carried as the arguments and
- * results of `Evaluator.evaluate`. Everything is JSON.
+ * The plugin protocol: the messages between the host (`host.ts`, in FXM's page) and the plugin's
+ * worker (`worker.ts`), relayed by the plugin's evaluator document (`document.ts`). The host's
+ * messages are the arguments of `Evaluator.evaluate`, and the replies are its results, as JSON
+ * text.
  *
  * A call goes like this:
  *
- * 1. The host sends `call` with the operation and its parameters. The runtime loads the plugin
- *    (once per document), starts its handler, and answers as soon as the handler settles, asks
- *    for network requests, or has done neither for a while:
+ * 1. The host sends `call` with the operation and its input. The worker loads the plugin (once),
+ *    starts its handler, and answers as soon as the handler settles, asks for network requests,
+ *    or has done neither for a while:
  *    - `done` with the handler's result, or `failed` with why it failed;
  *    - `fetch` with the requests the handler made through `ctx.fetch`;
  *    - `idle` while the handler still works (waiting on a timer, say).
  * 2. After `fetch`, the host checks each request against the plugin's declared hosts and its
  *    request budget, sends the allowed ones through the platform's `fetch`, and answers with
  *    `resume`, carrying the responses (or why each failed). After `idle` it sends `resume` with
- *    no responses. The runtime answers again as in step 1.
+ *    no responses. The worker answers again as in step 1.
  * 3. A host that gives up (a timeout, a cancelled caller) sends `cancel`.
  *
- * The host trusts nothing the document sends: {@link parseReply} checks every reply, and the
- * host checks every request and every result again.
+ * The document only relays: it starts the worker, hands it the plugin's code and then each
+ * message, and gives the host the worker's answer, or answers itself when the worker didn't answer
+ * in time (`hung`), answered more than {@link REPLY_LIMITS} allow (`too-large`), answered outside
+ * this protocol (`bad-reply`) or couldn't start (`unavailable`). It stops the worker in each of
+ * those cases. Code that doesn't compile is the worker's to report (`load-failed`).
+ *
+ * The host trusts nothing it gets back: {@link parseReply} checks every reply, and the host
+ * checks every request and every result again.
  *
  * @module
  */
@@ -87,10 +94,12 @@ export type RuntimeInput =
       readonly fxmPlugin: typeof PROTOCOL_VERSION
       readonly op: 'call'
       readonly call: string
+      /** The operation: one of `PLUGIN_OPERATIONS`. */
       readonly method: string
-      readonly params: readonly JsonValue[]
+      /** The handler's input object (see the README's handler table). */
+      readonly input: JsonValue
       readonly context: WireContext
-      /** The longest the runtime waits before it answers `idle`, in milliseconds. */
+      /** The longest the worker waits before it answers `idle`, in milliseconds. */
       readonly stepMs: number
     }
   | {
@@ -102,16 +111,21 @@ export type RuntimeInput =
     }
   | { readonly fxmPlugin: typeof PROTOCOL_VERSION; readonly op: 'cancel'; readonly call: string }
 
-/** Why a call failed in the document. */
+/** Why a call failed in the worker or the document. */
 export interface RuntimeFailure {
   /**
-   * - `load-failed`: the plugin's code threw while it loaded, or registered no handlers
+   * - `load-failed`: the plugin's code does not compile, threw while it loaded, or registered no
+   *   handlers
    * - `not-implemented`: it has no handler for the operation
    * - `plugin-failed`: the handler threw
    * - `not-json`: the handler returned something that is not JSON
-   * - `busy`: the document runs too many calls at once
-   * - `unknown-call`: the document doesn't know the call (it was restarted, or the call ended)
+   * - `busy`: the worker runs too many calls at once
+   * - `unknown-call`: the worker doesn't know the call (it was restarted, or the call ended)
    * - `bad-request`: the host's message was malformed
+   * - `hung`: the worker didn't answer in time, so the document stopped it
+   * - `too-large`: the worker's answer was longer than {@link REPLY_LIMITS}' `chars`
+   * - `bad-reply`: the worker answered outside this protocol, so the document stopped it
+   * - `unavailable`: no worker could be started in this document
    */
   readonly code:
     | 'load-failed'
@@ -121,6 +135,10 @@ export interface RuntimeFailure {
     | 'busy'
     | 'unknown-call'
     | 'bad-request'
+    | 'hung'
+    | 'too-large'
+    | 'bad-reply'
+    | 'unavailable'
   /** For people: the handler's error message, say. */
   readonly message: string
   /** The `FxmError` code the plugin failed with (`fxm.fail(code)`), if it named one. */
@@ -139,6 +157,12 @@ export type RuntimeReply =
 
 /** Limits on what a reply may carry. */
 export const REPLY_LIMITS = {
+  /**
+   * A whole reply, as JSON text, in characters: a result or a turn's requests. Twice the
+   * broker's limit on one response, so a plugin can pass on what it fetched, but never a result
+   * that would weigh on the page.
+   */
+  chars: 4 * 1024 * 1024,
   /** Requests in one `fetch` reply. */
   requests: 16,
   /** A request URL, in characters. */
@@ -161,6 +185,10 @@ const FAILURE_CODES: readonly RuntimeFailure['code'][] = [
   'busy',
   'unknown-call',
   'bad-request',
+  'hung',
+  'too-large',
+  'bad-reply',
+  'unavailable',
 ]
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -208,29 +236,41 @@ function parseFailure(value: unknown): RuntimeFailure | undefined {
   }
 }
 
+/** Why {@link parseReply} refused a reply. */
+export type ReplyProblem = 'too-large' | 'malformed'
+
 /**
- * Checks a reply from the document, or returns `undefined` when it is none: a malformed reply, a
- * request with a bad shape, more than {@link REPLY_LIMITS}' requests, or two requests with one
- * number.
+ * Checks a reply, which arrives as JSON text: a {@link RuntimeReply}, or why it is none. Text
+ * longer than {@link REPLY_LIMITS}' `chars` is refused before it is parsed (`too-large`), and so
+ * is anything that is not text, not JSON, not a reply, a request with a bad shape, more than
+ * `requests` requests, or two requests with one number (`malformed`).
  */
-export function parseReply(value: unknown): RuntimeReply | undefined {
-  if (!isRecord(value) || value.fxmPluginReply !== PROTOCOL_VERSION) return undefined
+export function parseReply(text: unknown): RuntimeReply | ReplyProblem {
+  if (typeof text !== 'string') return 'malformed'
+  if (text.length > REPLY_LIMITS.chars) return 'too-large'
+  let value: unknown
+  try {
+    value = JSON.parse(text)
+  } catch {
+    return 'malformed'
+  }
+  if (!isRecord(value) || value.fxmPluginReply !== PROTOCOL_VERSION) return 'malformed'
   switch (value.state) {
     case 'done':
-      return 'value' in value ? { state: 'done', value: value.value as JsonValue } : undefined
+      return 'value' in value ? { state: 'done', value: value.value as JsonValue } : 'malformed'
     case 'failed': {
       const error = parseFailure(value.error)
-      return error === undefined ? undefined : { state: 'failed', error }
+      return error === undefined ? 'malformed' : { state: 'failed', error }
     }
     case 'fetch': {
       const { requests } = value
-      if (!Array.isArray(requests) || requests.length === 0) return undefined
-      if (requests.length > REPLY_LIMITS.requests) return undefined
+      if (!Array.isArray(requests) || requests.length === 0) return 'malformed'
+      if (requests.length > REPLY_LIMITS.requests) return 'malformed'
       const parsed: WireRequest[] = []
       for (const request of requests) {
         const checked = parseRequest(request)
         if (checked === undefined || parsed.some((other) => other.id === checked.id)) {
-          return undefined
+          return 'malformed'
         }
         parsed.push(checked)
       }
@@ -241,6 +281,6 @@ export function parseReply(value: unknown): RuntimeReply | undefined {
     case 'cancelled':
       return { state: 'cancelled' }
     default:
-      return undefined
+      return 'malformed'
   }
 }

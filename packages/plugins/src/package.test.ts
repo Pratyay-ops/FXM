@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { sha256Hex, utf8 } from './checksum'
 import { isPluginError, type PluginErrorCode } from './errors'
 import {
+  checkPackage,
   createPluginFile,
   type DownloadFetch,
   downloadHosts,
@@ -83,12 +84,52 @@ describe('plugin files', () => {
     )
   })
 
-  it('refuses plugins that need a newer FXM', async () => {
+  it('refuses plugins that need a newer FXM, whatever else a newer FXM would read in them', async () => {
+    for (const future of [{}, { provides: ['search', 'home'] }, { hosts: ['*.example.org'] }]) {
+      await expectFailure(
+        () =>
+          readPluginFile(testPluginFile({ minFxmVersion: '9.0.0', ...future }), 'x.json', {
+            appVersion: '1.0.0',
+          }),
+        'needs-newer-fxm',
+      )
+    }
+  })
+})
+
+describe('checking a package again', () => {
+  const pkg = () => readPluginFile(testPluginFile(), 'test.json')
+
+  it('returns a package that passes every check, as read', () => {
+    expect(checkPackage(pkg(), '1.0.0')).toEqual(pkg())
+  })
+
+  it('refuses a package built by hand that skips the checks', async () => {
+    const good = pkg()
+    await expectFailure(
+      () => checkPackage({ ...good, code: `${good.code}\n// changed` }, '1.0.0'),
+      'checksum-mismatch',
+    )
     await expectFailure(
       () =>
-        readPluginFile(testPluginFile({ minFxmVersion: '9.0.0' }), 'x.json', {
-          appVersion: '1.0.0',
-        }),
+        checkPackage(
+          { ...good, manifest: { ...good.manifest, hosts: ['music.youtube.com'] } },
+          '1.0.0',
+        ),
+      'invalid-manifest',
+    )
+    await expectFailure(
+      () =>
+        checkPackage(
+          { ...good, origin: { kind: 'url', url: 'http://plain.example.org/' } },
+          '1.0.0',
+        ),
+      'invalid-file',
+    )
+    await expectFailure(() => checkPackage(undefined, '1.0.0'), 'invalid-file')
+    await expectFailure(
+      () =>
+        checkPackage({ ...good, manifest: { ...good.manifest, minFxmVersion: '2.0.0' } }, '1.0.0'),
       'needs-newer-fxm',
     )
   })
@@ -105,6 +146,19 @@ describe('downloads', () => {
     expect(pkg.code).toBe(TEST_PLUGIN_CODE)
     expect(pkg.origin).toEqual({ kind: 'url', url: MANIFEST_URL })
     expect(asked).toEqual([MANIFEST_URL, 'https://plugins.example.org/test/code/plugin.js'])
+  })
+
+  it('fetches no code for a manifest that needs a newer FXM', async () => {
+    const { fetch, asked } = site({
+      [MANIFEST_URL]: JSON.stringify(
+        testPluginManifest({ minFxmVersion: '9.0.0', provides: ['search', 'home'] }),
+      ),
+    })
+    await expectFailure(
+      () => downloadPlugin(MANIFEST_URL, fetch, { appVersion: '1.0.0' }),
+      'needs-newer-fxm',
+    )
+    expect(asked).toEqual([MANIFEST_URL])
   })
 
   it('downloads a plugin file in one request', async () => {

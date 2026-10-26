@@ -44,6 +44,8 @@ export function provenanceNotices(offer: PluginOffer): string[] {
     )
   }
   const unnamed = 'an unnamed author'
+  // A copy that can't run has no manifest to trust: its author isn't known.
+  if (installed.manifest === undefined) return notices
   const wasBy = installed.manifest.author ?? unnamed
   const isBy = offer.package.manifest.author ?? unnamed
   if (wasBy !== isBy) {
@@ -96,7 +98,9 @@ export function OfferDialog({
         ? {}
         : {
             description: update
-              ? `Replaces version ${installed?.manifest.version}${author}`
+              ? installed?.problem === undefined
+                ? `Replaces version ${installed?.version}${author}`
+                : `Replaces ${installed.version === undefined ? 'a copy' : `version ${installed.version}`} that can’t run${author}`
               : `Version ${manifest.version}${author}`,
           })}
     >
@@ -288,7 +292,7 @@ export function RemoveDialog({
       open={entry !== undefined}
       onClose={onClose}
       alert
-      title={`Remove ${entry?.manifest.name ?? ''}?`}
+      title={`Remove ${entry?.name ?? ''}?`}
       description="FXM deletes the plugin from this device. Songs of it in your library stay listed, but play again only once you add it again."
     >
       <DialogActions>

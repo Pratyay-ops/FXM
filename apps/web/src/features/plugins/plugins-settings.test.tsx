@@ -61,7 +61,7 @@ describe('Settings → Plugins', () => {
     expect(within(dialog).getByText(TEST_CATALOG_HOST)).toBeVisible()
     expect(within(dialog).getByText(TEST_MEDIA_HOST)).toBeVisible()
     expect(dialog).toHaveTextContent(/It adds search, search suggestions, songs, albums/)
-    expect(dialog).toHaveTextContent('At most 120 requests an hour. Needs FXM 0.0.0 or later.')
+    expect(dialog).toHaveTextContent('At most 120 requests an hour. Needs FXM 0.1.0 or later.')
     expect(dialog).toHaveTextContent('From the file test-catalog.fxmplugin.json')
     expect(dialog).toHaveTextContent(/Add only plugins from people you trust/)
     // Nothing is installed before the user says so.
@@ -204,6 +204,20 @@ describe('Settings → Plugins', () => {
     expect(await within(section).findByText(/Its stored copy is damaged/)).toBeVisible()
     expect(within(section).queryByRole('switch')).not.toBeInTheDocument()
     expect(within(section).getByRole('button', { name: 'Remove Test Catalog' })).toBeVisible()
+  })
+
+  it('says which FXM a plugin needs when this one is too old to run it', async () => {
+    const manifest = parseManifest(testPluginManifest({ minFxmVersion: '9.0.0' }))
+    setupPluginTestRuntime({ initial: [stored({ manifest })], appVersion: '1.0.0' })
+    renderApp('/settings')
+    const section = await pluginsSection()
+    expect(
+      await within(section).findByText(
+        'It needs FXM 9.0.0 or later, and this is FXM 1.0.0. Update FXM, or add a version of the plugin that runs on this one.',
+      ),
+    ).toBeVisible()
+    expect(within(section).getByText('Test Catalog 1.0.0')).toBeVisible()
+    expect(within(section).queryByRole('switch')).not.toBeInTheDocument()
   })
 
   it('in an F-Droid build, asks first with equal choices, and runs nothing until then', async () => {
