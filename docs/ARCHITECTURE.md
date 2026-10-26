@@ -240,10 +240,13 @@ packages/
               evaluator, signed updates, storage and download sinks
   sources/    One folder per provider: youtube, spotify, archive, jamendo, lrclib, lastfm,
               listenbrainz, musicbrainz
-  player/     Player facade and engines (direct audio, MediaSource, native bridge), offline store,
-              conversion worker
+  player/     Player facade and engines (direct audio, MediaSource, native bridge), offline store
   downloads/  Download manager (4.1): a resumable queue, the storage and record interfaces each
               platform implements, and the offline store the playback policy plays downloads from
+  convert/    Conversion and tagging (4.2): formats and honest labels, the ffmpeg core worker,
+              mp4box.js extraction, tag writers, Save to device
+tools/
+  ffmpeg-wasm/  The LGPL ffmpeg core's recipe (built into .tools, shipped by make dist)
 docs/         Architecture, plan, workflow, development guide; research/ holds the decision memos
 scripts/      Toolchain bootstrap (everything installs into .tools/)
 ```
