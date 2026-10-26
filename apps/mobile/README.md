@@ -21,12 +21,15 @@ capacitor.config.ts   app id, the web build to wrap, plugin settings (`cap sync`
 android/              the native project from `cap add android`, committed; build output is gitignored
   app/src/main/       AndroidManifest.xml, MainActivity, res/ (theme, icons, backup rules),
                       java/.../evaluator/ (the isolated evaluator's WebView, stage 1.11)
+  app/libraries.gradle  fxmLibraryReport: the release APK's Android libraries and their licences
   fxm-http/           FXM's native HTTP: the shared OkHttp client and the FxmHttp plugin (6.2)
   fxm-player/         FXM's native player: Media3 in a foreground service and the FxmPlayer plugin (6.3)
   variables.gradle    SDK levels and AndroidX versions from Capacitor's template, plus OkHttp's and Media3's
 scripts/
   build-apk.sh        make apk
   release-apk.sh      the release workflow and make apk-release: build, then sign and check, the release APKs
+  notices.ts          the release APKs' third-party notices: the Android libraries and make dist's notices
+  write-notices.ts    writes them for release-apk.sh build, or fails on a library FXM may not ship
   test-native.sh      make android-test: the JVM tests of fxm-http and fxm-player
   test-release.sh     make apk-sign-test: the keystore script and the release signing, offline
   native-tables.ts    writes fxm-http's PlatformTables.kt from @fxm/platform (host table, bridge codes)
@@ -59,7 +62,7 @@ scripts/run.sh pnpm --filter @fxm/mobile cap sync android
   - **Still to check on a device**: the profile, the blocked navigations, the app coming back after the evaluator's renderer dies, and the renderer's end.
 - **Backups.** `android:allowBackup="false"` plus `res/xml/data_extraction_rules.xml` keep app data out of cloud backups and device-to-device transfers, because the app will hold sign-in sessions (stage 6.5).
 - **Versions.** Capacitor's defaults: minSdk 24 (Android 7), compileSdk and targetSdk 36, Android Gradle plugin 8.13 and Gradle 8.14.3. `versionName` comes from this package's `version`, and `versionCode` from it too: major × 1,000,000 + minor × 1,000 + patch, so every release can update the one before ([RELEASING.md](RELEASING.md#version-codes)).
-- **Release builds.** The release workflow builds an APK for arm64-v8a phones and a universal one (`-PfxmReleaseApks`), unsigned, in one job, and signs them with apksigner in another, which runs no npm package or Gradle plugin: FXM's key reaches only that job, never Gradle, its plugins or the npm packages. The build refuses to run while a signing variable is set, and FXM's key is never put into a shell on a computer that builds, so `make apk-release` signs with a throwaway key it makes for the run. The release certificate must be the one pinned in `release-certificate.txt`. The APKs check GitHub for new versions once a day, unless the user turns that off, and only offer the download (`apps/web/src/features/app-update`); F-Droid builds and other builds don't check. [RELEASING.md](RELEASING.md) has the details.
+- **Release builds.** The release workflow builds an APK for arm64-v8a phones and a universal one (`-PfxmReleaseApks`), unsigned, in one job, and signs them with apksigner in another, which runs no npm package or Gradle plugin: FXM's key reaches only that job, never Gradle, its plugins or the npm packages. The build refuses to run while a signing variable is set, and FXM's key is never put into a shell on a computer that builds, so `make apk-release` signs with a throwaway key it makes for the run. The release certificate must be the one pinned in `release-certificate.txt`. Every release APK carries its third-party notices, the Android libraries' and the web app's, which Settings → About shows, and the build fails on a library whose licence FXM hasn't accepted (`scripts/notices.ts`). The APKs check GitHub for new versions once a day, unless the user turns that off, and only offer the download (`apps/web/src/features/app-update`); F-Droid builds and other builds don't check. [RELEASING.md](RELEASING.md) has the details.
 
 What differs from Capacitor's template:
 
@@ -70,6 +73,7 @@ What differs from Capacitor's template:
 - no Google services plugin, because FXM uses no Firebase;
 - `versionName` and `versionCode` from `package.json`;
 - ABI splits for the release APKs, which Gradle leaves unsigned, and no dependency report for Google Play in the APK;
+- `fxmLibraryReport` (`app/libraries.gradle`), for the release APKs' third-party notices;
 - Gradle's smaller `-bin` distribution, checked against its SHA-256;
 - Gradle may use only the repo-local JDK;
 - the example tests live in the app's package;

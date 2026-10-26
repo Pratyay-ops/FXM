@@ -166,7 +166,7 @@ make apk             # builds the debug APK
 make android-test    # runs the native unit tests (JVM, offline, no device needed)
 ```
 
-Release APKs are signed by the release workflow, and only there: FXM's key never goes into a shell on a computer that builds ([apps/mobile/RELEASING.md](../apps/mobile/RELEASING.md)). `make apk-release` builds them into `dist/android/release/` and signs them with a throwaway key made for the run, a dry run, and `make apk-sign-test` tests the signing offline.
+Release APKs are signed by the release workflow, and only there: FXM's key never goes into a shell on a computer that builds ([apps/mobile/RELEASING.md](../apps/mobile/RELEASING.md)). `make apk-release` builds them into `dist/android/release/`, with `make dist` first for the third-party notices that every release APK carries, and signs them with a throwaway key made for the run, a dry run, and `make apk-sign-test` tests the signing offline.
 
 `make apk` builds the web app with base `/` (`build:mobile`), copies it into the native project (`cap sync android`) and runs Gradle's `assembleDebug`, without a Gradle daemon left running. The APK lands in **`apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk`**. The first build downloads Gradle and the Android libraries; later builds take about half a minute.
 

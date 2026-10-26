@@ -4,8 +4,9 @@
 # plugins and the npm packages):
 #
 #   release-apk.sh build <out dir>
-#       the web app with base '/', cap sync, then Gradle's assembleRelease with -PfxmReleaseApks:
-#       unsigned APKs for arm64-v8a phones and for every phone, copied into <out dir> as
+#       make dist (for its third-party notices), the web app with base '/', cap sync, the APK's
+#       third-party notices (below), then Gradle's assembleRelease with -PfxmReleaseApks: unsigned
+#       APKs for arm64-v8a phones and for every phone, copied into <out dir> as
 #       fxm-android-<arm64-v8a|universal>-<version>-unsigned.apk. It refuses to run while a
 #       signing variable (below) is set, because everything it runs would see it.
 #   release-apk.sh sign [--dry-run] [--version x.y.z] [--certificate <file>] <unsigned dir> <out dir>
@@ -29,11 +30,17 @@
 # installs anything: code that ran there before (an npm package, a Gradle plugin) could have
 # changed the tools this script runs.
 #
+# The third-party notices, which Settings → About shows, go into every APK as
+# assets/public/third-party-notices.txt: the Android libraries that Gradle resolves for the release
+# build (fxmLibraryReport, android/app/libraries.gradle), checked against the licences FXM accepts,
+# and make dist's notices of the web app (scripts/notices.ts, which fails the build on a library
+# FXM may not ship).
+#
 # Every signed APK must verify with apksigner (APK Signature Scheme v2 and v3, exactly one signer),
 # be the package io.github.pratyayops.fxm with the version and the version code of
-# app/build.gradle, not be debuggable, and in the arm64-v8a APK any native code must be for
-# arm64-v8a. Like make apk, the build checks that nothing appeared in ~/.android, ~/.gradle, ~/.m2
-# or ~/Library/Android, and Gradle runs without a daemon.
+# app/build.gradle, not be debuggable, carry the third-party notices, and in the arm64-v8a APK any
+# native code must be for arm64-v8a. Like make apk, the build checks that nothing appeared in
+# ~/.android, ~/.gradle, ~/.m2 or ~/Library/Android, and Gradle runs without a daemon.
 set -euo pipefail
 start=$PWD
 mobile=$(cd "$(dirname "$0")/.." && pwd)
@@ -44,6 +51,12 @@ source ../../scripts/release-lib.sh
 
 PACKAGE=io.github.pratyayops.fxm
 ABIS=(arm64-v8a universal)
+# The third-party notices in the APK and their first line, and the first line of make dist's notices
+# inside them: APK_NOTICES_PATH, NOTICES_TITLE and WEB_NOTICES_TITLE in scripts/notices.ts, which a
+# test keeps in step.
+APK_NOTICES=assets/public/third-party-notices.txt
+NOTICES_TITLE='FXM for Android: third-party notices'
+WEB_NOTICES_TITLE='FXM third-party notices'
 # sign's private folder for the key and the APKs it signs, and dry-run's for its throwaway key,
 # deleted however the script ends.
 work=
@@ -134,6 +147,8 @@ build() {
   refuse_signing_variables "the build runs third-party code (npm packages, Gradle and its" \
     "plugins) that would see them: the key is for the separate signing step only"
   local version out abi apk outputs=android/app/build/outputs/apk/release
+  local report=android/app/build/fxm/android-libraries.json
+  local notices=android/app/src/main/assets/public/third-party-notices.txt
   version=$(package_version)
   fxm_release_require_version "$version"
   version_code "$version" >/dev/null
@@ -142,16 +157,25 @@ build() {
   check_fresh "$out"
   note_absent_home_dirs
 
+  # make dist, whose notices of the web code the APK's notices include.
+  pnpm --silent --filter @fxm/deploy dist
   # The GitHub Releases build: FXM's own update check stays on (F-Droid builds turn it off).
   FXM_DISTRIBUTION=standard pnpm --filter @fxm/web build:mobile
   pnpm --filter @fxm/mobile cap sync android
-  rm -rf "$outputs"
+  # The third-party notices, into the web app's folder that cap sync filled: the Android
+  # libraries the release build resolves, and make dist's notices (scripts/notices.ts).
+  rm -rf "$outputs" "$report"
+  (cd android && ./gradlew --no-daemon fxmLibraryReport)
+  node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/write-notices.ts \
+    "$report" ../../dist/pages/third-party-notices.txt "$notices"
   (cd android && ./gradlew --no-daemon -PfxmReleaseApks assembleRelease)
   check_home_dirs
 
   for abi in "${ABIS[@]}"; do
     apk=$outputs/app-$abi-release-unsigned.apk
     [ -f "$apk" ] || fxm_die "Gradle finished without writing apps/mobile/$apk"
+    unzip -p "$apk" "$APK_NOTICES" | cmp -s - "$notices" ||
+      fxm_die "apps/mobile/$apk doesn't carry the third-party notices the build wrote ($APK_NOTICES)"
   done
   mkdir -p "$out"
   for abi in "${ABIS[@]}"; do
@@ -163,7 +187,7 @@ build() {
 # check_apk <apk> <abi> <version> <version code>: checks a signed APK, and prints the SHA-256 of
 # its signing certificate.
 check_apk() {
-  local apk=$1 abi=$2 version=$3 code=$4 name report badging native
+  local apk=$1 abi=$2 version=$3 code=$4 name report badging native notices
   name=$(basename "$apk")
   report=$("$apksigner" verify --verbose --print-certs -Werr "$apk" 2>&1) ||
     { printf '%s\n' "$report" >&2 && fxm_die "$name does not verify"; }
@@ -180,6 +204,12 @@ check_apk() {
     fxm_die "$name is not $PACKAGE $version with the version code $code:" \
       "$(grep '^package:' <<<"$badging" || echo 'no package line')"
   if grep -q '^application-debuggable' <<<"$badging"; then fxm_die "$name is debuggable"; fi
+  # The third-party notices that Settings → About shows: the Android libraries' and the web app's.
+  notices=$(unzip -p "$apk" "$APK_NOTICES" 2>/dev/null) || notices=
+  if [ "$(head -n 1 <<<"$notices")" != "$NOTICES_TITLE" ] ||
+    ! grep -qxF "$WEB_NOTICES_TITLE" <<<"$notices"; then
+    fxm_die "$name doesn't carry FXM's third-party notices ($APK_NOTICES)"
+  fi
   native=$(sed -n 's/^native-code: //p' <<<"$badging")
   if [ "$abi" != universal ] && [ -n "$native" ] && [ "$native" != "'$abi'" ]; then
     fxm_die "$name holds native code for $native, not only for $abi"

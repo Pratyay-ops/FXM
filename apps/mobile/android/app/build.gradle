@@ -90,3 +90,5 @@ dependencies {
 }
 
 apply from: 'capacitor.build.gradle'
+// fxmLibraryReport: the Android libraries in the release APK, for its third-party notices.
+apply from: 'libraries.gradle'

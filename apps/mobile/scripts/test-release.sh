@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Offline tests of the release signing (make apk-sign-test, which the Android workflow runs):
-# scripts/make-android-keystore.sh, `release-apk.sh sign` and `dry-run`, and the build's refusal of
-# signing variables, with a throwaway key made in a temporary folder and small APKs that aapt2
-# links from a bare manifest, so no Gradle build or device is needed. Needs the JDK and the
-# Android SDK in .tools (make android-setup) and zip.
+# scripts/make-android-keystore.sh, `release-apk.sh sign` and `dry-run` (with the checks of every
+# signed APK, its third-party notices among them), and the build's refusal of signing variables,
+# with a throwaway key made in a temporary folder and small APKs that aapt2 links from a bare
+# manifest, so no Gradle build or device is needed. Needs the JDK and the Android SDK in .tools
+# (make android-setup), zip and unzip.
 set -euo pipefail
 mobile=$(cd "$(dirname "$0")/.." && pwd)
 cd "$mobile"
@@ -13,6 +14,7 @@ source ../../scripts/release-lib.sh
 
 ../../scripts/android-setup.sh --check >/dev/null
 command -v zip >/dev/null 2>&1 || fxm_die "zip is required (Debian and Ubuntu: sudo apt install zip)"
+command -v unzip >/dev/null 2>&1 || fxm_die "unzip is required (Debian and Ubuntu: sudo apt install unzip)"
 tools=$ANDROID_HOME/build-tools/$(sed -n 's/^SDK_BUILD_TOOLS=//p' ../../scripts/android-setup.sh)
 platform=$ANDROID_HOME/platforms/android-$(sed -n 's/^SDK_PLATFORM=//p' ../../scripts/android-setup.sh)
 keystore_script=$mobile/../../scripts/make-android-keystore.sh
@@ -53,8 +55,18 @@ refused() {
   if [ "$status" -ne 0 ] && says "$message"; then ok "$name"; else bad "$name"; fi
 }
 
+# The third-party notices that the APKs carry (scripts/notices.ts): `apk` puts this text into
+# assets/public/third-party-notices.txt, or no file while it is empty.
+apk_notices='FXM for Android: third-party notices
+
+Part 1: Android libraries
+
+Part 2: the web app
+
+FXM third-party notices'
+
 # apk <file> <version> <version code> [debuggable]: an APK of FXM's package with no code, linked
-# by aapt2 from a bare manifest.
+# by aapt2 from a bare manifest, with $apk_notices as its third-party notices.
 apk() {
   local dir debuggable=''
   dir=$(mktemp -d "$tmp/apk.XXXXXX")
@@ -67,7 +79,12 @@ apk() {
     <application android:hasCode="false"$debuggable />
 </manifest>
 EOF
-  "$tools/aapt2" link -o "$1" --manifest "$dir/AndroidManifest.xml" -I "$platform/android.jar"
+  mkdir -p "$dir/assets/public"
+  if [ -n "$apk_notices" ]; then
+    printf '%s\n' "$apk_notices" >"$dir/assets/public/third-party-notices.txt"
+  fi
+  "$tools/aapt2" link -o "$1" --manifest "$dir/AndroidManifest.xml" -I "$platform/android.jar" \
+    -A "$dir/assets"
 }
 
 # unsigned <dir> <version> <version code> [debuggable]: both unsigned APKs, as `build` names them.
@@ -178,6 +195,8 @@ expect "the APKs verify with APK Signature Scheme v2 and v3" \
   test -n "$(grep -x 'Verified using v2 scheme (APK Signature Scheme v2): true' <<<"$report")" \
   -a -n "$(grep -x 'Verified using v3 scheme (APK Signature Scheme v3): true' <<<"$report")"
 expect "without a v4 signature file" test ! -e "$tmp/signed/fxm-android-universal-1.2.3.apk.idsig"
+expect "with the third-party notices still inside" test "$(unzip -p \
+  "$tmp/signed/fxm-android-universal-1.2.3.apk" assets/public/third-party-notices.txt)" = "$apk_notices"
 expect "with the key's certificate" grep -qi "SHA-256 digest: $(fxm_release_android_certificate "$pin")" <<<"$report"
 refused "refuses to sign while no certificate is pinned" "pins no signing certificate yet" \
   sign --certificate "$placeholder" "$tmp/u-1.2.3" "$tmp/placeholder-out"
@@ -226,6 +245,22 @@ refused "refuses versions without a version code" "has no Android version code" 
 unsigned "$tmp/u-debug" 1.2.3 1002003 debuggable
 refused "refuses to sign a debuggable APK" "apksigner could not sign" \
   sign --dry-run "$tmp/u-debug" "$tmp/debug-out"
+full_notices=$apk_notices
+apk_notices=
+unsigned "$tmp/u-no-notices" 1.2.3 1002003
+refused "refuses an APK without the third-party notices" "doesn't carry FXM's third-party notices" \
+  sign --dry-run "$tmp/u-no-notices" "$tmp/no-notices-out"
+apk_notices='FXM third-party notices'
+unsigned "$tmp/u-web-notices" 1.2.3 1002003
+refused "and one with only the web app's" "doesn't carry FXM's third-party notices" \
+  sign --dry-run "$tmp/u-web-notices" "$tmp/web-notices-out"
+apk_notices='FXM for Android: third-party notices'
+unsigned "$tmp/u-android-notices" 1.2.3 1002003
+refused "or only the Android libraries'" "doesn't carry FXM's third-party notices" \
+  sign --dry-run "$tmp/u-android-notices" "$tmp/android-notices-out"
+apk_notices=$full_notices
+expect "and writes nothing then" \
+  test ! -e "$tmp/no-notices-out" -a ! -e "$tmp/web-notices-out" -a ! -e "$tmp/android-notices-out"
 
 echo "release-apk.sh build and dry-run"
 # The signing variables are still set from above: neither step may run with them.

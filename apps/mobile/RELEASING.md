@@ -8,20 +8,38 @@ Stage 6.6. Every FXM release on GitHub carries the Android app as two signed APK
 
 | Job | What it does | Key |
 |---|---|---|
-| `android` | `apps/mobile/scripts/release-apk.sh build`: the web app with base `/` (`FXM_DISTRIBUTION=standard`), `cap sync android`, then Gradle's `assembleRelease` with `-PfxmReleaseApks`, which makes an APK for arm64-v8a and a universal one ([app/build.gradle](android/app/build.gradle)). Both unsigned, as the artifact `android-unsigned` | None |
+| `android` | `apps/mobile/scripts/release-apk.sh build`: `make dist` for its third-party notices, the web app with base `/` (`FXM_DISTRIBUTION=standard`), `cap sync android`, the APK's [third-party notices](#third-party-notices), then Gradle's `assembleRelease` with `-PfxmReleaseApks`, which makes an APK for arm64-v8a and a universal one ([app/build.gradle](android/app/build.gradle)). Both unsigned, as the artifact `android-unsigned` | None |
 | `android-sign` | `release-apk.sh sign`, in the `android-release` environment: the JDK and the Android SDK only, then apksigner signs both APKs and the script checks them. Uploads `release-android` | The four secrets below |
 
 The publish job attaches `fxm-android-universal-<version>.apk` and `fxm-android-arm64-v8a-<version>.apk` to the release (they are listed for `release-android` in `fxm_release_catalog`, `scripts/release-lib.sh`), with their checksums and build provenance. The notes quote the signing certificate's SHA-256 fingerprint and link [INSTALL.md](INSTALL.md).
 
 **It fails closed.** Without the four secrets, with a key whose certificate isn't the one pinned in [`release-certificate.txt`](release-certificate.txt), or while that file holds no fingerprint, `android-sign` fails, and with it the whole release: nothing is tagged or published. A release never carries an APK signed with another key, which phones would refuse as an update, or no APK at all. Fix the cause and re-run the failed jobs (WORKFLOW.md, "When something fails"): the unsigned APKs are kept for 30 days, like the other artifacts, so `android-sign` can sign them again. `make release-pr` checks the pin before it opens a release, so a missing one stops the release there, before anything reaches `main`.
 
-**What signing checks.** apksigner signs with APK Signature Scheme v2 and v3 (v1, the JAR scheme, isn't needed from Android 7, FXM's minimum, and v4 files aren't made) and refuses debuggable APKs. Then the script checks that each APK verifies with exactly one signer, that its certificate is the pinned one, that it is `io.github.pratyayops.fxm` with the release's version name and version code, and that the arm64-v8a APK holds no other processor's native code. The key goes into a temporary folder only for the two `apksigner sign` calls, and the passwords leave the environment before anything else runs.
+**What signing checks.** apksigner signs with APK Signature Scheme v2 and v3 (v1, the JAR scheme, isn't needed from Android 7, FXM's minimum, and v4 files aren't made) and refuses debuggable APKs. Then the script checks that each APK verifies with exactly one signer, that its certificate is the pinned one, that it is `io.github.pratyayops.fxm` with the release's version name and version code, that it carries the third-party notices, and that the arm64-v8a APK holds no other processor's native code. The key goes into a temporary folder only for the two `apksigner sign` calls, and the passwords leave the environment before anything else runs.
 
 **Why two jobs.** The build runs hundreds of npm packages, Gradle and its plugins. None of them ever sees the key: it reaches only the signing job, on a fresh runner where nothing else ran, which runs nothing but the pinned JDK, Google's SDK tools and FXM's own script. `release-apk.sh build` refuses to run while a signing variable (`ANDROID_KEYSTORE_*`, `ANDROID_KEY_*`) is set.
 
 **FXM's key is for the `android-sign` job only.** Never put it into the environment of a shell on a computer that builds software, not even to sign by hand after a failed release: code that ran there before, such as an npm package or a Gradle plugin, could have changed the tools or the scripts that would read it, and could sign updates that every installed FXM accepts. Fix the cause and re-run the workflow instead. Locally, `make apk-release` signs with a throwaway key ([Dry runs](#dry-runs)).
 
 **Pull requests and `develop`** build only the debug APK (`.github/workflows/android.yml`), signed with each machine's own debug key.
+
+## Third-party notices
+
+Every release APK carries `assets/public/third-party-notices.txt`, which the app shows in **Settings → About → Third-party notices** (the page `/settings/notices` of the web app, `apps/web/src/features/settings/notices-page.tsx`). The licences of the libraries it bundles ask for their notices in every copy, and the APK is a copy of all of them. `release-apk.sh build` writes the file before Gradle builds the APKs, from:
+
+1. **The Android libraries.** Gradle's `fxmLibraryReport` task ([android/app/libraries.gradle](android/app/libraries.gradle), Gradle's own dependency resolution and no plugin) lists every library of the release build's runtime classpath that puts files into the APK: AndroidX, Media3, OkHttp and Okio, Kotlin and its coroutines, Guava, Cordova's framework and the rest, with the licences its Maven POM declares (or the nearest parent POM that names any) and the licence and NOTICE files inside its AAR or JAR. It also names the projects the APK builds from source: FXM's own modules, and Capacitor's runtime, which comes from the npm package `@capacitor/android`.
+2. **The web app.** `make dist`'s `third-party-notices.txt`, the website's notices: the web app in the APK is built from the same code, with the base `/`, and bundles the same packages.
+
+[`scripts/notices.ts`](scripts/notices.ts) (run by `scripts/write-notices.ts`) joins them: the Android libraries first, each with its licence and any NOTICE file or licence text beyond the Apache License 2.0 it ships, Capacitor's runtime with its npm package's licence file, then make dist's notices as they are, and the Apache License 2.0, which covers most of the libraries, at the end. Like `make dist`, it fails the build instead of shipping what FXM hasn't accepted:
+
+- a library whose POM declares no licence it recognizes, or one outside the permissive licences in `ACCEPTED_LICENCES` (the Apache License 2.0, MIT, the 2- and 3-clause BSD licences and ISC), needs a human review in `REVIEWED_LIBRARIES`, which records the licence names its POM declared then, so a change asks for a new review;
+- a licence other than the Apache License 2.0 asks for the library's own copyright notice, so such a library must ship a licence file, or its review must give the notice;
+- an npm package's Android project must be under an accepted licence and ship a licence file;
+- FXM's own Android projects may hold no prebuilt JAR or AAR (`libs/`, `src/main/libs/`), whose origin the report can't show.
+
+Today every library's POM names the Apache License 2.0, and Capacitor is under the MIT licence, so no review is needed. The build then checks that both APKs carry the file it wrote, and `release-apk.sh sign` that every signed APK carries the notices, with the Android libraries' part and the web app's.
+
+`make apk` (debug builds) doesn't write the file: their notices page says so and links the website's notices of the web app. An F-Droid recipe (stage R.3) needs the same steps as `release-apk.sh build` before `assembleRelease`.
 
 ## Version codes
 
@@ -90,7 +108,7 @@ Both build the release APKs as the `android` job does, then sign them with `rele
 
 - **On a branch:** `scripts/run.sh gh workflow run android.yml --ref <branch> -f release=true` uploads the APKs as the artifact `fxm-android-dry-run`.
 - **Locally:** `make apk-release` writes them into `dist/android/release`. Like the release job's build, it refuses to run while a signing variable is set.
-- **The signing scripts' tests:** `make apk-sign-test` (the Android workflow runs it) checks `make-android-keystore.sh`, `release-apk.sh sign` and `dry-run`, and the build's refusal of signing variables, offline, with throwaway keys and small APKs that aapt2 links from a bare manifest.
+- **The signing scripts' tests:** `make apk-sign-test` (the Android workflow runs it) checks `make-android-keystore.sh`, `release-apk.sh sign` and `dry-run` (with the checks of each signed APK, its third-party notices among them), and the build's refusal of signing variables, offline, with throwaway keys and small APKs that aapt2 links from a bare manifest. `make test` runs the notices' tests (`scripts/notices.test.ts`).
 
 ## The in-app update check
 
