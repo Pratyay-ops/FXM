@@ -14,7 +14,9 @@ import {
 // really plays. Nothing reaches the internet.
 //
 // The Lite tier needs the sandbox documents of stage 1.10, which are not in this build yet; the
-// Vitest tests in src/app/services cover it with a fake sandbox meanwhile.
+// Vitest tests in src/app/services cover it with a fake sandbox meanwhile. The shell never waits
+// for the services: with an FXM Connect that answers late, it paints at once and says it is
+// connecting, rather than offering the install.
 
 /** A provider fixture, read from its package (`packages/sources/src/…`). */
 function fixture(path: string): unknown {
@@ -62,29 +64,69 @@ async function stubNetwork(page: Page, network: FakeNetwork): Promise<void> {
   )
 }
 
+/** What the page's init scripts record, read with `page.evaluate`. */
+interface PageRecord {
+  fxmMedia: Set<HTMLMediaElement>
+  /** When `#root` first got content, as `performance.now()`. */
+  fxmFirstRender?: number
+  /** Whether the install pitch ("Get FXM Connect") ever showed. */
+  fxmSawInstallPitch?: boolean
+  /** When the fake FXM Connect answered the ping first, as `performance.now()`. */
+  fxmPongAt?: number
+}
+
 /**
  * Makes the page find FXM Connect, as its content script does: the marker on `<html>` and an
- * answer to the ping (the protocol of apps/extension/src/messages.ts). The network stub stands
- * in for the extension's header rules.
+ * answer to the ping (the protocol of apps/extension/src/messages.ts), `pongDelayMs` after it,
+ * like a service worker waking up. The network stub stands in for the extension's header rules.
  */
-async function installFakeConnect(page: Page): Promise<void> {
-  await page.addInitScript(() => {
+async function installFakeConnect(page: Page, { pongDelayMs = 0 } = {}): Promise<void> {
+  await page.addInitScript((delayMs: number) => {
+    const record = window as unknown as PageRecord
     const mark = () => document.documentElement?.setAttribute('data-fxm-connect', '0.1.0')
-    // <html> usually exists already when an init script runs; wait for it otherwise.
+    // The content script runs at document_start, when <html> exists. Playwright runs init
+    // scripts a moment earlier, so mark <html> as soon as the parser creates it, before any of
+    // the page's scripts run.
     if (document.documentElement) mark()
-    else document.addEventListener('DOMContentLoaded', mark, { once: true })
+    else {
+      new MutationObserver((_, observer) => {
+        if (!document.documentElement) return
+        mark()
+        observer.disconnect()
+      }).observe(document, { childList: true })
+    }
     window.addEventListener('message', (event) => {
       if (event.source !== window || event.origin !== window.location.origin) return
       if (event.data?.type !== 'fxm-connect:ping') return
-      window.postMessage(
-        {
-          type: 'fxm-connect:pong',
-          version: '0.1.0',
-          features: ['youtube', 'googlevideo', 'spotify', 'lastfm', 'spotify-server-time'],
-        },
-        window.location.origin,
-      )
+      setTimeout(() => {
+        record.fxmPongAt ??= performance.now()
+        window.postMessage(
+          {
+            type: 'fxm-connect:pong',
+            version: '0.1.0',
+            features: ['youtube', 'googlevideo', 'spotify', 'lastfm', 'spotify-server-time'],
+          },
+          window.location.origin,
+        )
+      }, delayMs)
     })
+  }, pongDelayMs)
+}
+
+/**
+ * Records when the app first renders into `#root`, and whether the install pitch for FXM
+ * Connect ever shows (its "Get FXM Connect" link).
+ */
+async function watchShell(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const record = window as unknown as PageRecord
+    record.fxmSawInstallPitch = false
+    new MutationObserver(() => {
+      if (record.fxmFirstRender === undefined && document.getElementById('root')?.firstChild) {
+        record.fxmFirstRender = performance.now()
+      }
+      if (document.body?.textContent?.includes('Get FXM Connect')) record.fxmSawInstallPitch = true
+    }).observe(document, { childList: true, subtree: true, characterData: true })
   })
 }
 
@@ -95,7 +137,7 @@ async function installFakeConnect(page: Page): Promise<void> {
 async function trackMediaElements(page: Page): Promise<void> {
   await page.addInitScript(() => {
     const played = new Set<HTMLMediaElement>()
-    ;(window as unknown as { fxmMedia: Set<HTMLMediaElement> }).fxmMedia = played
+    ;(window as unknown as PageRecord).fxmMedia = played
     const play = HTMLMediaElement.prototype.play
     HTMLMediaElement.prototype.play = function (this: HTMLMediaElement) {
       played.add(this)
@@ -110,7 +152,7 @@ async function trackMediaElements(page: Page): Promise<void> {
  */
 function nowPlaying(page: Page): Promise<{ title: string | null; url: string | null }> {
   return page.evaluate(() => {
-    const played = (window as unknown as { fxmMedia: Set<HTMLMediaElement> }).fxmMedia
+    const played = (window as unknown as PageRecord).fxmMedia
     const playing = [...played].find((media) => !media.paused && media.currentTime > 0)
     return {
       title: navigator.mediaSession.metadata?.title ?? null,
@@ -149,6 +191,7 @@ test.describe('the Full tier (FXM Connect)', () => {
     const network = createFakeNetwork({ fixtures: FIXTURES, audio: wavTone(TRACK_SECONDS) })
     await stubNetwork(page, network)
     await trackMediaElements(page)
+    await watchShell(page)
     await installFakeConnect(page)
 
     await page.goto('search?q=radiohead%20creep')
@@ -179,19 +222,64 @@ test.describe('the Full tier (FXM Connect)', () => {
     const videos = [firstUrl, secondUrl, thirdUrl].map((url) => url.searchParams.get('id'))
     expect(new Set(videos).size).toBe(3)
     for (const video of videos) expect(network.players).toContain(video)
+    // FXM Connect was there from the start, so the page never offered to install it.
+    expect(await page.evaluate(() => (window as unknown as PageRecord).fxmSawInstallPitch)).toBe(
+      false,
+    )
+  })
+
+  test('paints the shell at once, and never offers the install, when FXM Connect answers late', async ({
+    page,
+  }) => {
+    const network = createFakeNetwork({ fixtures: FIXTURES, audio: wavTone(TRACK_SECONDS) })
+    await stubNetwork(page, network)
+    await watchShell(page)
+    // Later than the platform's 800 ms wait for the answer.
+    await installFakeConnect(page, { pongDelayMs: 1500 })
+
+    await page.goto('search?q=radiohead%20creep')
+
+    await expect(page.getByRole('heading', { name: 'Connecting to FXM Connect…' })).toBeVisible()
+    const songs = page.getByRole('list', { name: 'Songs' })
+    await expect(songs.getByRole('button', { name: /^Play / }).first()).toBeVisible({
+      timeout: 10_000,
+    })
+    const record = await page.evaluate(() => {
+      const { fxmFirstRender, fxmSawInstallPitch, fxmPongAt } = window as unknown as PageRecord
+      const [navigation] = performance.getEntriesByType('navigation')
+      const ready = (navigation as PerformanceNavigationTiming | undefined)
+        ?.domContentLoadedEventEnd
+      return { fxmFirstRender, fxmSawInstallPitch, fxmPongAt, ready }
+    })
+    expect(record.fxmSawInstallPitch).toBe(false)
+    // The shell doesn't wait for FXM Connect: it paints right after the document is ready (a
+    // few milliseconds; the bound leaves room for a busy machine), long before the answer.
+    expect(record.fxmFirstRender).toBeDefined()
+    expect(record.fxmPongAt).toBeDefined()
+    expect((record.fxmFirstRender ?? 0) - (record.ready ?? 0)).toBeLessThan(600)
+    expect(record.fxmFirstRender ?? 0).toBeLessThan(record.fxmPongAt ?? 0)
   })
 })
 
 test.describe('the Free tier (no FXM Connect)', () => {
+  // A phone, where FXM Connect can't always help, and the source chips scroll sideways.
+  test.use({ viewport: { width: 375, height: 667 } })
+
   test('plays Internet Archive tracks, then the next one', async ({ page }) => {
     const network = createFakeNetwork({ fixtures: FIXTURES, audio: wavTone(TRACK_SECONDS) })
     await stubNetwork(page, network)
     await trackMediaElements(page)
 
     await page.goto('search?q=nine%20inch%20nails%20ghosts')
-    // YouTube Music needs FXM Connect here, so the page says so, and offers the free sources.
+    // YouTube Music needs FXM Connect here, so the page says so, and offers the free sources
+    // right there, on the screen without scrolling sideways.
     await expect(page.getByText('Search needs YouTube Music access')).toBeVisible()
-    await page.locator('label', { hasText: 'Internet Archive' }).click()
+    const instead = page.getByRole('button', { name: 'Search Internet Archive instead' })
+    await expect(instead).toBeInViewport()
+    const box = await instead.boundingBox()
+    expect(box?.x).toBeGreaterThanOrEqual(0)
+    expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(375)
+    await instead.click()
     const songs = page.getByRole('list', { name: 'Songs' })
     await expect(songs.getByRole('button', { name: /^Play / }).first()).toBeVisible()
     const [first, second] = await titles(page, 'Songs')
