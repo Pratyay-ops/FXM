@@ -103,7 +103,8 @@ export interface Formatters {
   percent(fraction: number, options?: Intl.NumberFormatOptions): string
   /**
    * A size in decimal units, as the operating systems show them: `512 bytes`, `4.2 MB`, `31 GB`,
-   * with one decimal below 10. Nothing, a negative or an invalid size is `0 bytes`.
+   * with one decimal below 10, in the unit of the rounded number (999,600 bytes is `1 MB`, not
+   * `1,000 kB`). Nothing, a negative or an invalid size is `0 bytes`.
    */
   bytes(bytes: number): string
   /**
@@ -123,10 +124,10 @@ export interface Formatters {
   /** `in 3 days`, `yesterday`: a relative time in a unit of your choice. */
   relativeTime(value: number, unit: Intl.RelativeTimeFormatUnit): string
   /**
-   * How long ago (or how far ahead) `value` is from `now`, in the largest unit that fits:
-   * `now`, `5 minutes ago`, `3 hours ago`, `yesterday`, `last week`, `in 2 months`. A day is 24
-   * hours here; for calendar days ("today" since midnight), count them and use
-   * {@link Formatters.relativeTime}.
+   * How long ago (or how far ahead) `value` is from `now`, in the largest unit that fits once
+   * rounded: `now`, `5 minutes ago`, `3 hours ago`, `yesterday`, `last week`, `in 2 months`
+   * (59.6 seconds ago is `1 minute ago`). A day is 24 hours here; for calendar days ("today"
+   * since midnight), count them and use {@link Formatters.relativeTime}.
    */
   timeAgo(value: Date | number, now?: Date | number): string
   /** `a, b and c` (`conjunction`, the default), `a, b or c` (`disjunction`) or a unit list. */
@@ -183,17 +184,14 @@ const formatUnit = (
 
 /** See {@link Formatters.bytes}. */
 export function formatBytes(locale: string, bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes < 1000) {
-    return formatUnit(
-      locale,
-      Number.isFinite(bytes) && bytes > 0 ? Math.round(bytes) : 0,
-      'byte',
-      'long',
-    )
-  }
-  let value = bytes / 1000
+  const whole = Number.isFinite(bytes) && bytes > 0 ? Math.round(bytes) : 0
+  if (whole < 1000) return formatUnit(locale, whole, 'byte', 'long')
+  const digits = (value: number) => (value < 10 ? 1 : 0)
+  // The unit follows the number as shown, rounded: 999,600 bytes is 1 MB, not 1,000 kB.
+  const shown = (value: number) => Math.round(value * 10 ** digits(value)) / 10 ** digits(value)
+  let value = whole / 1000
   let index = 0
-  while (value >= 1000 && index < BYTE_UNITS.length - 1) {
+  while (shown(value) >= 1000 && index < BYTE_UNITS.length - 1) {
     value /= 1000
     index += 1
   }
@@ -201,7 +199,7 @@ export function formatBytes(locale: string, bytes: number): string {
     style: 'unit',
     unit: BYTE_UNITS[index],
     unitDisplay: 'short',
-    maximumFractionDigits: value < 10 ? 1 : 0,
+    maximumFractionDigits: digits(value),
   })
 }
 
@@ -286,7 +284,9 @@ export function formatTimeAgo(
   let delta = (timeOf(value) - timeOf(now)) / 1000
   if (Number.isNaN(delta)) return ''
   for (const [unit, size] of TIME_AGO_STEPS) {
-    if (Math.abs(delta) < size) return formatRelativeTime(locale, rounded(delta), unit)
+    // The unit follows the rounded amount: 59.6 seconds ago is a minute ago, not 60 seconds.
+    const amount = rounded(delta)
+    if (Math.abs(amount) < size) return formatRelativeTime(locale, amount, unit)
     delta /= size
   }
   // Unreachable: the last step is infinite.

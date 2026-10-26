@@ -33,6 +33,17 @@ describe('createFormatters', () => {
     expect(de.bytes(4_200_000)).toBe('4,2 MB')
   })
 
+  it('chooses the size’s unit after rounding', () => {
+    expect([999.6, 9_960, 999_499, 999_600, 999_999, 999_999_999].map((n) => en.bytes(n))).toEqual([
+      '1 kB',
+      '10 kB',
+      '999 kB',
+      '1 MB',
+      '1 MB',
+      '1 GB',
+    ])
+  })
+
   it('formats durations as a clock, like the player', () => {
     expect([0, 7.9, 65, 3599, 3600, 3725, -1, Number.NaN].map((s) => en.duration(s))).toEqual([
       '0:00',
@@ -101,6 +112,17 @@ describe('createFormatters', () => {
     expect(ago(45 * 86400)).toBe('last month')
     expect(ago(400 * 86400)).toBe('last year')
     expect(en.timeAgo(new Date(now + 2 * 3600 * 1000), new Date(now))).toBe('in 2 hours')
+  })
+
+  it('chooses the unit of how long ago after rounding', () => {
+    const now = Date.UTC(2026, 9, 26, 12, 0, 0)
+    const ago = (seconds: number) => en.timeAgo(now - seconds * 1000, now)
+    expect(ago(29.6)).toBe('30 seconds ago')
+    expect(ago(59.6)).toBe('1 minute ago')
+    expect(ago(3599)).toBe('1 hour ago')
+    expect(ago(23.6 * 3600)).toBe('yesterday')
+    expect(ago(6.6 * 86400)).toBe('last week')
+    expect(en.timeAgo(now + 59.6 * 60_000, now)).toBe('in 1 hour')
   })
 
   it('joins lists the locale’s way', () => {
