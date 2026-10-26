@@ -14,6 +14,7 @@ case "$mode" in build | all | android) ;; *) fxm_die "usage: clean.sh build|all|
 remove_build_output() {
   (cd "$1" && rm -rf dist coverage .wrangler ./*.tsbuildinfo \
     apps/*/dist apps/*/coverage apps/*/.wrangler apps/*/.astro apps/*/*.tsbuildinfo \
+    apps/web/dist-embed apps/web/dist-embed-e2e \
     packages/*/dist packages/*/coverage packages/*/*.tsbuildinfo)
 }
 

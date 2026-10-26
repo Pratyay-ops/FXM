@@ -43,9 +43,9 @@ export const INNERTUBE_HOSTS = [
  * - 1.11: the BotGuard hosts, once one of its rungs is on;
  * - 3.2's recommendation providers, once the app calls them: the hosts in the table in
  *   packages/sources/src/recommend/README.md. It leaves out the plan's `api.listenbrainz.org`
- *   and `lastfm.freetls.fastly.net`, which FXM doesn't contact, and adds Internet Archive's
- *   hosts, already here, for the Cover Art Archive's redirects;
- * - 8.7: SponsorBlock (`sponsor.ajay.app`).
+ *   and `lastfm.freetls.fastly.net`, which its providers don't contact (8.2's scrobbling, below,
+ *   sends to `api.listenbrainz.org`), and adds Internet Archive's hosts, already here, for the
+ *   Cover Art Archive's redirects.
  *
  * Audio needs no entry: `media-src https:` covers googlevideo, Internet Archive's and Jamendo's
  * storage hosts and a user's Invidious proxy, and page script can't read media responses.
@@ -75,6 +75,11 @@ export const APP_SERVICES: readonly Service[] = [
   },
   { privacyName: 'Jamendo', connect: ['https://*.jamendo.com'], img: ['https://*.jamendo.com'] },
   { privacyName: 'LRCLIB', connect: ['https://lrclib.net'] },
+  // 8.7: opt-in, and only for videos in Music + Video mode.
+  { privacyName: 'SponsorBlock', connect: ['https://sponsor.ajay.app'] },
+  // 8.2: scrobbling, once the user connects an account in Settings. Only the write APIs.
+  { privacyName: 'ListenBrainz', connect: ['https://api.listenbrainz.org'] },
+  { privacyName: 'Last.fm', connect: ['https://ws.audioscrobbler.com'] },
 ]
 
 /**

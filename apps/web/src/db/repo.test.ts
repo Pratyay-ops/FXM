@@ -236,6 +236,9 @@ describe('likes', () => {
     expect((await repo.getPlaylistView(id))?.rows.map((row) => row.liked)).toEqual([false, true])
   })
 
+  // Every like is also scored in the listening affinity (stage 3.1), and every unlike takes its
+  // score back: thousands of affinity records, which fake-indexeddb, unlike a browser, deletes
+  // and rewrites in time that grows with the table. Hence more than the usual time.
   it('likes and unlikes 2,000 songs at once with one write of Liked songs each', async () => {
     const repo = testRepo()
     await repo.like(track(5000))
@@ -266,7 +269,7 @@ describe('likes', () => {
     ])
     expect(await repo.isLiked(track(1).id)).toBe(false)
     expect(await repo.isLiked(track(2).id)).toBe(true)
-  })
+  }, 120_000)
 
   it('skips songs already liked when adding several to Liked songs', async () => {
     const repo = testRepo()
@@ -555,6 +558,26 @@ describe('history', () => {
     expect(await repo.recentlyPlayed(1)).toHaveLength(1)
     await repo.clearHistory()
     expect(await repo.recentlyPlayed()).toEqual([])
+  })
+
+  it('tells when the history starts, which only forgetting or older plays change', async () => {
+    const repo = testRepo()
+    const play = (n: number, playedAt: number) =>
+      repo.recordPlay({
+        track: track(n),
+        playedAt,
+        playedMs: 1000,
+        completed: false,
+        skipped: false,
+      })
+    expect(await repo.historyStart()).toBeUndefined()
+    await play(1, 5000)
+    await play(2, 9000)
+    expect(await repo.historyStart()).toBe(5000)
+    await play(3, 2000)
+    expect(await repo.historyStart()).toBe(2000)
+    await repo.clearHistory()
+    expect(await repo.historyStart()).toBeUndefined()
   })
 })
 

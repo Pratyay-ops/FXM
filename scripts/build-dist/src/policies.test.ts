@@ -19,10 +19,19 @@ const HASH = sha256Source('theme()')
 
 /** The `/app/*` policy exactly as docs/PLAN.md (stage 2.8) prints it, with a real hash. */
 const PLAN_APP_POLICY =
-  "default-src 'self'; script-src 'self' 'sha256-…'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.ytimg.com https://*.googleusercontent.com https://*.ggpht.com https://*.scdn.co https://*.spotifycdn.com https://archive.org https://*.archive.org https://*.jamendo.com; media-src 'self' blob: https:; connect-src 'self' https://www.youtube.com https://music.youtube.com https://youtubei.googleapis.com https://*.googlevideo.com https://open.spotify.com https://api-partner.spotify.com https://spclient.wg.spotify.com https://musicbrainz.org https://archive.org https://*.archive.org https://*.jamendo.com https://lrclib.net; frame-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'".replace(
+  "default-src 'self'; script-src 'self' 'sha256-…'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.ytimg.com https://*.googleusercontent.com https://*.ggpht.com https://*.scdn.co https://*.spotifycdn.com https://archive.org https://*.archive.org https://*.jamendo.com; media-src 'self' blob: https:; connect-src 'self' https://www.youtube.com https://music.youtube.com https://youtubei.googleapis.com https://*.googlevideo.com https://open.spotify.com https://api-partner.spotify.com https://spclient.wg.spotify.com https://musicbrainz.org https://archive.org https://*.archive.org https://*.jamendo.com https://lrclib.net https://sponsor.ajay.app; frame-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'".replace(
     "'sha256-…'",
     HASH,
   )
+
+/** The hosts later stages added to `connect-src`: 8.2's scrobbling (ListenBrainz, Last.fm). */
+const LATER_CONNECT_HOSTS = ['https://api.listenbrainz.org', 'https://ws.audioscrobbler.com']
+
+/** The `/app/*` policy today: the plan's, with the hosts later stages added after its own. */
+const APP_POLICY = PLAN_APP_POLICY.replace(
+  "; frame-src 'self';",
+  ` ${LATER_CONNECT_HOSTS.join(' ')}; frame-src 'self';`,
+)
 
 describe('csp helpers', () => {
   it('hashes inline code as browsers do, after normalizing line endings', () => {
@@ -55,17 +64,19 @@ describe('csp helpers', () => {
 })
 
 describe('the web app policy', () => {
-  it('is the policy docs/PLAN.md specifies for /app/*', () => {
-    expect(serializePolicy(appPolicy([HASH]))).toBe(PLAN_APP_POLICY)
+  it('is the policy docs/PLAN.md specifies for /app/*, with the hosts later stages added', () => {
+    expect(APP_POLICY).not.toBe(PLAN_APP_POLICY)
+    expect(serializePolicy(appPolicy([HASH]))).toBe(APP_POLICY)
   })
 
   it('stays under the 850-character estimate at M1, far below 2,000', () => {
+    expect(PLAN_APP_POLICY.length).toBeLessThan(850)
     expect(serializePolicy(appPolicy([HASH])).length).toBeLessThan(900)
   })
 
   it('drops only frame-ancestors for the embed', () => {
     const embed = serializePolicy(appPolicy([HASH], { embeddable: true }))
-    expect(embed).toBe(PLAN_APP_POLICY.replace(" frame-ancestors 'none';", ''))
+    expect(embed).toBe(APP_POLICY.replace(" frame-ancestors 'none';", ''))
   })
 
   it('takes later stages’ hosts and script sources from the lists', () => {
@@ -74,13 +85,14 @@ describe('the web app policy', () => {
         appPolicy([HASH], {
           services: [
             ...APP_SERVICES,
-            { privacyName: 'SponsorBlock', connect: ['https://sponsor.ajay.app'] },
+            // A host no shipped stage uses yet: 3.2's, once the app calls its providers.
+            { privacyName: 'Cover Art Archive', connect: ['https://coverartarchive.org'] },
           ],
           scriptExtras: [WASM_UNSAFE_EVAL],
         }),
       ),
     )
-    expect(policy.get('connect-src')?.at(-1)).toBe('https://sponsor.ajay.app')
+    expect(policy.get('connect-src')?.at(-1)).toBe('https://coverartarchive.org')
     expect(policy.get('script-src')).toEqual(["'self'", HASH, WASM_UNSAFE_EVAL])
   })
 

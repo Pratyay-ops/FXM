@@ -1,0 +1,20 @@
+---
+import Icon from './Icon.astro'
+
+/*
+ * The "Experimental" badge, for what works but may stop working: the Lite tier, which relies on
+ * a way of reaching YouTube Music that YouTube doesn't document. Like ComingSoon, put it inside
+ * the heading it belongs to (after the text), so screen readers announce it with the name.
+ */
+interface Props {
+  /** The parent's data-astro-cid-* scope attribute, so its scoped styles reach the badge. */
+  [attribute: `data-${string}`]: unknown
+}
+
+const attributes = Astro.props
+---
+
+<span {...attributes} class="badge experimental"
+  ><Icon name="flask" size={14} />
+  Experimental</span
+>

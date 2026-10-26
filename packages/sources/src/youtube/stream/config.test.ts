@@ -25,6 +25,11 @@ function firstRung(streams: Json): Json {
   return (streams.rungs as Json[])[0] as Json
 }
 
+/** Where the rung `id` is in the bundled document's `streams` section. */
+function indexOf(id: string): number {
+  return bundled.streams.rungs.findIndex((rung) => rung.id === id)
+}
+
 function parseError(input: unknown, kinds?: readonly StreamRungKindParser[]): string {
   try {
     parseStreamConfig(input, kinds === undefined ? {} : { kinds })
@@ -169,13 +174,15 @@ describe('the stream config', () => {
   })
 
   it('ignores states this build does not know, so only known opt-ins remain', () => {
+    const muxed = indexOf('android-muxed')
     const newer = variant((streams) => {
-      ;(streams.rungs as Json[])[3] = {
-        ...((streams.rungs as Json[])[3] as Json),
+      ;(streams.rungs as Json[])[muxed] = {
+        ...((streams.rungs as Json[])[muxed] as Json),
         tries: ['made-for-kids', 'members-only'],
       }
     })
-    expect(parseStreamConfig(newer).rungs[3]?.tries).toEqual(['made-for-kids'])
+    const parsed = parseStreamConfig(newer).rungs.find((rung) => rung.id === 'android-muxed')
+    expect(parsed?.tries).toEqual(['made-for-kids'])
   })
 
   it('reads where a rung may run, and leaves out one that needs what this build cannot check', () => {
@@ -197,7 +204,7 @@ describe('the stream config', () => {
     const two = variant((streams) => {
       firstRung(streams).fallback = true
     })
-    expect(parseError(two)).toContain('streams.rungs[3].fallback')
+    expect(parseError(two)).toContain(`streams.rungs[${indexOf('android-muxed')}].fallback`)
     const none = variant((streams) => {
       for (const rung of streams.rungs as Json[]) delete rung.fallback
     })

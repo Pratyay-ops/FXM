@@ -73,7 +73,7 @@ Things Cloudflare does that the rules account for (from wrangler 4.149's copy of
 
 ### When a stage adds a service
 
-A stage that makes the web app contact a new service adds it to `APP_SERVICES` in `src/policies.ts`, with its `connect` and `img` hosts and its name exactly as the privacy page lists it, and adds it to `apps/site/src/pages/privacy.astro` (docs/PLAN.md, Definition of done). 4.2 adds `WASM_UNSAFE_EVAL` to `APP_SCRIPT_EXTRAS`. Nothing else changes; `make dist` fails if the page misses the service.
+A stage that makes the web app contact a new service adds it to `APP_SERVICES` in `src/policies.ts`, with its `connect` and `img` hosts and its name exactly as the privacy page lists it, and adds it to `apps/site/src/pages/privacy.astro` (docs/PLAN.md, Definition of done). 4.2 adds `WASM_UNSAFE_EVAL` to `APP_SCRIPT_EXTRAS`. Nothing else changes but the tests that pin the list: the policy `src/policies.test.ts` expects for `/app/*` takes the new hosts too (8.2 added ListenBrainz's and Last.fm's to `LATER_CONNECT_HOSTS`, as the plan's policy row doesn't print them), and the privacy pages of `src/privacy.test.ts` and `src/compose.test.ts` that miss one service list the new one. `make dist` fails if the page misses the service.
 
 ## Deploying
 

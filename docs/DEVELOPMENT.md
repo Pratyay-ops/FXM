@@ -240,7 +240,7 @@ Tauri compiles against each operating system's native toolchain and webview. The
 
 The first build compiles about 300 crates and takes a few minutes. Release builds use link-time optimization for a small app (`FXM.app` is about 7.5 MB), so even a rebuild takes a few minutes. Use `make desktop-dev` while working.
 
-The content security policy only applies to release builds: `make desktop-dev` loads the Vite dev server directly. It has no `'unsafe-eval'`, and stage 7.2 doesn't add it: YouTube deciphering runs in a separate, hidden evaluator webview with its own policy (stage 1.11). Only if that webview can't work may 1.11 add `'unsafe-eval'` here, recorded in the app's README.
+The content security policy only applies to release builds: `make desktop-dev` loads the Vite dev server directly. It has no `'unsafe-eval'`, and stage 7.2 added none: YouTube deciphering runs in a separate, hidden evaluator webview with its own policy (stage 1.11). Only if that webview can't work may 1.11 add `'unsafe-eval'` here, recorded in the app's README.
 
 ### Where things are installed
 
@@ -257,7 +257,7 @@ The content security policy only applies to release builds: `make desktop-dev` l
 
 `env.sh` also clears the variables a Rust setup of your own may export (`CARGO_TARGET_DIR`, `RUSTUP_TOOLCHAIN`, `RUSTC_WRAPPER` and their Cargo equivalents), so builds use the pinned toolchain and stay in the repository. Cargo still reads `.cargo/config.toml` in every folder above the checkout, so also `~/.cargo/config.toml` when the checkout is in your home folder. `make doctor` warns when one of those sets `target-dir` or a rustc wrapper such as sccache.
 
-Running the app stores its own data where every installed app does, for example `~/Library/Application Support/io.github.pratyayops.fxm`, `~/Library/Caches/io.github.pratyayops.fxm` and `~/Library/WebKit/io.github.pratyayops.fxm` on macOS: the window position, the webview's caches and the web app's storage. That is user data, not tooling, so `make nuke` keeps it. Delete those folders to reset the app. tauri-plugin-http adds no cookie file there: it is built without its `cookies` feature (see the app's README).
+Running the app stores its own data where every installed app does, for example `~/Library/Application Support/io.github.pratyayops.fxm`, `~/Library/Caches/io.github.pratyayops.fxm` and `~/Library/WebKit/io.github.pratyayops.fxm` on macOS: the window position, the webview's caches, the web app's storage and the hosts you approved in Settings (`user-hosts.json`). That is user data, not tooling, so `make nuke` keeps it. Delete those folders to reset the app. tauri-plugin-http adds no cookie file there: it is built without its `cookies` feature (see the app's README).
 
 ### Removing it
 

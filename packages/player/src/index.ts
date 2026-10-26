@@ -11,6 +11,7 @@ export {
   type PlaybackSource,
   type PlaySupport,
 } from './engine'
+export * from './engines/mse'
 export { formatTime } from './format-time'
 export * from './lifecycle'
 export {
@@ -24,6 +25,7 @@ export {
   mediaMetadataInit,
 } from './media-session'
 export { mimeTypeOf } from './mime'
+export * from './native'
 export {
   classifyFailure,
   type FailureClass,

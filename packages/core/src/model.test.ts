@@ -44,6 +44,7 @@ describe('Track', () => {
       releaseDate: '1987-07-27',
       popularity: 80,
       externalIds: { spotify: '4uLU6hMCjMI75M1A2tKUQC' },
+      tags: ['synth-pop', 'Dance'],
     }
     expect(full.externalIds?.spotify).toBe('4uLU6hMCjMI75M1A2tKUQC')
   })

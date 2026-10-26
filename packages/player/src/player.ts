@@ -746,7 +746,8 @@ export class Player {
   /**
    * Commits `queue`. When its current item differs, drops everything pending for the old one,
    * resets the per-track state and announces the change. Returns whether the item changed.
-   * uids compare only within one queue, so a restored queue always counts as a change.
+   * A restored queue always counts as a change: its uids are the saved queue's, which may name
+   * other items than the uids of the queue it replaces.
    */
   #changeQueue(queue: QueueState, cause: TrackChangeCause): boolean {
     const before = this.#state.queue

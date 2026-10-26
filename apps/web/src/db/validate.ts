@@ -75,6 +75,9 @@ const MAX_NATIVE_ID = 200
 const MAX_SHORT_LIST = 100
 /** Most tracks one playlist may hold. */
 export const MAX_PLAYLIST_TRACKS = 100_000
+/** Most tags kept on a track, and the longest tag. */
+const MAX_TAGS = 20
+const MAX_TAG_LENGTH = 100
 /** Latest timestamp accepted: the largest valid `Date`. */
 const MAX_TIME = 8.64e15
 
@@ -191,12 +194,13 @@ function limitTexts(list: readonly string[]): string[] {
 
 /**
  * A core {@link Track}, as `cleanTrack` from `@fxm/core` accepts it, within the library's limits,
- * or `null`: http(s) artwork only, and no absurdly long title, names or lists.
+ * or `null`: http(s) artwork only, no absurdly long title, names or lists, and at most
+ * {@link MAX_TAGS} tags, trimmed, cut to {@link MAX_TAG_LENGTH} characters and none empty.
  */
 export function sanitizeTrack(value: unknown): Track | null {
   const track = cleanTrack(value)
   if (track === undefined || track.title.length > MAX_TEXT) return null
-  const { album, externalIds, ...rest } = track
+  const { album, externalIds, tags, ...rest } = track
   const limited: Track = {
     ...rest,
     artists: track.artists
@@ -210,6 +214,8 @@ export function sanitizeTrack(value: unknown): Track | null {
     if (id.length <= MAX_NATIVE_ID) kept[source] = id
   }
   if (Object.keys(kept).length > 0) limited.externalIds = kept
+  const keptTags = listOf(tags, (tag) => trimmed(tag, MAX_TAG_LENGTH) ?? null, MAX_TAGS)
+  if (keptTags.length > 0) limited.tags = keptTags
   return limited
 }
 
@@ -413,8 +419,11 @@ export function sanitizeHistoryRecord(value: unknown): HistoryEntry | null {
     skipped: value.skipped === true,
   }
   put(record, 'id', ordinal(value.id))
+  const durationMs = amount(value.durationMs)
+  if (durationMs !== undefined && durationMs > 0) record.durationMs = durationMs
   put(record, 'context', sanitizeContext(value.context))
   put(record, 'stream', sanitizeStream(value.stream))
+  put(record, 'importId', nonEmpty(value.importId, 100))
   return record
 }
 
