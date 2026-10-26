@@ -6,6 +6,7 @@ import {
   createQueue,
   jumpInQueue,
   type QueueState,
+  removeFromQueue,
   setQueue,
   setQueueCandidate,
   setQueueRepeat,
@@ -309,6 +310,19 @@ describe('restoreQueue', () => {
     expect(restoreQueue({ ...savedQueue(), unshuffled: [0, 1, 2, 3] })).not.toHaveProperty(
       'unshuffled',
     )
+  })
+
+  it('keeps every valid stored uid, also when items around it are dropped', () => {
+    let state = setQueue(createQueue(), songs('a', 'b', 'c', 'd', 'e'))
+    state = addToQueue(removeFromQueue(state, 1), songs('f'))
+    const value = saved(skipToNext(state))
+    ;(value.items as unknown[])[2] = { uid: 'broken' }
+    const restored = restoreQueue(value) as QueueState
+    const uids = new Map(state.items.map((item) => [item.track.title, item.uid]))
+    expect(restored.items.map((item) => [item.track.title, item.uid])).toEqual(
+      ['a', 'c', 'e', 'f'].map((title) => [title, uids.get(title)]),
+    )
+    expect(restored.items.map((item) => item.uid)).toEqual([0, 2, 4, 5])
   })
 
   it('keeps the uid counter above every uid', () => {
