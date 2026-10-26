@@ -20,8 +20,8 @@ The Settings page and the stores behind it. Each store is a Zustand store persis
 | Streaming on Wi-Fi | Lossless, High, Normal, Low | High |
 | Streaming on mobile data | Lossless, High, Normal, Low | Normal |
 | Quality to use | Automatic (only where the browser reports its connection), Wi-Fi quality, Mobile data quality | Automatic, which works as Wi-Fi quality where the browser can't tell |
-| Download format | Original; FLAC, ALAC, WAV, MP3, AAC and Opus (`DOWNLOAD_FORMATS`) once conversions ship (stage 4.2, `RELEASED.conversions`): until then they are listed as coming soon and can't be chosen, and downloads keep the original file whatever was stored | Original |
-| MP3 bitrate, for MP3 downloads | 128, 192, 256, 320 kbps (`MP3_BITRATES`), only once conversions ship | 320 kbps (`DEFAULT_MP3_KBPS`) |
+| Download format | Original, FLAC, ALAC, WAV, MP3, AAC and Opus (`DOWNLOAD_FORMATS`): where a downloaded song's "Save to device…" starts, since a download itself stays the original file (stage 4.2). With `RELEASED.conversions` off, only Original, the others listed as coming soon, whatever was stored | Original |
+| MP3 bitrate, for MP3 | 128, 192, 256, 320 kbps (`MP3_BITRATES`), with conversions on | 320 kbps (`DEFAULT_MP3_KBPS`) |
 
 - **The data saver comes first**, since it overrides the three rows after it. It streams at Low on every connection and puts audio-only streams before a muxed video (YouTube's itag 18); downloads ignore it. While it is on, those rows are disabled and say "Not used while Data saver is on."
 - **Tiers are ceilings.** Playback streams the best stream at or below the tier, and a song with nothing that low plays at the next quality up (`pickStream`).

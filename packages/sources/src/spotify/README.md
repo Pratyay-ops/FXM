@@ -220,6 +220,13 @@ Each hash was found as a persisted-query definition, `("<operation>","query","<s
 
 The token answers and the TOTP secret in the tests are fake. No token, cookie or secret was ever recorded.
 
+### Cover images (stage 4.2)
+
+| Fact | Source | Date |
+|---|---|---|
+| Spotify's image host (`i.scdn.co`) answers with `Access-Control-Allow-Origin: *`, so a page can read a cover's bytes with `fetch` and embed it in a saved file (`fetchCover` in `packages/convert`) | FXM's own `curl` request with `Origin: https://fxmusic.pages.dev`, the answer read and not kept | 2026-10-26 |
+| Track and album covers come from `i.scdn.co`; the `*.spotifycdn.com` hosts serve playlist and radio images only (`pickasso.spotifycdn.com`), which no saved file needs, so only `i.scdn.co` is in the web app's `connect-src` and the platform's host table. Their CORS answers weren't checked | The recorded answers in `fixtures/` (`home.json`, `playlist-radio.json` and `search-playlists.json` are the only ones with `spotifycdn.com` images) | 2026-10-26 |
+
 ## Risks
 
 - **Unofficial API.** These are Spotify's internal web-player APIs, not a public API. The token endpoint itself answers that "usage of this endpoint is not permitted under the Spotify Developer Terms and Developer Policy, and applicable law". Spotify sent cease-and-desist letters to similar projects in 2025 and 2026. The owner accepted this risk for a mostly personal-use project.

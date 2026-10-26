@@ -854,4 +854,24 @@ describe('licence problems and notices', () => {
   it('says so when nothing third-party is bundled', () => {
     expect(renderNotices([], options)).toContain('This build includes no third-party packages.')
   })
+
+  it('puts the files FXM builds itself after the packages, and the Apache licence last', () => {
+    const root = tempDir()
+    const core = "FXM's ffmpeg core (app/ffmpeg/ffmpeg-core.js, app/ffmpeg/ffmpeg-core.wasm)"
+    const text = renderNotices(packages(root), {
+      ...options,
+      prebuilt: [`${core}\nLicence: LGPL-2.1-or-later`],
+    })
+    expect(text).toContain(
+      'After the packages come the files FXM builds itself from other projects’ sources, each with its licences and where its sources are.',
+    )
+    expect(text).toContain(`${'='.repeat(78)}\n${core}\nLicence: LGPL-2.1-or-later\n`)
+    expect(text.indexOf(core)).toBeGreaterThan(text.indexOf('zeta 1.0.0'))
+    expect(text.indexOf(core)).toBeLessThan(text.indexOf('The Apache License 2.0\n\n'))
+    expect(
+      text.endsWith('The Apache License 2.0\n\nApache License\n  Version 2.0, January 2004\n'),
+    ).toBe(true)
+    // Without such files, no word about them.
+    expect(renderNotices(packages(root), options)).not.toContain('After the packages come')
+  })
 })

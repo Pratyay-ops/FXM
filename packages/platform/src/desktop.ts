@@ -126,6 +126,8 @@ const BROWSER_AGENT_CLASSES: ReadonlySet<HostClass> = new Set([
 export const BROWSER_AGENT_HOSTS: ReadonlySet<string> = new Set([
   'i.ytimg.com',
   '*.ggpht.com',
+  'lh3.googleusercontent.com',
+  'yt3.googleusercontent.com',
   'i.scdn.co',
   'www.google.com',
 ])
