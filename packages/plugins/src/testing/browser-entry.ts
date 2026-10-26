@@ -6,7 +6,7 @@
  * @module
  */
 
-export { createSandboxEvaluator } from '@fxm/platform'
+export { createRequestBudget, createSandboxEvaluator, createWebTransport } from '@fxm/platform'
 export { createPluginRegistry, isolatedSandboxes } from '../index'
 export { memoryPluginStore } from '../registry'
 export { testContext } from './context'
