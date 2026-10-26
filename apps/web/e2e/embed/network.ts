@@ -37,7 +37,9 @@ import { connect as connectTcp, type Socket } from 'node:net'
 import { tmpdir } from 'node:os'
 import { extname, join, normalize } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { sandboxDocumentHeader } from '@fxm/platform'
+// The policy module itself, which Node runs as it is: `@fxm/platform`'s entry also loads the
+// signed updates' keys, a JSON module that Node imports only with an import attribute.
+import { sandboxDocumentHeader } from '../../../../packages/platform/src/sandbox/csp.ts'
 import { APP_POLICY, EMBED_HEADERS, EMBED_POLICY } from '../../embed/headers'
 import { E2E_ARCHIVE_HOST, E2E_MEDIA_HOST } from '../../src/embed/testing/e2e-fixtures'
 
@@ -253,13 +255,16 @@ function embedderPage(url: URL): string {
 }
 
 /**
- * A document of the embedding site that pretends to be FXM's InnerTube sandbox: it says hello
- * as the real one does, and tells the page if the player hands it the port and requests.
+ * A document of the embedding site that pretends to be FXM's InnerTube sandbox: it tells the page
+ * that it loaded, says hello as the real one does, without the handshake's token (only the
+ * document loaded at the frame's own URL can read it), and tells the page if the player hands it
+ * the port and requests.
  */
 const FAKE_SANDBOX_PAGE = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8" /><title>Not a sandbox</title></head>
 <body>
   <script>
+    top.postMessage({ hijack: 'loaded' }, '*')
     parent.postMessage({ type: 'fxm-sandbox:hello', protocol: 1, document: 'innertube' }, '*')
     addEventListener('message', (event) => {
       const port = event.ports && event.ports[0]

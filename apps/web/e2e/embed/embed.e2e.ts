@@ -491,16 +491,16 @@ test('keeps a page that opens the player from seeing its frames', async ({ page 
 
 test('keeps the embedding page out of its sandbox frame', async ({ page, network }) => {
   // The control: with `frame-src` relaxed to the page's site, the page's own document takes
-  // the sandbox's place before the handshake and gets the player's port and requests. The
-  // sandbox document comes late, so the page always gets there first.
+  // the sandbox's place before the handshake (the sandbox document comes late, so the page
+  // always gets there first). It still gets no port and no request: it can't read the token
+  // in the frame's URL that the handshake asks for (1.10).
   network.state.relaxFrameSrc = true
   network.state.slowSandbox = true
   await openEmbedder(page, TRACK_PATH, { hijack: true })
-  await expect
-    .poll(() => page.evaluate(() => window.hijacked.map((message) => message.hijack)), {
-      timeout: 20_000,
-    })
-    .toContain('port')
+  const hijacked = () => page.evaluate(() => window.hijacked.map((message) => message.hijack))
+  await expect.poll(hijacked, { timeout: 20_000 }).toContain('loaded')
+  await page.waitForTimeout(1000)
+  expect(await hijacked()).toEqual(['loaded'])
 
   // Under the /embed/* rule (`frame-src 'self'`) the browser refuses that navigation.
   network.reset()
