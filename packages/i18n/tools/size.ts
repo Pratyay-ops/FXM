@@ -29,6 +29,20 @@ export const ENTRIES = {
   pseudo: `export { PSEUDO_LOCALES } from ${source('pseudo.ts')}`,
 } as const
 
+/** Parts of the core, measured alone for docs/I18N.md's breakdown; they have no budgets. */
+export const PARTS = {
+  /** The message parser, with its error messages. */
+  parser: `export { parseMessage } from ${source('parse.ts')}`,
+  /** The parser and message formatting. */
+  formatting: `export { parseMessage } from ${source('parse.ts')}\nexport { formatToString, formatToParts } from ${source('format.ts')}`,
+  /** What start-up needs of negotiation besides `negotiateLocale`. */
+  startup: `export { textDirection, fallbackChain, requestedLocales, applyDocumentLocale } from ${source('negotiate.ts')}`,
+  /** All of negotiation. */
+  negotiation: `export { textDirection, fallbackChain, requestedLocales, applyDocumentLocale, negotiateLocale } from ${source('negotiate.ts')}`,
+  /** One formatter alone, with the number formatter it uses. */
+  formatDuration: `export { formatDuration } from ${source('intl.ts')}`,
+} as const
+
 /** Sizes of one bundle, in bytes. */
 export interface Size {
   readonly minified: number
@@ -71,10 +85,15 @@ export async function measure(code: string): Promise<Size> {
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  for (const [name, code] of Object.entries(ENTRIES)) {
-    const size = await measure(code)
-    process.stdout.write(
-      `${name.padEnd(10)} ${String(size.minified).padStart(6)} B minified  ${String(size.gzip).padStart(5)} B gzip  ${String(size.brotli).padStart(5)} B brotli\n`,
-    )
+  const print = async (entries: Readonly<Record<string, string>>) => {
+    for (const [name, code] of Object.entries(entries)) {
+      const size = await measure(code)
+      process.stdout.write(
+        `${name.padEnd(14)} ${String(size.minified).padStart(6)} B minified  ${String(size.gzip).padStart(5)} B gzip  ${String(size.brotli).padStart(5)} B brotli\n`,
+      )
+    }
   }
+  await print(ENTRIES)
+  process.stdout.write('\nParts of the core, alone:\n')
+  await print(PARTS)
 }

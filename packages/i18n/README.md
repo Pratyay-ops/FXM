@@ -113,16 +113,16 @@ scripts/run.sh pnpm --filter @fxm/i18n inventory                 # hard-coded st
 scripts/run.sh pnpm --filter @fxm/i18n inventory --list home     # the strings of matching areas
 scripts/run.sh pnpm --filter @fxm/i18n inventory --json          # everything
 scripts/run.sh pnpm --filter @fxm/i18n first-load                # the web app's first load: its messages, what ids cost
-scripts/run.sh pnpm --filter @fxm/i18n size                      # what each entry adds to a bundle
+scripts/run.sh pnpm --filter @fxm/i18n size                      # what each entry adds to a bundle, and the core's parts
 ```
 
 [`tools/strings.ts`](tools/strings.ts) decides what counts as a hard-coded user-facing string, [`tools/inventory.ts`](tools/inventory.ts) walks the apps. [`tools/first-load.ts`](tools/first-load.ts) follows `apps/web/src/main.tsx`'s static imports to the messages of the first load, finds those that one namespace per feature folder would pull in from lazy pages, and measures what each way of naming messages adds in brotli (docs/I18N.md, §3). [`tools/size.ts`](tools/size.ts) bundles each entry with rolldown (Vite 8's bundler), minified, and compresses it with brotli at quality 4, as stage 8.5a's budgets measure; `tools/size.test.ts` holds the budgets.
 
 | Entry | Minified | Brotli | Budget |
 |---|---|---|---|
-| core (`createI18n` and negotiation) | 9,154 B | 3,745 B | 4,100 B |
-| core and React bindings | 9,960 B | 4,066 B | 4,500 B |
-| every formatter | 2,697 B | 1,179 B | 1,300 B |
+| core (`createI18n` and negotiation) | 9,420 B | 3,881 B | 4,100 B |
+| core and React bindings | 10,226 B | 4,201 B | 4,500 B |
+| every formatter | 2,819 B | 1,215 B | 1,300 B |
 | pseudo-locales | 733 B | 600 B | 700 B |
 
 ```sh
