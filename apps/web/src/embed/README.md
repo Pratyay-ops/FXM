@@ -109,13 +109,14 @@ Any other field, a value of the wrong type or out of range, gets an error. `paus
 
 ## Headers (stage 2.8)
 
-The deploy serves the build of `vite.embed.config.ts` at `/embed/`, with the app's policy minus `frame-ancestors` (`appPolicy({ embeddable: true })` in 2.8), plus one header. `embed/headers.ts` holds the rule as the browser tests and the preview server send it:
+The deploy serves the build of `vite.embed.config.ts` at `/embed/`, with a narrower policy than the app's (`appPolicy({ embeddable: true })` in 2.8) and one more header. `embed/headers.ts` holds the rule as the browser tests and the preview server send it, and a test of the deploy's (`scripts/build-dist/src/policies.test.ts`) keeps it equal to the deploy's:
 
 - no inline script (`script-src 'self'` suffices; the app's theme-script hash is harmless), and styles from its own files;
 - `frame-src 'self'` for the sandbox documents at `/sandbox/`, and it **must stay exactly `'self'`**: never `blob:`, `data:`, `https:` or another host. It is what keeps an embedding site out of the player's sandbox frame ("Security and privacy");
-- the app's `img-src`, `media-src` and `connect-src` hosts: it contacts no service the app doesn't, though for people who never chose FXM ("Visitors of other sites" above);
+- `connect-src` and `img-src` allow only the hosts of the two services the player plays from, YouTube's (InnerTube's three hosts, `*.googlevideo.com` and its image hosts) and Internet Archive's (`archive.org`, `*.archive.org`), and none of the app's other services: the player contacts fewer services than the app, though for people who never chose FXM ("Visitors of other sites" above). A test of the deploy's keeps those services equal to `WIRED_SOURCES`. `media-src` is the app's (`https:`);
+- `worker-src 'none'`: the player starts no worker;
 - **`Cross-Origin-Opener-Policy: same-origin`**, so a page that opens the player at top level can't count its frames and so tell whether the visitor has FXM Connect. Recommended for `/app/*` too, before 2.7 wires the platform into the app: the app's frame tree also depends on the tier;
-- the single-page fallback: every `/embed/…` path serves `index.html` (2.8 copies it to `embed/404.html`).
+- the player's addresses answer 200 with `index.html`: 2.8 writes one `_redirects` rewrite per kind of player (`/embed/track/*`, `/embed/album/*` and `/embed/playlist/*` to `/embed/`), and the response keeps the `/embed/*` rule. Any other `/embed/…` path that is no file gets `embed/404.html`, a copy of `index.html`, with status 404.
 
 The browser tests serve the player with exactly that rule and check that it reports no violation. `pnpm --filter @fxm/web preview:embed` sends it too; the dev server can't, because React's refresh preamble is an inline script.
 
@@ -165,7 +166,7 @@ FXM_SCREENSHOTS=1 scripts/run.sh pnpm --filter @fxm/web e2e:embed               
 
 | Done-when and checks | Test |
 |---|---|
-| It plays in Lite inside a test page on another origin | `plays in Lite inside a page on another origin`: the player pairs with the page, a click plays, the position moves; every InnerTube call came from the sandbox's opaque origin (`Origin: null`, `text/plain`); the capped top-rung URL failed its first request and itag 18 played; media requests carry no Referer; no page reached another host; no policy violation under the app's policy minus `frame-ancestors` |
+| It plays in Lite inside a test page on another origin | `plays in Lite inside a page on another origin`: the player pairs with the page, a click plays, the position moves; every InnerTube call came from the sandbox's opaque origin (`Origin: null`, `text/plain`); the capped top-rung URL failed its first request and itag 18 played; media requests carry no Referer; no page reached another host; no policy violation under the `/embed/*` policy |
 | The postMessage API | `answers the page that embeds it, and only that page`; `announces itself only to the origin its address names` |
 | Free sources plus an install hint | `plays free sources and shows the install hint without Lite`: InnerTube refuses opaque origins, so the self-test fails; a YouTube song shows the hint, an Internet Archive track plays with its credits and frames no sandbox |
 | Albums, the catalog mode, both layouts, framing | `plays an album from its track list`, `plays a video only in Music + Video mode`, `comes in a compact layout, light or dark`, `frames the player on any site but never the app` |

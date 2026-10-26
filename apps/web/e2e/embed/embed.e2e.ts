@@ -263,7 +263,7 @@ test('plays in Lite inside a page on another origin', async ({ page, network, ho
   expect(full.some((entry) => entry.status === 200 || entry.status === 206)).toBe(true)
 
   // Media requests carry no Referer, no page reached a host outside the test network, and the
-  // player ran under the app's policy minus frame-ancestors without a violation.
+  // player ran under the `/embed/*` policy without a violation.
   expect(media.every((entry) => entry.referer === undefined)).toBe(true)
   expect([...hosts].filter((host) => !PAGE_HOSTS.has(host))).toEqual([])
   expect(await playerViolations(page)).toEqual([])
