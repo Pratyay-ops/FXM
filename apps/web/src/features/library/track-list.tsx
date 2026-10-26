@@ -13,6 +13,13 @@ import {
 } from 'lucide-react'
 import { memo, type ReactNode, useCallback, useId, useMemo, useRef, useState } from 'react'
 import { IconButton, iconButtonClasses } from '../../components/ui/icon-button'
+import {
+  NowPlayingBars,
+  NowPlayingOverlay,
+  type NowPlayingStatus,
+  nowPlayingLabel,
+  nowPlayingText,
+} from '../../components/ui/now-playing-marker'
 import { useLibrary } from '../../db/hooks'
 import type { MoveTarget } from '../../db/ordering'
 import { moveKeys } from '../../db/ordering'
@@ -23,6 +30,7 @@ import { downloadTracks, removeDownloads } from '../downloads/actions'
 import { useCanDownload } from '../downloads/hooks'
 import { useDownloadMenuItem, useSaveMenuItem } from '../downloads/menu'
 import { SaveToDeviceDialog } from '../downloads/save/save-dialog'
+import { useNowPlayingStatus } from '../now-playing/current-track'
 import { getPlayer } from '../now-playing/playback'
 import { CoverArt } from './cover-art'
 import { failureText } from './failure'
@@ -86,6 +94,8 @@ interface RowBodyProps {
   selecting: boolean
   selected: boolean
   menuOpen: boolean
+  /** Whether the row's song is the player's current one, playing or paused: it is marked. */
+  nowPlaying: NowPlayingStatus | undefined
   onToggleSelect: (id: string, extend: boolean) => void
   onToggleLike: (id: string) => void
   onOpenMenu: (id: string, anchor: HTMLElement) => void
@@ -101,6 +111,10 @@ interface RowBodyProps {
  * Like the catalog's track rows, the title is a button that plays the list from this song and
  * stretches over the whole row (a tap anywhere on it plays), while the row's own controls stay
  * on top of it (`relative z-10`). While selecting, the title is text: a tap selects.
+ *
+ * The current song's row (`nowPlaying`) has the "now playing" marker where the number shows
+ * (from 768px), else over the cover, and its title in the accent colour; its name says "Now
+ * playing" or "Paused".
  */
 const RowBody = memo(function RowBody({
   id,
@@ -116,12 +130,15 @@ const RowBody = memo(function RowBody({
   selecting,
   selected,
   menuOpen,
+  nowPlaying,
   onToggleSelect,
   onToggleLike,
   onOpenMenu,
   onPlay,
 }: RowBodyProps) {
   const playable = canPlay && !selecting
+  // A selected row's tint would take the accent title below AA: there, the marker says it.
+  const titleColor = nowPlaying && !selected && 'text-accent forced-colors:text-[Highlight]'
   return (
     <>
       {selecting ? (
@@ -135,6 +152,10 @@ const RowBody = memo(function RowBody({
             className="size-4 accent-accent"
           />
         </label>
+      ) : nowPlaying ? (
+        <span aria-hidden="true" className="hidden w-7 shrink-0 justify-end text-accent md:flex">
+          <NowPlayingBars status={nowPlaying} />
+        </span>
       ) : (
         // The position comes from a CSS counter on the list: no prop to change on a reorder.
         <span
@@ -144,13 +165,18 @@ const RowBody = memo(function RowBody({
       )}
       <span className="relative shrink-0">
         <CoverArt src={cover} seed={id} icon={Music} rounded="sm" className="size-10" />
-        {playable && (
-          <span
-            aria-hidden="true"
-            className="absolute inset-0 hidden place-items-center rounded-sm bg-black/45 text-white group-hover:grid"
-          >
-            <Play className="size-4" fill="currentColor" strokeWidth={0} />
-          </span>
+        {nowPlaying ? (
+          // From 768px the number's place has the marker, unless selecting needs it.
+          <NowPlayingOverlay status={nowPlaying} className={selecting ? undefined : 'md:hidden'} />
+        ) : (
+          playable && (
+            <span
+              aria-hidden="true"
+              className="absolute inset-0 hidden place-items-center rounded-sm bg-black/45 text-white group-hover:grid"
+            >
+              <Play className="size-4" fill="currentColor" strokeWidth={0} />
+            </span>
+          )
         )}
       </span>
       <div className="min-w-0 flex-1">
@@ -158,13 +184,22 @@ const RowBody = memo(function RowBody({
           <button
             type="button"
             onClick={() => onPlay(id)}
-            aria-label={artists ? `Play ${title} by ${artists}` : `Play ${title}`}
-            className="block max-w-full truncate text-left font-semibold outline-none after:absolute after:inset-0 after:rounded-lg focus-visible:after:outline-2 focus-visible:after:-outline-offset-2 focus-visible:after:outline-focus focus-visible:after:outline-solid"
+            aria-label={nowPlayingLabel(
+              artists ? `Play ${title} by ${artists}` : `Play ${title}`,
+              nowPlaying,
+            )}
+            className={cn(
+              'block max-w-full truncate text-left font-semibold outline-none after:absolute after:inset-0 after:rounded-lg focus-visible:after:outline-2 focus-visible:after:-outline-offset-2 focus-visible:after:outline-focus focus-visible:after:outline-solid',
+              titleColor,
+            )}
           >
             {title}
           </button>
         ) : (
-          <p className="truncate font-semibold">{title}</p>
+          <p className={cn('truncate font-semibold', titleColor)}>
+            {title}
+            {nowPlaying && <span className="sr-only">. {nowPlayingText(nowPlaying)}</span>}
+          </p>
         )}
         <p className="truncate text-sm text-text-muted">{artists}</p>
       </div>
@@ -202,20 +237,26 @@ const RowBody = memo(function RowBody({
   )
 })
 
-interface SortableRowProps extends RowBodyProps {
+interface SortableRowProps extends Omit<RowBodyProps, 'nowPlaying'> {
   reorder: boolean
 }
 
+/**
+ * A row with its drag handle. It follows whether its song is the player's current one, so
+ * playback re-renders the rows that gain or lose the marker, never every row.
+ */
 function SortableRow({ reorder, ...body }: SortableRowProps) {
   const { setNodeRef, setActivatorNodeRef, attributes, listeners, style, isDragging } =
     useSortableItem(body.id)
   const { activeId, moving } = useDragState()
+  const nowPlaying = useNowPlayingStatus(body.id)
   const carried = isDragging || (activeId !== null && moving.has(body.id))
   return (
     <li
       ref={setNodeRef}
       style={style}
       data-row={body.id}
+      aria-current={nowPlaying === undefined ? undefined : 'true'}
       className={cn(
         'group relative flex items-center gap-2 rounded-lg py-1.5 pr-1 [contain-intrinsic-size:auto_3.5rem] [content-visibility:auto] [counter-increment:row] sm:gap-3',
         !reorder && 'pl-2',
@@ -241,7 +282,7 @@ function SortableRow({ reorder, ...body }: SortableRowProps) {
           <GripVertical aria-hidden="true" className="size-5" />
         </button>
       )}
-      <RowBody {...body} />
+      <RowBody {...body} nowPlaying={nowPlaying} />
     </li>
   )
 }

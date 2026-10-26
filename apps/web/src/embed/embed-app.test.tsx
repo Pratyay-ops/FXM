@@ -86,7 +86,17 @@ describe('EmbedApp', () => {
     await act(() => settle())
 
     expect(controller.getState().player?.queue.index).toBe(1)
-    expect(within(list).getAllByRole('button')[1]).toHaveAttribute('aria-current', 'true')
+    const current = within(list).getAllByRole('button')[1]
+    expect(current).toHaveAttribute('aria-current', 'true')
+    // The app's "now playing" marker takes the number's place, and the name says it.
+    expect(current).toHaveAccessibleName(`Play ${SONG_B.title} by The Testers. Now playing`)
+    expect(current?.querySelector('svg[data-now-playing]')).toHaveAttribute(
+      'data-now-playing',
+      'playing',
+    )
+    expect(rows.filter((row) => row.querySelector('svg[data-now-playing]') !== null)).toEqual([
+      current,
+    ])
     // The card says what plays now, above the seek bar.
     expect(
       screen.getByText(

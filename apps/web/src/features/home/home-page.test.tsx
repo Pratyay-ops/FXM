@@ -3,6 +3,7 @@ import { act, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { getLibrary } from '../../db/repo'
 import { asBrowser, USER_AGENTS } from '../connect/testing'
+import { setupTestPlayback } from '../now-playing/testing'
 import { GET_FXM_URL } from './home-content'
 import { greetingFor } from './home-page'
 import {
@@ -424,6 +425,34 @@ describe('Home', () => {
       seed: 'ytm:track:a1',
       title: 'Because you listened to Copper Sun',
     })
+  })
+
+  it('marks the song that plays in its shelf, and says whether it plays or is paused', async () => {
+    await listen()
+    const { player } = setupTestPlayback()
+    const { user } = renderHome(
+      homeServices('lite', {
+        recommendations: fakeRecommendations({ radio: { '*': variedSongs('r', 80) } }),
+        playback: { play: (tracks, options) => void player.setQueue(tracks, options) },
+      }),
+    )
+    const picks = within(await shelfNamed('Quick picks')).getByRole('list')
+    const items = within(picks).getAllByRole('listitem')
+    const third = items[2] as HTMLElement
+    const name = within(third).getByRole('button').getAttribute('aria-label') ?? ''
+
+    await user.click(within(third).getByRole('button'))
+
+    await waitFor(() => expect(player.getState().status).toBe('playing'))
+    expect(items.filter((item) => item.getAttribute('aria-current') === 'true')).toEqual([third])
+    expect(within(third).getByRole('button')).toHaveAccessibleName(`${name}. Now playing`)
+    expect(third.querySelector('svg[data-now-playing]')).toHaveAttribute(
+      'data-now-playing',
+      'playing',
+    )
+    act(() => player.pause())
+    expect(within(third).getByRole('button')).toHaveAccessibleName(`${name}. Paused`)
+    expect(picks).toBeInTheDocument()
   })
 
   it('opens a Daily Mix and plays it', async () => {

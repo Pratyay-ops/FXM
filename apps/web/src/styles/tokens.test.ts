@@ -107,3 +107,30 @@ describe('themed subtrees', () => {
     expect(colorTokens(block)).toEqual(defaults)
   })
 })
+
+describe('the now-playing marker', () => {
+  it('keeps its bars clear on the scrim over the lightest cover', () => {
+    // `bg-black/60 text-white` over a row's artwork (components/ui/now-playing-marker.tsx).
+    expect(contrast('#ffffff', mix('#000000', '#ffffff', 0.6))).toBeGreaterThanOrEqual(4.5)
+  })
+
+  for (const [theme, colors] of Object.entries(themes)) {
+    it(`${theme}: keeps the marked title readable on the tints of its rows`, () => {
+      // The text tint over what the row sits on: catalog and Home rows on hover (`bg-text/6`),
+      // library and local rows on hover (`bg-text/5`), the embed's current row and its hover.
+      const tints = [
+        ['background', 0.06],
+        ['background', 0.05],
+        ['surface', 0.05],
+        ['surface', 0.08],
+      ] as const
+      for (const [base, alpha] of tints) {
+        const tint = mix(colors.text ?? '', colors[base] ?? '', alpha)
+        expect(
+          contrast(colors.accent ?? '', tint),
+          `on text/${alpha} over ${base}`,
+        ).toBeGreaterThanOrEqual(4.5)
+      }
+    })
+  }
+})

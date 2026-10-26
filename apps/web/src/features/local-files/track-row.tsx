@@ -1,6 +1,5 @@
 import type { QueueContext, Track } from '@fxm/core'
 import {
-  AudioLines,
   Ellipsis,
   Heart,
   ListEnd,
@@ -14,6 +13,11 @@ import {
 } from 'lucide-react'
 import { memo, type ReactNode, useEffect } from 'react'
 import { IconButton, iconButtonClasses } from '../../components/ui/icon-button'
+import {
+  NowPlayingOverlay,
+  type NowPlayingStatus,
+  nowPlayingLabel,
+} from '../../components/ui/now-playing-marker'
 import { getLibrary } from '../../db/repo'
 import { cn } from '../../lib/cn'
 import { CoverArt } from '../library/cover-art'
@@ -196,10 +200,11 @@ export function rowFields({ track, file }: LocalTrack): RowFields {
 }
 
 export interface LocalTrackRowProps extends RowFields {
-  /** Whether it is the player's current track. */
-  current: boolean
-  /** Whether the player plays (or loads) right now. */
-  playing: boolean
+  /**
+   * Whether it is the player's current track, and whether that plays (or loads) or is paused:
+   * `undefined` for any other track.
+   */
+  nowPlaying: NowPlayingStatus | undefined
   liked: boolean
   /**
    * The badge of a song whose files can't be read right now (chosen files after a reload, a
@@ -213,10 +218,13 @@ export interface LocalTrackRowProps extends RowFields {
   onOpenMenu: (id: string, anchor: HTMLElement) => void
 }
 
-/** The play button's name: Play, Pause while it plays, Resume while it is paused. */
-function playLabel(title: string, current: boolean, playing: boolean): string {
-  if (!current) return `Play ${title}`
-  return `${playing ? 'Pause' : 'Resume'} ${title}`
+/**
+ * The play button's name: Play, Pause while it plays, Resume while it is paused, with the
+ * current track's status: "Pause Slow Tide. Now playing".
+ */
+function playLabel(title: string, nowPlaying: NowPlayingStatus | undefined): string {
+  if (nowPlaying === undefined) return `Play ${title}`
+  return nowPlayingLabel(`${nowPlaying === 'playing' ? 'Pause' : 'Resume'} ${title}`, nowPlaying)
 }
 
 /**
@@ -224,8 +232,9 @@ function playLabel(title: string, current: boolean, playing: boolean): string {
  * and menu. Memoized on plain values, so a scan that adds files re-renders only the new rows.
  *
  * A song that can't play here or now keeps its text at full contrast: only its cover fades, its
- * title turns muted and a badge says why. The current song has an icon by its title, so it
- * stands out without color too (forced colors, say).
+ * title turns muted and a badge says why. The current song has the "now playing" marker over
+ * its cover as well as its title in the accent colour, so it stands out without color too
+ * (forced colors, say).
  */
 export const LocalTrackRow = memo(function LocalTrackRow({
   id,
@@ -237,8 +246,7 @@ export const LocalTrackRow = memo(function LocalTrackRow({
   playable,
   duration,
   cover,
-  current,
-  playing,
+  nowPlaying,
   liked,
   blocked,
   menuOpen,
@@ -246,7 +254,8 @@ export const LocalTrackRow = memo(function LocalTrackRow({
   onToggleLike,
   onOpenMenu,
 }: LocalTrackRowProps) {
-  const active = current && playing
+  const current = nowPlaying !== undefined
+  const active = nowPlaying === 'playing'
   const unplayable = blocked !== undefined || !playable
   let badge: ReactNode
   if (blocked !== undefined) badge = <RowBadge icon={Lock}>{blocked}</RowBadge>
@@ -258,27 +267,31 @@ export const LocalTrackRow = memo(function LocalTrackRow({
       className="flex items-center gap-2 rounded-lg py-1.5 pr-1 [contain-intrinsic-size:auto_3.5rem] [content-visibility:auto] hover:bg-text/5 sm:gap-3"
     >
       <IconButton
-        label={playLabel(title, current, active)}
+        label={playLabel(title, nowPlaying)}
         icon={active ? <Pause fill="currentColor" /> : <Play fill="currentColor" />}
         size="sm"
         active={current}
         onClick={() => onPlay(id)}
       />
-      <CoverArt
-        src={cover}
-        seed={id}
-        icon={Music}
-        rounded="sm"
-        className={cn('size-10', unplayable && 'opacity-50')}
-      />
+      <span className="relative shrink-0">
+        <CoverArt
+          src={cover}
+          seed={id}
+          icon={Music}
+          rounded="sm"
+          className={cn('size-10', unplayable && 'opacity-50')}
+        />
+        {nowPlaying && <NowPlayingOverlay status={nowPlaying} />}
+      </span>
       <div className="min-w-0 flex-1">
         <p
           className={cn(
             'flex min-w-0 items-center gap-1.5 font-semibold',
-            current ? 'text-accent' : unplayable && 'text-text-muted',
+            current
+              ? 'text-accent forced-colors:text-[Highlight]'
+              : unplayable && 'text-text-muted',
           )}
         >
-          {current && <AudioLines aria-hidden="true" className="size-4 shrink-0" />}
           <span className="truncate">{title}</span>
         </p>
         <p className="flex min-w-0 items-center gap-2 text-sm text-text-muted">

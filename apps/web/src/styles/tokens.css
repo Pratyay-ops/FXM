@@ -96,6 +96,8 @@
   --ease-standard: cubic-bezier(0.2, 0, 0, 1);
 
   --animate-progress: progress 1.1s var(--ease-standard) infinite;
+  /* A bar of the "now playing" marker (components/ui/now-playing-marker.tsx), each in its time. */
+  --animate-now-playing: now-playing 1s ease-in-out infinite alternate;
 
   @keyframes progress {
     from {
@@ -103,6 +105,15 @@
     }
     to {
       transform: translateX(250%);
+    }
+  }
+
+  @keyframes now-playing {
+    from {
+      transform: scaleY(0.3);
+    }
+    to {
+      transform: scaleY(1);
     }
   }
 }

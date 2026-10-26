@@ -488,6 +488,11 @@ describe('Library page', { timeout: 30_000 }, () => {
     await user.click(main().getByRole('tab', { name: 'Recently played' }))
     const recent = await main().findByRole('list', { name: 'Recently played' })
     expect(rowNames(recent)).toEqual(['Song 7'])
+    // The song the player is on is marked in the history too.
+    const { player } = setupTestPlayback()
+    await act(() => player.setQueue([track(7)], { autoplay: false }))
+    expect(within(recent).getByRole('listitem')).toHaveAttribute('aria-current', 'true')
+    expect(within(recent).getByRole('listitem')).toHaveTextContent('Song 7. Paused')
     await user.click(main().getByRole('button', { name: 'Clear history' }))
     const confirm = await screen.findByRole('alertdialog', { name: 'Clear listening history?' })
     expect(within(confirm).getByRole('button', { name: 'Cancel' })).toHaveFocus()
