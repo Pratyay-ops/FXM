@@ -282,6 +282,17 @@ export interface RecommendationProvider {
   /** Provider ID, e.g. `ytm` or `spotify`. */
   readonly id: string
   /**
+   * When the app may ask this provider for a radio:
+   *
+   * - `any` (also when absent): whenever it needs to, e.g. as one of the sources of a mixed radio
+   *   or of the home feed, in the background
+   * - `explicit`: only when the user explicitly asked this provider for a radio, e.g. from one of
+   *   its own tracks or with its source picked; never as one of several sources, for the home
+   *   feed or in the background, so it never learns what the user plays elsewhere. For runtime
+   *   plugins (stage 8.3)
+   */
+  readonly requestPolicy?: 'any' | 'explicit'
+  /**
    * Tracks to play after `seed`, best first, respecting `ctx.mode`. See {@link RadioSeed} for
    * seeds from other sources.
    */
@@ -471,6 +482,18 @@ export interface StreamOption {
 export interface AudioSource {
   /** The source this audio comes from, and the `source` of every candidate it returns. */
   readonly id: SourceId
+  /**
+   * When the app may call {@link AudioSource.match} with tracks of other sources:
+   *
+   * - `any` (also when absent): whenever it needs to, e.g. in the matching engine's searches for
+   *   any track, imports and re-matching
+   * - `explicit`: only for a track the user explicitly asked this source about, e.g. "Find the
+   *   audio with …" on that track; never in the matching engine's searches across sources or in
+   *   the background, so it never learns what the user plays elsewhere. {@link AudioSource.resolve}
+   *   of its own candidates, and `match` of its own tracks, may run whenever they play. For
+   *   runtime plugins (stage 8.3)
+   */
+  readonly requestPolicy?: 'any' | 'explicit'
   /**
    * Candidates for `track`, best first. Empty when the source has nothing. Every candidate is
    * playable in `ctx.mode` as it is (`isPlayable(candidate, ctx.mode)`, or `filterPlayable` on
