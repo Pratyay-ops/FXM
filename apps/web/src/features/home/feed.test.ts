@@ -228,6 +228,60 @@ describe('buildHomeFeed', () => {
     ).toEqual([])
   })
 
+  it("takes Spotify's sections from the account's sync when it keeps them", async () => {
+    const synced = {
+      id: 'spotify:section:made-for-you',
+      title: 'Made For You',
+      items: [{ type: 'track' as const, track: song('s1', 'Somewhere', 'Halcyon') }],
+    }
+    const asked: string[] = []
+    const spotifyAccount = {
+      ...fakeSpotifyAccount(true),
+      async sections() {
+        asked.push('sections')
+        return [synced]
+      },
+    }
+    const sections = async (services: HomeServices) =>
+      (await build(services)).shelves
+        .filter((shelf) => shelf.type === 'source')
+        .map((shelf) => shelf.id)
+    // With the recommendation sources too, their home isn't asked for Spotify's sections.
+    const recommendations = fakeRecommendations({
+      home: [
+        {
+          source: 'spotify',
+          shelf: {
+            id: 'generic',
+            title: 'Generic',
+            items: [{ type: 'track' as const, track: a1 }],
+          },
+        },
+      ],
+    })
+    expect(await sections(homeServices('full', { recommendations, spotifyAccount }))).toEqual([
+      'spotify:spotify:section:made-for-you',
+    ])
+    // Without recommendation sources (stage 3.2 not wired in), the sync's sections still show.
+    expect(await sections(homeServices('full', { spotifyAccount }))).toEqual([
+      'spotify:spotify:section:made-for-you',
+    ])
+    // Not connected, switched off or unreachable: not asked.
+    asked.length = 0
+    expect(
+      await sections(
+        homeServices('full', {
+          spotifyAccount: { ...fakeSpotifyAccount(false), sections: spotifyAccount.sections },
+        }),
+      ),
+    ).toEqual([])
+    expect(await sections(homeServices('full', { spotifyAccount, spotifyEnabled: false }))).toEqual(
+      [],
+    )
+    expect(await sections(homeServices('lite', { spotifyAccount }))).toEqual([])
+    expect(asked).toEqual([])
+  })
+
   it('turns the best similar artists and song searches into tracks through the catalog', async () => {
     const recommendations = fakeRecommendations({
       radio: { '*': variedSongs('r', 12) },

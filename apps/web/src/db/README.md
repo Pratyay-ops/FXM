@@ -27,12 +27,14 @@ Pages read through `hooks.ts` and write through `getLibrary()` (the app's reposi
 | `orders` | `playlists` | The order of the list of playlists, and its undo order |
 | `follows` | `entityKey(id)` | Followed artists, saved albums and followed playlists, with what lists show of them |
 | `history` | auto-increment | One row per play: track, start, time played, the track's length, completed, skipped, where it started (the queue's `QueueContext` from `@fxm/core`: an album, a playlist, an artist, a radio, a search or a list of this library), what streamed, and the import it came from. Indexed by `[trackId+playedAt]` and `importId` |
-| `settings` | setting name | Settings that outgrow `localStorage`: today only `affinity.model`, the model version the affinity was built with. The app's own settings stay in `localStorage` for now. Rows whose key starts with `sync.` sync to the user's other devices (stage 8.4); every other row stays on the device |
+| `settings` | setting name | Settings that outgrow `localStorage`: `affinity.model`, the model version the affinity was built with, and features' state that belongs with the library, read and written with `getSetting`, `getSettings(prefix)` and `putSettings` (`spotify-account.*`: the Spotify account sync's state, stage 3.5). The app's own settings stay in `localStorage` for now. Rows whose key starts with `sync.` sync to the user's other devices (stage 8.4); every other row stays on the device |
 | `matchCache` | `<entityKey(sourceTrackId)>\|<mode>` | The matching engine's decision for a source track in a catalog mode (below) |
 | `importProgress` | a random ID | How far an import got, so it can resume (stage 3.6). Its `state` is the import's progress, an `ImportState` of `@fxm/sources/import`: the rows, a decision per row and what was looked up |
 | `affinity` | `<kind>\|<key>` | The listening affinity of every track, artist and tag (below), indexed by `[kind+rank]` and `at` |
 
 `ytm` and `yt` IDs of one video share an `entityKey`, so a like, a follow or a playlist entry counts once whichever prefix a provider used.
+
+**Playlists with a fixed ID.** `createPlaylist` normally gives a new playlist a random ID; it also takes a fixed one (`id`, a `local:playlist:…` ID no playlist has), cover art (`artwork`) and a place in the list of playlists (`position`). The Spotify account sync (stage 3.5) names its copies after what they copy (`local:playlist:spotify-<Spotify ID>`), so a copy that came back from a backup or another device is adopted instead of made twice. `updatePlaylist` changes cover art too.
 
 **Built-in playlists.** Every library has *Liked songs* (`local:playlist:liked`) and *Downloads* (`local:playlist:downloads`). The database recreates them whenever it opens without them. Neither can be renamed or deleted, and both support every ordering feature.
 

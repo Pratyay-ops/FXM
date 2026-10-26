@@ -11,6 +11,7 @@ import { listenForInstallPrompt } from './features/pwa/install'
 import { registerServiceWorker } from './features/pwa/service-worker'
 import { startScrobbling } from './features/scrobble/start-scrobbling'
 import { appSources } from './features/search/sources-context'
+import { startSpotifyAccount } from './features/spotify-account/start'
 
 const root = document.getElementById('root')
 if (!root) throw new Error('index.html is missing the #root element')
@@ -23,6 +24,8 @@ registerServiceWorker(registerSW)
 startConnect()
 // Opt-in: it loads, opens and sends nothing until the user connects an account.
 startScrobbling()
+// Opt-in too: nothing loads or contacts Spotify until the user connects their account.
+startSpotifyAccount()
 
 // FXM Connect's marker is on the page but it hasn't answered yet: until it does, the pages say
 // they are connecting rather than offering to install it (see app/services/connecting.ts).

@@ -19,7 +19,8 @@
     "e2e": "playwright test",
     "screenshots": "FXM_SCREENSHOTS=1 VITE_FXM_FAKE_CATALOG=on playwright test screenshots pwa.spec",
     "icons": "node scripts/render-icons.ts",
-    "e2e:embed": "playwright install --no-shell chromium firefox && vite build -c vite.embed.config.ts --mode e2e --outDir ../dist-embed-e2e && playwright test -c e2e/embed/playwright.config.ts"
+    "e2e:embed": "playwright install --no-shell chromium firefox && vite build -c vite.embed.config.ts --mode e2e --outDir ../dist-embed-e2e && playwright test -c e2e/embed/playwright.config.ts",
+    "e2e:spotify-account": "playwright install --no-shell chromium && make -C ../.. dist && FXM_EXTENSION_DEV=1 make -C ../.. extension && playwright test -c e2e/spotify-account/playwright.config.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

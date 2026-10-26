@@ -601,7 +601,7 @@ Settings → Spotify offers:
 
 FXM never handles the password, and cookies never reach page JavaScript.
 
-Untested so far: whether the bridge receives `open.spotify.com` cookies when the browser blocks third-party cookies (3.5 tests it), and Safari, which omits SameSite cookies on such requests (WebKit bug 260676). Google sign-in doesn't work inside embedded WebViews.
+Whether the bridge receives `open.spotify.com` cookies when the browser blocks third-party cookies: in Chromium it does, whatever the cookie's `SameSite` (stage 3.5's browser test against a local mock, Chromium 156, 2026-10-26), because Chromium doesn't count an extension's request to a host it has permission for as a third-party one. Firefox is the owner's manual test with a real account (`apps/web/src/features/spotify-account/README.md`); Safari, which omits SameSite cookies on such requests (WebKit bug 260676), stays untested. Google sign-in doesn't work inside embedded WebViews.
 
 ### Anonymous token
 

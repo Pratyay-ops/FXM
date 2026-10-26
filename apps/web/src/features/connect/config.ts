@@ -31,8 +31,8 @@ export const RELEASED = {
   android: false,
   /** Downloads in any format: stage 4.1. */
   downloads: false,
-  /** Connecting a Spotify account for a read-only sync: stage 3.5. */
-  spotifyAccount: false,
+  /** Connecting a Spotify account for a read-only sync: stage 3.5 (the web app with FXM Connect). */
+  spotifyAccount: true,
   /** Playing music files from the device: stage 4.4, in the Library's Local files tab. */
   localFiles: true,
 } as const

@@ -48,7 +48,7 @@ New music comes only where YouTube Music is reachable, because its songs are wha
 4. **Candidates:** `recommendations.collect` for each seed and its parts, three seeds at a time. Each whole collection is cached for 30 minutes, per recommendation sources object.
 5. **The rest of the taste:** the affinity of every track and main artist the candidates name and the profile lacks (`completeProfile`: two bulk reads), so the skip penalty and the history filters see all of the history, not only its top.
 6. **Expansions:** the engine's `planExpansions` picks up to four similar artists (`catalog.artistTracks`) and six song searches (`catalog.findSong`) to turn into tracks.
-7. **Spotify:** `spotifyAccount.status`, and when connected, `recommendations.home`'s Spotify sections, asked alongside the collections.
+7. **Spotify:** `spotifyAccount.status`, and when connected, the account's sections: `spotifyAccount.sections`, the personal home that stage 3.5's sync keeps in the library, or without it `recommendations.home`'s Spotify sections, asked alongside the collections.
 8. **Shelves:** `buildHome`, with the local time zone.
 
 The network steps get eight seconds in all (`FEED_LIMITS.deadlineMs`); Home is then built from what arrived, and what is still on its way goes on and is cached for the next build. A source that fails adds nothing, and only leaving the page cancels a build.
@@ -66,11 +66,11 @@ Home reaches everything through one seam, `services.tsx` (`appHomeServices`, a s
 | `sources` | 2.4's `appSources`, which holds 1.2's platform and the Spotify switch | `sources: appSources` |
 | `recommendations` | 3.2's `createRecommendationCollector({ youtube, youtubeLookup, spotify, spotifyMetadata, spotifyEnabled, lastfmStations, listenbrainz, … })` with 1.3's and 1.5's providers | `recommendations: collector` (it fits the seam as it is; `feed.collector.test.ts` checks) |
 | `catalog` | 1.3: artist search (`findArtist`), artist pages' top songs (`artistTracks`); 1.7: song search (`findSong`) | `catalog: { findArtist, artistTracks, findSong }` |
-| `spotifyAccount` | 1.5's Spotify provider (`status`), connected by 3.5 | `spotifyAccount: spotify` |
+| `spotifyAccount` | 3.5's account: `status`, and `sections` from its sync (`features/spotify-account`); `main.tsx` wires it in already | `spotifyAccount: spotifyAccountForHome` |
 | `playback` | 2.2's player, as 2.4's `PlaybackActions` | `playback: appActions.get().playback` |
 
 ```ts
-appHomeServices.set({ sources: appSources, recommendations: collector, catalog, spotifyAccount: spotify, playback })
+appHomeServices.set({ sources: appSources, recommendations: collector, catalog, spotifyAccount: spotifyAccountForHome, playback })
 ```
 
 Album, artist and playlist cards (in Spotify's sections) link to `/<kind>/<source>:<native ID>`, the form of 2.4's pages (`entityPath` in `shelves.tsx`).
