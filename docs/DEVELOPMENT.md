@@ -104,7 +104,7 @@ A release goes from `develop` to `main` through a pull request, and a workflow p
 
 The scripts behind them work on their own too:
 
-- `scripts/release-version.sh x.y.z` sets the version: the root and every workspace `package.json` (FXM Connect's manifest and the Android `versionName` come from theirs) and `APP_VERSION` in `packages/core/src/index.ts`. `--dry-run` shows the changes, `--check` fails unless every package agrees.
+- `scripts/release-version.sh x.y.z` sets the version: the root and every workspace `package.json` (FXM Connect's manifest and the Android `versionName` come from theirs), `APP_VERSION` in `packages/core/src/index.ts`, and `packaging/fdroid/version.txt` with the Android version code, which F-Droid's update check reads at each tag ([packaging/fdroid/README.md](../packaging/fdroid/README.md)). `--dry-run` shows the changes, `--check` fails unless every one agrees.
 - `scripts/release-notes.sh [x.y.z]` prints release notes: the version's summary (`docs/releases/vX.Y.Z.md`), then its features, fixes and performance changes (`cliff.notes.toml`). `--changelog x.y.z` regenerates `CHANGELOG.md`, which has every change (`cliff.toml`). git-cliff runs offline.
 - `release.yml` runs the rest: `release-plan.sh` decides whether to release, `release-collect.sh` gathers the artifact jobs' files and refuses any that `fxm_release_catalog` in `scripts/release-lib.sh` doesn't list for that job, and `release-publish.sh` tags and publishes. `deploy.yml` runs `release-wait.sh`, which holds the production deploy of a release until its GitHub Release is out.
 

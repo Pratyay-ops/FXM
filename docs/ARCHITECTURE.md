@@ -896,6 +896,8 @@ All imports respect the catalog mode, are paced by the request budget, save thei
 | Android APK | Google Play and the App Store ban such apps. F-Droid lists NewPipe and Spotube with the NonFreeNet anti-feature, and forbids downloading executable code without explicit opt-in consent | GitHub Releases, F-Droid, IzzyOnDroid, Obtainium. F-Droid builds make plugins and the resolver module opt-in and turn off FXM's own update check | Free |
 | Android developer verification | From the 2027 global rollout (§3) | Unregistered for now; revisit before the rollout | USD 25 once, plus ID and proof of address; Limited Distribution is free for up to 20 devices |
 
+[packaging/README.md](../packaging/README.md) has the metadata for F-Droid, IzzyOnDroid, Obtainium, Flathub and winget, and the owner's steps for each (R.3). Checked 2026-10-26, three rules narrow the table above: Flathub forbids AI-generated manifests and may reject AI-written apps, IzzyOnDroid rejects "vibe-coded" apps, and F-Droid asks for three months of development before listing an app.
+
 GitHub Packages isn't needed, because FXM has no server images.
 
 **Costs:** nothing is required. The optional items are:
