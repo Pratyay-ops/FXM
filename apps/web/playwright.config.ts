@@ -9,6 +9,9 @@ const baseURL = `http://localhost:${port}/app/`
 
 export default defineConfig({
   testDir: './e2e',
+  // The specs only: flows/ and budgets/ run against make dist with their own configs, and
+  // budgets/*.test.ts are Vitest's (e2e/README.md).
+  testMatch: '*.spec.ts',
   outputDir: './test-results',
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
