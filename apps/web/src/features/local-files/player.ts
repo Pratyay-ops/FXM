@@ -1,26 +1,19 @@
 /**
- * How local files play: through the player core (`@fxm/player`, stage 2.2), from object URLs.
+ * How local files play: through the app's player (`features/now-playing/playback.ts`, stage
+ * 2.5), from object URLs.
  *
  * - {@link withLocalFiles} wraps any `StreamResolver`: queue items that are local tracks (or
  *   whose recorded audio is a local file) resolve to their file's object URL, everything else
- *   goes to the wrapped resolver.
- * - {@link getLocalPlayer} is the `Player` the local-files UI plays through.
- *
- * **Until stage 2.5 wires the app's player** (`features/now-playing/playback.ts`, not merged
- * when this was written), the feature makes its own: a direct-audio engine, the local resolver
- * and the system media controls. 2.5 has merged since; wiring it in replaces two things and
- * nothing else in this feature changes:
- *
- * 1. `getLocalPlayer()` returns 2.5's `getPlayer()`, and `subscribeLocalPlayer` its
- *    `subscribePlayer`;
- * 2. 2.5's `createAppPolicy()` wraps its resolver: `resolver: withLocalFiles(policy.resolver)`
- *    (or, with 2.3's policy, registers `createLocalAudioSource()` as the offline copy).
+ *   goes to the wrapped resolver. The composition root (`src/app/services`, stage 2.9) puts it in
+ *   front of the app's playback policy ({@link withLocalFilesFirst}), so local files never
+ *   reach the stream lifecycle, and nothing about them reaches the network.
+ * - {@link getLocalPlayer} is the `Player` the local-files UI plays through: the app's, which
+ *   the player bars, Now playing and the system media controls show.
  *
  * @module
  */
 
 import {
-  createQueue,
   currentQueueItem,
   FxmError,
   isFxmError,
@@ -29,19 +22,23 @@ import {
   tierOf,
 } from '@fxm/core'
 import {
-  connectMediaSession,
-  DirectAudioEngine,
   type Engine,
   mimeTypeOf,
-  Player,
+  type Player,
   type PlayerEventMap,
-  type PlayerOptions,
   type PlayerState,
   type PlaySupport,
   type StreamResolver,
 } from '@fxm/player'
-import { useSyncExternalStore } from 'react'
-import { useSettingsStore } from '../settings/settings-store'
+import {
+  configurePlayback,
+  getPlayer,
+  type PlaybackOptions,
+  resetPlayback,
+  subscribePlayer,
+  usePlayerState,
+} from '../now-playing/playback'
+import { createPendingPolicy, type PlaybackPolicy } from '../now-playing/playback-policy'
 import { localNativeIdOf } from './audio-source'
 import { formatName } from './format'
 import { getLocalFiles, type LocalFiles } from './local-files'
@@ -76,13 +73,24 @@ export function withLocalFiles(
   }
 }
 
-/** The resolver for everything that isn't a local file, until stage 2.3's policy is wired in. */
-export const NO_STREAMS: StreamResolver = {
-  resolve: () =>
-    Promise.reject(new FxmError('Unsupported', 'Only local files can play here for now')),
+/**
+ * `policy` with local files in front of its resolver ({@link withLocalFiles}): what the app's
+ * player plays with. Its other members are `policy`'s.
+ */
+export function withLocalFilesFirst(
+  policy: PlaybackPolicy,
+  files: () => LocalFiles = getLocalFiles,
+): PlaybackPolicy {
+  return {
+    resolver: withLocalFiles(policy.resolver, files),
+    onNeedsReview: (listener) => policy.onNeedsReview(listener),
+    alternatives: (track, signal) => policy.alternatives(track, signal),
+    pin: (track, candidate) => policy.pin(track, candidate),
+    setPlayBestGuesses: (on) => policy.setPlayBestGuesses(on),
+  }
 }
 
-/** How the local-files player is put together. Tests pass a fake engine. */
+/** How tests put the app's player together for local files ({@link configureLocalPlayer}). */
 export interface LocalPlayerOptions {
   /** Default: a `DirectAudioEngine`. */
   engine?: Engine
@@ -91,92 +99,76 @@ export interface LocalPlayerOptions {
   /** Default: the app's local files. */
   files?: () => LocalFiles
   /** Tuning passed on to the player, e.g. shorter retry delays in tests. */
-  player?: Omit<PlayerOptions, 'engine' | 'resolver' | 'queue'>
+  player?: PlaybackOptions['player']
 }
 
-interface Playback {
-  player: Player
-  dispose(): void
-}
-
-let options: LocalPlayerOptions = {}
-let current: Playback | undefined
-const listeners = new Set<() => void>()
+/** The engine {@link configureLocalPlayer} was given, which answers {@link formatSupport}. */
+let testEngine: Engine | undefined
 const failureListeners = new Set<(failure: PlayerEventMap['trackfailed']) => void>()
+/** The player whose `trackfailed` events reach {@link failureListeners}. */
+let failures: { readonly player: Player; readonly stop: () => void } | undefined
 
-function notify(): void {
-  for (const listener of [...listeners]) listener()
+/** Passes the `trackfailed` events of `player`, the app's player, on to the listeners. */
+function followFailures(player: Player): Player {
+  if (failures?.player === player) return player
+  failures?.stop()
+  failures = {
+    player,
+    stop: player.on('trackfailed', (failure) => {
+      for (const listener of [...failureListeners]) listener(failure)
+    }),
+  }
+  return player
 }
 
 /**
- * Calls `listener` whenever the player gives up on a track, whichever player is current, also
- * one created later. Returns a function that stops it.
+ * Calls `listener` whenever the app's player gives up on a track, also a player that replaced
+ * it (tests). Returns a function that stops it.
  */
 export function onTrackFailed(
   listener: (failure: PlayerEventMap['trackfailed']) => void,
 ): () => void {
   failureListeners.add(listener)
+  followFailures(getPlayer())
   return () => {
     failureListeners.delete(listener)
   }
 }
 
-function createPlayback(config: LocalPlayerOptions): Playback {
-  const player = new Player({
-    ...config.player,
-    engine: config.engine ?? new DirectAudioEngine(),
-    resolver: withLocalFiles(NO_STREAMS, config.files),
-    queue: { mode: useSettingsStore.getState().catalogMode },
-  })
-  const disconnects = [
-    player.subscribe(notify),
-    player.on('trackfailed', (failure) => {
-      for (const listener of [...failureListeners]) listener(failure)
-    }),
-    config.mediaSession === false ? () => {} : connectMediaSession(player),
-    useSettingsStore.subscribe((state, previous) => {
-      if (state.catalogMode !== previous.catalogMode) player.setCatalogMode(state.catalogMode)
-    }),
-  ]
-  return {
-    player,
-    dispose() {
-      for (const disconnect of disconnects) disconnect()
-      player.destroy()
-    },
-  }
-}
-
-/** The player local files play through, created on first use (see the module documentation). */
+/** The player local files play through: the app's (see the module documentation). */
 export function getLocalPlayer(): Player {
-  current ??= createPlayback(options)
-  return current.player
+  return followFailures(getPlayer())
 }
 
 /** Calls `listener` when the player's state changes or the player is replaced. */
 export function subscribeLocalPlayer(listener: () => void): () => void {
-  listeners.add(listener)
-  return () => {
-    listeners.delete(listener)
-  }
+  return subscribePlayer(listener)
 }
 
-/** Tests only: replaces the player with one built from `next`. */
+/**
+ * Tests only: replaces the app's player with one built from `next`, which plays local files and
+ * refuses everything else (`Unsupported`, as where the app's music services don't run), and,
+ * like `setupTestPlayback`, keeps no listening history.
+ */
 export function configureLocalPlayer(next: LocalPlayerOptions): Player {
-  current?.dispose()
-  current = undefined
-  options = next
-  const player = getLocalPlayer()
-  notify()
-  return player
+  testEngine = next.engine
+  const { engine } = next
+  const { player } = configurePlayback({
+    ...(engine === undefined ? {} : { createEngine: () => engine }),
+    policy: withLocalFilesFirst(createPendingPolicy(), next.files),
+    recordPlays: false,
+    ...(next.mediaSession === undefined ? {} : { mediaSession: next.mediaSession }),
+    ...(next.player === undefined ? {} : { player: next.player }),
+  })
+  return followFailures(player)
 }
 
-/** Tests only: destroys the player and goes back to the default options. */
+/** Tests only: destroys the app's player and goes back to its default options. */
 export function resetLocalPlayer(): void {
-  current?.dispose()
-  current = undefined
-  options = {}
-  notify()
+  testEngine = undefined
+  failures?.stop()
+  failures = undefined
+  resetPlayback()
 }
 
 const support = new Map<string, PlaySupport>()
@@ -188,8 +180,8 @@ let probe: HTMLAudioElement | undefined
  * ALAC, for one). A configured engine (tests) answers for itself.
  */
 export function formatSupport(format: Pick<StreamOption, 'codec' | 'container'>): PlaySupport {
-  if (options.engine?.canPlay !== undefined) {
-    return options.engine.canPlay({
+  if (testEngine?.canPlay !== undefined) {
+    return testEngine.canPlay({
       url: '',
       codec: format.codec,
       container: format.container,
@@ -216,26 +208,12 @@ export function formatSupport(format: Pick<StreamOption, 'codec' | 'container'>)
   return answer
 }
 
-/** What the player's state reads as before anything played: no player is made just to look. */
-const IDLE: PlayerState = {
-  queue: createQueue(),
-  status: 'idle',
-  buffering: false,
-  positionMs: 0,
-  durationMs: undefined,
-  volume: 1,
-  muted: false,
-  stream: undefined,
-  error: undefined,
-}
-
 /**
- * Selects a value from the player's state and re-renders when it changes. The selector must
- * return a value from the state or a primitive, not a new object on every call.
+ * Selects a value from the app's player's state and re-renders when it changes. The selector
+ * must return a value from the state or a primitive, not a new object on every call.
  */
 export function useLocalPlayerState<T>(selector: (state: PlayerState) => T): T {
-  const read = () => selector(current?.player.getState() ?? IDLE)
-  return useSyncExternalStore(subscribeLocalPlayer, read, read)
+  return usePlayerState(selector)
 }
 
 /** The local track playing or selected, as a track ID, and whether it plays. */

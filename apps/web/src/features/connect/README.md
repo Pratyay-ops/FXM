@@ -42,10 +42,10 @@ Each one is one small seam here, and the swap is a line or two:
 
 | Stage | Seam | Until it is wired in | To wire it in |
 |---|---|---|---|
-| 1.4 stream resolver (built in parallel) | `SongResolver` (`resolver.ts`) | `unavailableResolver`: the self-test says this build can't resolve songs yet | `setSongResolver(fromAudioSource(createYouTubeAudioSource({ session, healthStore })))` where the app creates its YouTube providers |
-| 1.3 / 1.13 remote config | `setKillSwitchSource()` (`kill-switches.ts`) | No kill switches | `setKillSwitchSource(() => config.killSwitches)`, then `recheckConnection()` when the config changes |
+| 1.4 stream resolver (built in parallel) | `SongResolver` (`resolver.ts`) | `unavailableResolver` until YouTube's code has loaded | Wired by the composition root (stage 2.9, `src/app/services/index.ts`): `setSongResolver(fromAudioSource(youtube.audio))` once YouTube's code has loaded, unless the fake mode set a resolver |
+| 1.3 / 1.13 remote config | `setKillSwitchSource()` (`kill-switches.ts`) | No kill switches until YouTube's code has loaded | Wired by the composition root (2.9): the YouTube config's `killSwitches`, and `recheckConnection()` when the Lite switch changed |
 | 2.4 search | `ONBOARDING_URL` in `features/search/onboarding.tsx` | The landing page's "Get FXM" section | Point it at `/connect` |
-| Every provider user (2.4 sources, the player) | `getAppPlatform()` (`app-platform.ts`) | — | `appSources.setPlatform(await getAppPlatform())`: one platform for the whole app |
+| Every provider user (2.4 sources, the player) | `getAppPlatform()` (`app-platform.ts`) | — | Wired by the composition root (2.9), which creates its services on it and puts it in the sources registry: one platform for the whole app. It is created with `reportLoginRequired: false`, since the stream ladder reports the bot checks itself |
 | 2.2/2.3 player | The self-test plays in its own media element | — | Pause the main player before the self-test plays |
 | 2.4 Settings → Sources (on `develop`) | `ConnectSettingsEntry` | Its own section before Diagnostics | Move it into Sources if that reads better |
 

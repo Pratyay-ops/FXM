@@ -9,6 +9,7 @@ import {
 import type { InfiniteData, UseInfiniteQueryResult } from '@tanstack/react-query'
 import { Search, SearchX } from 'lucide-react'
 import { type ReactNode, useId, useRef } from 'react'
+import { flushSync } from 'react-dom'
 import { Link } from 'react-router'
 import { placeholderKeys, Skeleton } from '../../components/ui/skeleton'
 import { TabPanel, Tabs } from '../../components/ui/tabs'
@@ -361,10 +362,11 @@ export function SearchResults({
   searched: string
 }) {
   const catalogMode = useSettingsStore((state) => state.catalogMode)
-  const { source, availability } = useSearchSource()
+  const { source, options, availability } = useSearchSource()
   const tabs = searchTabs(catalogMode, source)
   const picked = useSearchView((state) => state.tab)
   const setTab = useSearchView((state) => state.setTab)
+  const setSource = useSearchView((state) => state.setSource)
   // Switching to Music mode while on Videos falls back to Songs.
   const tab = tabs.some((item) => item.value === picked) ? picked : 'songs'
   const settledTab = useDebouncedValue(tab, searchTiming.tabDelayMs)
@@ -373,7 +375,18 @@ export function SearchResults({
   const heading = useRef<HTMLHeadingElement>(null)
 
   if (availability.status !== 'available') {
-    return <SourceUnavailable availability={availability} source={source} />
+    return (
+      <SourceUnavailable
+        availability={availability}
+        source={source}
+        alternatives={options.filter((option) => option !== source)}
+        onPickSource={(other) => {
+          // The button goes away with the notice: the results' heading takes the focus.
+          flushSync(() => setSource(other))
+          heading.current?.focus()
+        }}
+      />
+    )
   }
   const target: SearchTarget = { source, provider: availability.provider }
   return (
