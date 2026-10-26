@@ -882,7 +882,7 @@ mod tests {
     use std::{
         collections::HashMap,
         io::{BufRead, BufReader, Read, Write},
-        net::{TcpListener, TcpStream},
+        net::{Shutdown, TcpListener, TcpStream},
         sync::Mutex,
         thread,
     };
@@ -1215,10 +1215,12 @@ mod tests {
         };
         let _ = stream.write_all(&response);
         let _ = stream.flush();
-        // Let the client read everything before the socket closes.
+        // The answer ends here, which the client sees at once (a short body fails then, on every
+        // system); the socket closes once the client is done, or after a moment.
+        let _ = stream.shutdown(Shutdown::Write);
+        let _ = stream.set_read_timeout(Some(Duration::from_millis(200)));
         let mut rest = Vec::new();
-        let _ = stream.set_read_timeout(Some(Duration::from_millis(50)));
-        let _ = reader.read_to_end(&mut rest);
+        let _ = stream.read_to_end(&mut rest);
     }
 
     /// The test chunk: 1 MiB, as in the app.
