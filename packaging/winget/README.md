@@ -18,14 +18,22 @@ The installer is the one that installs for the user's account, without administr
 
 ## Each release
 
-After a release that has the Windows installer, the channels workflow (`.github/workflows/channels.yml`, run when the Release workflow finishes on `main`) writes the manifests into the artifact `channels-vX.Y.Z`, as `winget/manifests/f/FXM/FXM/<version>/`. Releases before stage 7.5 have no installer: the workflow says so and writes nothing. For a release that is already out, run it by hand (Actions → Channels → Run workflow, with the version), or write them locally: `scripts/run.sh pnpm --filter @fxm/packaging --silent channels winget <x.y.z> --sums SHA256SUMS --date <YYYY-MM-DD> --out <folder>`.
+After a release that has the Windows installer, the channels workflow (`.github/workflows/channels.yml`, run when the Release workflow finishes on `main`) writes the manifests into the artifact `channels-vX.Y.Z`, as `winget/manifests/f/FXM/FXM/<version>/`. It first checks that FXM's release workflow attested the release's `SHA256SUMS`, which the installer's checksum comes from (`gh attestation verify`), and writes nothing when that check fails. Releases before stage 7.5 have no installer: the workflow says so and writes nothing. For a release that is already out, run it by hand (Actions → Channels → Run workflow, with the version), or write them locally: `scripts/run.sh pnpm --filter @fxm/packaging --silent channels winget <x.y.z> --sums SHA256SUMS --date <YYYY-MM-DD> --out <folder>`.
 
 ## Submitting
 
 The owner does this, by hand, once per release. winget-pkgs accepts one manifest per pull request.
 
 1. Download the artifact `channels-vX.Y.Z` from the workflow run and unzip it.
-2. Optional, on a Windows PC: `winget settings --enable LocalManifestFiles` (as administrator, once), then `winget validate --manifest <folder>` and `winget install --manifest <folder>` with the folder that holds the three files. Windows Sandbox keeps the test install off the PC.
+2. Optional checks. The workflow checked the attestation of `SHA256SUMS`; to check the installer itself, download `fxm-desktop-<version>-windows-x64-setup.exe` from the release and run, in its folder:
+
+   ```sh
+   gh attestation verify fxm-desktop-<version>-windows-x64-setup.exe --repo Pratyay-ops/FXM \
+     --cert-identity https://github.com/Pratyay-ops/FXM/.github/workflows/release.yml@refs/heads/main \
+     --deny-self-hosted-runners
+   ```
+
+   Its SHA-256 (`sha256sum` or `Get-FileHash`) must be `InstallerSha256` in `FXM.FXM.installer.yaml`. Then, on a Windows PC: `winget settings --enable LocalManifestFiles` (as administrator, once), then `winget validate --manifest <folder>` and `winget install --manifest <folder>` with the folder that holds the three files. Windows Sandbox keeps the test install off the PC.
 3. Fork [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs), copy the folder to `manifests/f/FXM/FXM/<version>/` in a new branch, commit and push.
 4. Open the pull request with the repository's template filled in. The title is "New package: FXM.FXM version x.y.z" the first time, then "Update: FXM.FXM to x.y.z". Sign Microsoft's Contributor License Agreement when the bot asks (once).
 5. The validation pipeline downloads the installer, scans it with antivirus engines and installs it in a clean machine. A detection blocks the pull request: if Microsoft Defender flags the unsigned installer, submit the file to Microsoft as a false positive (the validation guide links the form); once it is cleared, a moderator runs the validation again (`@wingetbot run`). When the pull request is assigned back to you, answer: after 5 days without activity the bot labels it, and 3 days later it closes it.

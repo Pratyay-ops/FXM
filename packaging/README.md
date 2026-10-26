@@ -21,7 +21,7 @@ On 2026-10-26:
 
 1. **Before `make release-pr`** (optional): `scripts/run.sh pnpm --filter @fxm/packaging --silent channels changelog <x.y.z>` writes F-Droid's "What's new" for the release from its summary, `docs/releases/vX.Y.Z.md`. Commit it with the summary.
 2. **The release commit**: `make release-pr` sets the version in `packaging/fdroid/version.txt` with every other version (`scripts/release-version.sh`), so F-Droid's update check finds the release at its tag. Nothing to do.
-3. **After the release**: the channels workflow writes the winget manifests and the Flatpak manifest of a release that has the desktop installers, as the artifact `channels-vX.Y.Z`. Submit the winget manifests ([winget](winget/README.md#submitting)). Once FXM is on F-Droid, F-Droid builds the release by itself.
+3. **After the release**: the channels workflow checks the attestation of the release's `SHA256SUMS`, then writes the winget manifests and the Flatpak manifest of a release that has the desktop installers, as the artifact `channels-vX.Y.Z`. Submit the winget manifests ([winget](winget/README.md#submitting)). Once FXM is on F-Droid, F-Droid builds the release by itself.
 
 ## Homebrew
 
@@ -40,7 +40,7 @@ No cask, because FXM's macOS app isn't notarized. Homebrew requires casks to pas
 | [`artifacts.ts`](artifacts.ts) | The release files the channels point at, named as stages 6.6 and 7.5 name them |
 | [`version.ts`](version.ts), [`sums.ts`](sums.ts), [`yaml.ts`](yaml.ts), [`files.ts`](files.ts) | Versions and Android version codes, `SHA256SUMS`, YAML for the generators, and the generated files |
 | `../fastlane/metadata/android/en-US/` | F-Droid's and IzzyOnDroid's listing, generated from `listing.ts`: they read it from the repository at each release |
-| `../.github/workflows/channels.yml` | After each Release run on `main` that published a release: writes the winget and Flatpak manifests from the release's `SHA256SUMS`, as an artifact. It reads only, installs nothing and runs only Node on `packaging/cli.ts` |
+| `../.github/workflows/channels.yml` | After each Release run for a push to `main` of this repository (never a fork's) that published a release: checks that the release workflow attested the release's `SHA256SUMS`, then writes the winget and Flatpak manifests from it, as an artifact. It reads only, installs nothing and runs only Node on `packaging/cli.ts` |
 
 ## Commands
 
@@ -64,7 +64,7 @@ The CLI ([`cli.ts`](cli.ts)) needs only Node, so release scripts and workflows r
 scripts/run.sh pnpm vitest run --project packaging
 ```
 
-They run offline and need none of the channels' tools: the recipe's fields and their order (as `fdroid rewritemeta` keeps them), the F-Droid build script against stand-ins for pnpm, Gradle and stage 6.6's notices writer, `release-version.sh` keeping `version.txt` in step, the store listings' limits and trademark rules, the generated files against their generators (the listings, and the READMEs' example recipe, Flatpak manifest and Obtainium links), the winget manifests against winget's JSON schemas, the Flatpak manifest and metainfo, Obtainium's links, and the release file names against stages 6.6 and 7.5 once they have merged. The web app's own tests cover the F-Droid opt-in (`apps/web/src/features/youtube-updates/`, `apps/web/src/app/services/updates.test.ts`) and the one gate that it and plugins read (`apps/web/src/lib/distribution.test.ts`), and `@fxm/platform`'s updater tests a module that the user turns off while it downloads, loads or is read from the store.
+They run offline and need none of the channels' tools: the recipe's fields and their order (as `fdroid rewritemeta` keeps them), the F-Droid build script against stand-ins for pnpm, Gradle and stage 6.6's notices writer, `release-version.sh` keeping `version.txt` in step, the store listings' limits and trademark rules, the generated files against their generators (the listings, and the READMEs' example recipe, Flatpak manifest and Obtainium links), the winget manifests against winget's JSON schemas, the Flatpak manifest and metainfo (with the media control name of its own binary only), Obtainium's links, the channels workflow's guards (no fork's run, the attestation check before any manifest), and the release file names against stages 6.6 and 7.5 once they have merged. The web app's own tests cover the F-Droid opt-in (`apps/web/src/features/youtube-updates/`, `apps/web/src/app/services/updates.test.ts`) and the one gate that it and plugins read (`apps/web/src/lib/distribution.test.ts`), and `@fxm/platform`'s updater tests a module that the user turns off while it downloads, loads or is read from the store.
 
 ## Waiting for other stages
 

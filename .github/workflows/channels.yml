@@ -6,9 +6,16 @@ name: Channels
 # opens no pull request: it uploads the files as the artifact channels-vX.Y.Z, and the owner
 # submits them (packaging/winget/README.md).
 #
-# It runs after each Release run on main, and finds out whether that run published a release:
-# a release whose tag is the run's commit. By hand (workflow_dispatch), it writes the files of a
-# version that is out. Both triggers take this file from the default branch, main.
+# It runs after each Release run for a push to main in this repository, whatever the run's
+# conclusion: a store job that fails after the release is out fails the run too. It finds out
+# whether that run published a release: one whose tag is the run's commit. A Release run from a
+# fork never gets here, even from a fork's branch called main. GitHub takes this file from the
+# default branch, main, for those runs. By hand (workflow_dispatch), it writes the files of a
+# version that is out, with this file from the branch it is started on.
+#
+# Before it writes anything, it checks that FXM's release workflow, run for main on GitHub's
+# runners, attested the release's SHA256SUMS (Sigstore, as WORKFLOW.md says to check any
+# download), so the checksums it hands to other channels are the release's own.
 #
 # Releases before the desktop app's installers (stage 7.5) have none: the job then says so and
 # writes nothing. It runs Node on packaging/cli.ts, which imports only Node's own modules, so it
@@ -35,11 +42,19 @@ concurrency:
 jobs:
   manifests:
     name: Channel manifests
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    # `branches: [main]` above matches a fork's branch called main too, so the job also checks
+    # that the Release run was for a push to this repository's main before it checks out
+    # anything. The "Find the release" step decides whether a release came out.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      github.event.workflow_run.head_branch == 'main')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: read
+      attestations: read
     steps:
       # The release's own commit: by hand, the version's tag.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -74,7 +89,8 @@ jobs:
             --jq 'select(.isDraft | not) | .publishedAt' 2>/dev/null || true)
           tagged=$(gh api "repos/$REPO/commits/$tag" --jq .sha 2>/dev/null || true)
           if [ -z "$published" ] || [ "$tagged" != "$(git rev-parse HEAD)" ]; then
-            # A push to main without a new version: the Release run published nothing.
+            # A push to main without a new version, or a Release run that stopped before it
+            # published: there is no release of this commit.
             echo "No published release $tag of this commit: nothing to write." | tee -a "$GITHUB_STEP_SUMMARY"
             echo "found=false" >>"$GITHUB_OUTPUT"
             exit 0
@@ -92,6 +108,20 @@ jobs:
             echo "version=$version"
             echo "date=${published:0:10}"
           } >>"$GITHUB_OUTPUT"
+
+      # The checksums go into manifests that other channels trust, so they must be the ones the
+      # release workflow wrote and attested (release.yml's publish job), not a SHA256SUMS that
+      # someone with a token replaced along with an installer. Fails on anything else.
+      - name: Check the attestation of the release's SHA256SUMS
+        if: steps.release.outputs.found == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh attestation verify dist/channels-input/SHA256SUMS --repo "$REPO" \
+            --cert-identity "https://github.com/$REPO/.github/workflows/release.yml@refs/heads/main" \
+            --deny-self-hosted-runners
 
       - name: Write the winget and Flatpak manifests
         if: steps.release.outputs.found == 'true'
