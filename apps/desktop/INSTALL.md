@@ -56,7 +56,7 @@ Windows' media controls name FXM "Unknown app": a bug in WebView2, which owns th
 sudo apt install ./fxm-desktop-<version>-linux-x64.deb
 ```
 
-apt also installs what FXM plays music with: GStreamer's base and good plugins, gst-libav for AAC, and an audio output. On Ubuntu, gst-libav comes from the universe component, which is on by default. apt updates FXM too: when a new version is out, FXM says so and opens its release page, where you download the new `.deb` and install it the same way. FXM never asks for your password itself.
+apt also installs what FXM plays music with: GStreamer's base and good plugins, gst-libav for AAC, and an audio output. On Ubuntu, gst-libav comes from the universe component, which is on by default. apt updates FXM too: when a new version is out, FXM says so and names the file, and its **Open Release Page** button opens the release, where you download the new `.deb` and install it the same way. FXM never asks for your password itself.
 
 **Other distributions: the AppImage.** Make it executable, then run it:
 
