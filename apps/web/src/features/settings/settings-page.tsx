@@ -9,6 +9,7 @@ import { DiagnosticsSection } from '../connect/diagnostics'
 import { ConnectSettingsEntry } from '../connect/settings-entry'
 import { InstallAction, InstallHelp } from '../pwa/install-setting'
 import { isInstallableWebApp } from '../pwa/web-app'
+import { ScrobblingSettings } from '../scrobble/scrobbling-settings'
 import { SpotifySwitchControl, SpotifySwitchHelp } from '../search/spotify-setting'
 import { SponsorBlockCredit, SponsorBlockSetting } from '../sponsorblock/sponsorblock-setting'
 import { CatalogModeControl } from './catalog-mode-control'
@@ -92,6 +93,8 @@ export function SettingsPage() {
           />
         </SettingRow>
       </SettingsSection>
+
+      <ScrobblingSettings />
 
       {/* Only the web build installs; the Android and desktop apps are installed already. */}
       {isInstallableWebApp() && (
