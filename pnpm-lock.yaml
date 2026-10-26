@@ -271,6 +271,9 @@ importers:
       '@fxm/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@fxm/downloads':
+        specifier: workspace:*
+        version: link:../../packages/downloads
       '@fxm/player':
         specifier: workspace:*
         version: link:../../packages/player
@@ -352,6 +355,15 @@ importers:
         version: 5.0.3(@types/node@22.20.5)(@vitest/coverage-v8@5.0.3)(happy-dom@20.14.6)(vite@8.3.4(@types/node@22.20.5)(jiti@2.7.0)(yaml@2.9.1))
 
   packages/core: {}
+
+  packages/downloads:
+    dependencies:
+      '@fxm/core':
+        specifier: workspace:*
+        version: link:../core
+      '@fxm/player':
+        specifier: workspace:*
+        version: link:../player
 
   packages/platform:
     dependencies:
