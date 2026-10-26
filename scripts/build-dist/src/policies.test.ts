@@ -78,7 +78,8 @@ describe('the web app policy', () => {
 
   it('stays under the 850-character estimate at M1, far below 2,000', () => {
     expect(PLAN_APP_POLICY.length).toBeLessThan(850)
-    expect(serializePolicy(appPolicy([HASH])).length).toBeLessThan(900)
+    // The plan expects about 1,200 once the later stages' hosts are in.
+    expect(serializePolicy(appPolicy([HASH])).length).toBeLessThan(1_200)
   })
 
   it('drops only frame-ancestors for the embed', () => {
