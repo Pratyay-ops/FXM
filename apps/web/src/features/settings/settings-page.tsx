@@ -8,6 +8,7 @@ import { SegmentedControl } from '../../components/ui/segmented-control'
 import { AutoplaySetting } from '../autoplay/autoplay-setting'
 import { DiagnosticsSection } from '../connect/diagnostics'
 import { ConnectSettingsEntry } from '../connect/settings-entry'
+import { ExternalLink as ExternalTextLink, standaloneLinkClasses } from '../connect/ui'
 import { InstallAction, InstallHelp } from '../pwa/install-setting'
 import { isInstallableWebApp } from '../pwa/web-app'
 import { ScrobblingSettings } from '../scrobble/scrobbling-settings'
@@ -16,12 +17,27 @@ import { SpotifySwitchControl, SpotifySwitchHelp } from '../search/spotify-setti
 import { SponsorBlockCredit, SponsorBlockSetting } from '../sponsorblock/sponsorblock-setting'
 import { SyncSettings } from '../sync/sync-settings'
 import { CatalogModeControl } from './catalog-mode-control'
+import { AutoMatchSetting } from './matching-setting'
 import { CATALOG_MODE_DESCRIPTIONS, THEME_OPTIONS } from './options'
 import { QualitySection } from './quality-section'
 import { SettingRow, SettingsSection } from './settings-layout'
 import { useSettingsStore } from './settings-store'
 
 export const REPOSITORY_URL = 'https://github.com/Pratyay-ops/FXM'
+
+/** FXM's site, where its privacy page, disclaimer and the bundled code's notices are. */
+export const SITE_URL = 'https://fxmusic.pages.dev'
+
+/** The legal pages Settings → About links to. */
+export const LEGAL_LINKS = [
+  { href: `${SITE_URL}/privacy`, label: 'Privacy' },
+  { href: `${SITE_URL}/disclaimer`, label: 'Disclaimer' },
+  { href: `${SITE_URL}/third-party-notices.txt`, label: 'Third-party notices' },
+] as const
+
+/** The non-affiliation notice (R.4), in one line. */
+export const NON_AFFILIATION =
+  'FXM is an independent open-source project, not affiliated with or endorsed by YouTube, Google or Spotify, and it hosts no music.'
 
 export function SettingsPage() {
   const catalogMode = useSettingsStore((state) => state.catalogMode)
@@ -57,6 +73,7 @@ export function SettingsPage() {
             className="w-full md:w-auto"
           />
         </SettingRow>
+        <AutoMatchSetting />
         <AutoplaySetting />
         <SponsorBlockSetting />
       </SettingsSection>
@@ -144,6 +161,19 @@ export function SettingsPage() {
             <ExternalLink aria-hidden="true" />
             <span className="sr-only">(opens in a new tab)</span>
           </a>
+        </div>
+        <div className="space-y-2 p-4 text-sm text-text-muted sm:p-5">
+          <p>{NON_AFFILIATION}</p>
+          {/* Links on their own: a full touch target each on phones and tablets. */}
+          <ul aria-label="Legal" className="flex flex-wrap gap-x-6">
+            {LEGAL_LINKS.map((link) => (
+              <li key={link.href}>
+                <ExternalTextLink href={link.href} className={standaloneLinkClasses}>
+                  {link.label}
+                </ExternalTextLink>
+              </li>
+            ))}
+          </ul>
         </div>
         <SponsorBlockCredit />
       </SettingsSection>

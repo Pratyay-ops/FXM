@@ -4,6 +4,8 @@ import { cn } from '../../lib/cn'
 export interface SelectOption<V extends string> {
   value: V
   label: string
+  /** Listed but not offered, e.g. a format that is coming soon. */
+  disabled?: boolean
 }
 
 export interface SettingSelectProps<V extends string> {
@@ -47,7 +49,7 @@ export function SettingSelect<V extends string>({
         className="h-touch w-full min-w-40 cursor-pointer appearance-none truncate rounded-full bg-elevated pr-10 pl-4 text-base font-semibold text-text transition-colors duration-200 hover:bg-elevated-hover disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-elevated forced-colors:border lg:h-10 lg:text-sm lg:pointer-coarse:h-touch lg:pointer-coarse:text-base"
       >
         {options.map((option) => (
-          <option key={option.value} value={option.value}>
+          <option key={option.value} value={option.value} disabled={option.disabled}>
             {option.label}
           </option>
         ))}

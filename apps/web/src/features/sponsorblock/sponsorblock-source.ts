@@ -13,6 +13,7 @@ import {
   type SponsorBlockClient,
   skippableVideoId,
 } from '@fxm/sources/sponsorblock'
+import { appContext } from '../../lib/app-context'
 import { useSettingsStore } from '../settings/settings-store'
 import { useSponsorBlockStore } from './sponsorblock-store'
 
@@ -33,21 +34,13 @@ export function setSponsorBlockClient(next: SponsorBlockClient | undefined): voi
 }
 
 /**
- * The provider context for SponsorBlock lookups: the page's own `fetch`, without cookies.
- * SponsorBlock is CORS-friendly, so this reaches it on every tier, and it is the only service
- * the lookups contact, so the capabilities stay at their most limited.
- *
- * Integration with stage 1.2 (platform transports): use the platform's context instead, so the
- * desktop and Android apps send these requests through their native HTTP clients.
+ * The provider context for SponsorBlock lookups: the app platform's (`appContext`, which the
+ * composition root connects), so the desktop and Android apps send them through their native
+ * HTTP; the page's own `fetch` without cookies until then. SponsorBlock is CORS-friendly, so
+ * either reaches it on every tier.
  */
 export function sponsorBlockContext(mode: CatalogMode, signal: AbortSignal): ProviderContext {
-  return {
-    fetch: (input, init) => fetch(input, { ...init, credentials: 'omit' }),
-    platform: 'web',
-    capabilities: { youtube: 'none', spotify: 'unreachable', mediaBytes: false, fileSystem: false },
-    mode,
-    signal,
-  }
+  return appContext(mode, signal)
 }
 
 /**

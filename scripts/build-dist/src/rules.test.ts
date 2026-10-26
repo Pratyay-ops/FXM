@@ -112,12 +112,7 @@ describe('generateRules', () => {
     )
     expect(csp(rules, '/sandbox/innertube')).toBe(innertube)
     expect(csp(rules, '/sandbox/innertube.html')).toBe(innertube)
-    for (const rule of rules) {
-      expect(rule.headers.slice(1)).toEqual([
-        ['Referrer-Policy', 'no-referrer'],
-        ['X-Content-Type-Options', 'nosniff'],
-      ])
-    }
+    for (const rule of rules) expect(rule.headers.slice(1)).toEqual(COMMON_HEADERS)
   })
 
   it.each([
@@ -290,6 +285,24 @@ describe('validateRules', () => {
       '/sandbox/eval: frame-ancestors, which would stop the embed or Lite inside other sites',
       '/b: Referrer-Policy must be no-referrer, once',
       '/b: X-Content-Type-Options must be nosniff, once',
+      '/b: Cross-Origin-Opener-Policy must be same-origin, once',
+      '/b: 0 Permissions-Policy headers',
+    ])
+  })
+
+  it('refuses a Permissions-Policy that turns off what the player may use', () => {
+    const headers = COMMON_HEADERS.filter(([name]) => name !== 'Permissions-Policy')
+    const loose: HeaderRule = {
+      path: '/b',
+      headers: [
+        ['Content-Security-Policy', SITE],
+        ...headers,
+        ['Permissions-Policy', 'camera=(), autoplay=(), fullscreen=(self)'],
+      ],
+    }
+    expect(validateRules([loose], [])).toEqual([
+      '/b: Permissions-Policy: it turns off autoplay, which the player may use',
+      '/b: Permissions-Policy: "fullscreen=(self)" doesn\'t turn a feature off (feature=())',
     ])
   })
 })

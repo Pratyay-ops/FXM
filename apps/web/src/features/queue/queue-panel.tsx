@@ -99,7 +99,11 @@ function PlayingFrom({ context }: { context: QueueContext }) {
       {to === undefined ? (
         <span className="font-semibold text-text">{context.title}</span>
       ) : (
-        <Link to={to} className="font-semibold text-text hover:underline">
+        // The focus ring inside the link: the truncating line would cut off one outside.
+        <Link
+          to={to}
+          className="rounded-xs font-semibold text-text hover:underline focus-visible:-outline-offset-2"
+        >
           {context.title}
         </Link>
       )}

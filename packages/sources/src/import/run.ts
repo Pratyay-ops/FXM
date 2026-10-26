@@ -22,8 +22,10 @@ import {
   effectiveMatchBand,
   isFxmError,
   type MatchBand,
+  type MatchingConfig,
   type MatchRequest,
   type MatchResponse,
+  matchingOptions,
   type ProviderContext,
   type ReleaseFacts,
   type ReleaseFactsKey,
@@ -75,6 +77,12 @@ export interface ImportEnvironment {
   musicBrainz?: ImportMusicBrainz | undefined
   /** The user's Auto setting: whether matches may play without asking at all. */
   autoMatch: boolean
+  /**
+   * The matching config (stage 1.12): its thresholds and measured fallback apply to every
+   * match, and the Auto setting counts only where it makes the band available. Default: the one
+   * FXM ships with (`MATCHING_CONFIG`), whose Auto band is off.
+   */
+  matchingConfig?: MatchingConfig
   /**
    * Whether the device is online (`navigator.onLine`): when it says no, the run stops at once
    * instead of trying requests. Default: always online.
@@ -276,6 +284,8 @@ export async function runImport(
   const now = env.now ?? Date.now
   const pause = env.sleep ?? sleep
   const offline = () => env.isOnline?.() === false
+  // Whether the Auto setting is in effect: on, and allowed by the matching config (stage 1.12).
+  const autoOn = matchingOptions({ autoMatch: env.autoMatch }, env.matchingConfig).auto === true
   // The tracks the current row's search pages listed, for its candidates' albums and artwork.
   let seen = new Map<string, Track>()
   let unsaved = 0
@@ -467,7 +477,7 @@ export async function runImport(
     if (ownTrack !== undefined && searches && cachedMatch !== undefined) {
       const cached = await viaSink(() => cachedMatch(ownTrack, state.mode))
       if (cached !== undefined) {
-        return { ...resultFromCache(cached, env.autoMatch), playlistTrackId: ownTrack }
+        return { ...resultFromCache(cached, autoOn), playlistTrackId: ownTrack }
       }
     }
     const lookup = plan === 'match' && wantsLookup(row) ? await lookUp(row) : null
@@ -476,6 +486,7 @@ export async function runImport(
       ...(lookup === undefined ? {} : { lookup }),
       mode: state.mode,
       autoMatch: env.autoMatch,
+      ...(env.matchingConfig === undefined ? {} : { matchingConfig: env.matchingConfig }),
       fetchPage,
       seen,
     })
