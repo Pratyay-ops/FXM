@@ -4,12 +4,16 @@ name: E2E
 # Cloudflare Pages serves it, with its real _headers, in Playwright's Chromium, headless, muted
 # and offline but for the runner itself. Apart from ci.yml, so make check stays fast.
 #
-#   flows    the critical flows end to end: the tiers, search and play, the queue, the library,
-#            lyrics, Home, a download, an import, settings, the update toast and the embed.
-#            One retry at most (playwright.config.ts).
-#   budgets  the performance budgets: chunk sizes, a first visit's transfer, and its LCP, CLS and
-#            INP on a mid-range phone over Slow 4G. Runs even when a flow fails, so both report,
-#            and adds its tables to the job summary.
+#   ffmpeg-core  stage 4.2's ffmpeg core, as deploy.yml gets it (ffmpeg-wasm.yml: from the cache
+#                when its recipe is unchanged), so make dist composes the app that deploys.
+#   e2e          make dist with that core, then
+#                - the critical flows end to end: the tiers, search and play, the queue, the
+#                  library, lyrics, Home, a download, an import, settings, the update toast and
+#                  the embed. One retry at most (flows/playwright.config.ts).
+#                - the performance budgets: chunk sizes, a first visit's transfer, and its LCP,
+#                  CLS and INP on a mid-range phone over Slow 4G. No retry: a budget exceeded
+#                  fails the job. Runs even when a flow fails, so both report, and adds its
+#                  tables to the job summary.
 on:
   push:
     branches: ['**']
@@ -23,8 +27,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  ffmpeg-core:
+    name: ffmpeg core
+    uses: ./.github/workflows/ffmpeg-wasm.yml
+
   e2e:
     name: e2e flows and budgets
+    needs: ffmpeg-core
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -48,9 +57,20 @@ jobs:
       - name: Set up toolchain and dependencies (frozen lockfile)
         run: make ci-setup
 
-      # As v0.1.0 deploys: without Jamendo's client_id, whose copy the flows read.
+      # The core the ffmpeg-core job built and checked, for make dist to ship at /app/ffmpeg/.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ffmpeg-core
+          path: ${{ runner.temp }}/ffmpeg-core
+
+      # As deploy.yml composes it, with the core it requires, and without Jamendo's client_id, as
+      # it deploys while the repository variable is empty: the flows read the copy that names the
+      # free sources.
       - name: Compose dist/pages
         timeout-minutes: 10
+        env:
+          FXM_FFMPEG_CORE_DIR: ${{ runner.temp }}/ffmpeg-core
+          FXM_REQUIRE_FFMPEG_CORE: '1'
         run: make dist
 
       # Playwright's Chromium, into .tools/playwright (scripts/env.sh). Without --with-deps: the
