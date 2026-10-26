@@ -88,7 +88,7 @@ describe('nowPlayingOf', () => {
     })
   })
 
-  it('counts loading as playing, so the close button never stops music between tracks', () => {
+  it('counts loading as playing, so the tray and the Web Lock follow music between tracks', () => {
     expect(isPlaybackActive({ status: 'loading' })).toBe(true)
     expect(isPlaybackActive({ status: 'playing' })).toBe(true)
     for (const status of ['idle', 'paused', 'ended', 'error'] as const) {

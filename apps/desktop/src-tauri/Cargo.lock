@@ -1182,6 +1182,7 @@ name = "fxm"
 version = "0.0.0"
 dependencies = [
  "block2",
+ "dispatch2",
  "gio",
  "libloading",
  "objc2",

@@ -10,6 +10,7 @@
 use std::{cell::RefCell, ptr::NonNull, rc::Rc, time::Instant};
 
 use block2::RcBlock;
+use dispatch2::DispatchQueue;
 use objc2::{
     rc::Retained,
     runtime::{AnyObject, ProtocolObject},
@@ -55,10 +56,15 @@ fn watch_exit<R: Runtime>(window: &Window<R>) -> tauri::Result<()> {
                 // SAFETY: the observer is the one `addObserverForName` returned for this block.
                 unsafe { NSNotificationCenter::defaultCenter().removeObserver(observer) };
             }
-            // Hidden once AppKit and tao have handled the notification.
+            // Hidden once every observer, tao's window delegate included, has handled the
+            // notification, and after the work tao queued on the main queue for it. (Tauri's
+            // `run_on_main_thread` would run at once: this is the main thread.)
             let hidden = window.clone();
-            let _ = window.app_handle().run_on_main_thread(move || {
-                if hidden.state::<PendingHide>().take(Instant::now()) {
+            DispatchQueue::main().exec_async(move || {
+                if hidden
+                    .try_state::<PendingHide>()
+                    .is_some_and(|pending| pending.take(Instant::now()))
+                {
                     let _ = hidden.hide();
                 }
             });

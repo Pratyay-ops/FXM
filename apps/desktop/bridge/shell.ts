@@ -113,8 +113,8 @@ export interface DesktopShell {
   /** Where the app runs. */
   environment(): Promise<DesktopEnvironment>
   /**
-   * Tells the shell what the player is doing, for the tray's menu and tooltip and for the close
-   * button. Lone surrogates in the text become U+FFFD on the way ({@link wellFormed}).
+   * Tells the shell what the player is doing, for the tray's menu and tooltip. Lone surrogates
+   * in the text become U+FFFD on the way ({@link wellFormed}).
    */
   setNowPlaying(now: NowPlaying): Promise<void>
   /** Calls `listener` with each media action from the tray. Returns a function that stops it. */

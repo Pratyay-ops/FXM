@@ -1,8 +1,7 @@
 /**
  * Connects the web app's player to the desktop shell's tray (stage 7.3): the tray menu shows
  * the current track and whether it plays, is paused or stopped on an error, and its Play/Pause,
- * Next and Previous items act on the player. The shell's close button also reads whether music
- * plays: while it does, closing the window keeps FXM running in the tray.
+ * Next and Previous items act on the player.
  *
  * @module
  */
