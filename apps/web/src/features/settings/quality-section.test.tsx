@@ -257,6 +257,10 @@ describe('Audio quality settings', () => {
     expect(select('Download format')).toHaveAccessibleDescription(
       /no conversion and no quality loss: Opus or AAC for YouTube songs/,
     )
+    // Since stage 4.2 a download stays the original: the format is where Save to device starts.
+    expect(select('Download format')).toHaveAccessibleDescription(
+      /Downloads keep the original file, which plays offline as it is\. A downloaded song’s “Save to device…” starts at this format\./,
+    )
 
     await user.selectOptions(select('Download format'), 'flac')
 
@@ -332,7 +336,7 @@ describe('Audio quality settings on other tiers and browsers', () => {
   it('say in Lite that downloads cover the free sources, and where YouTube songs download', () => {
     const { select } = renderSection(LITE)
     expect(select('Download format')).toHaveAccessibleDescription(
-      'Saves each file as its source has it, with no conversion and no quality loss: FLAC, MP3 or Ogg Vorbis from Internet Archive and Jamendo. YouTube songs can be downloaded with FXM Connect, the desktop app or the Android app.',
+      'Saves each file as its source has it, with no conversion and no quality loss: FLAC, MP3 or Ogg Vorbis from Internet Archive and Jamendo. YouTube songs can be downloaded with FXM Connect, the desktop app or the Android app. Downloads keep the original file, which plays offline as it is. A downloaded song’s “Save to device…” starts at this format.',
     )
     // Lite still streams YouTube.
     expect(select('Streaming on Wi-Fi')).toHaveAccessibleDescription(/the best YouTube audio/)

@@ -1,4 +1,12 @@
-import { type ExportChoice, exportChoices, sourceLabel } from '@fxm/convert'
+import {
+  type ExportChoice,
+  type ExportOptions,
+  exportChoices,
+  isExportable,
+  type SaveTarget,
+  type SourceAudio,
+  sourceLabel,
+} from '@fxm/convert'
 import { DOWNLOAD_FORMATS, type DownloadFormat, isLosslessCodec, type Track } from '@fxm/core'
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { buttonClasses } from '../../../components/ui/button'
@@ -11,16 +19,27 @@ import { formatLabel } from '../format'
 import { useDownload } from '../hooks'
 import { ProgressBar } from '../progress'
 import { getDownloads } from '../runtime'
+import { ConverterCredit } from './credit'
 import {
   fileDescription,
   getDeviceSaver,
   isSavable,
-  SAVE_ERROR_TEXT,
   type SavableDownload,
   SaveError,
   saveDownload,
+  saveErrorText,
   savePlan,
 } from './save'
+
+/** The formats `source` can be saved in, or `undefined` when FXM can't save it at all. */
+function choicesFor(source: SourceAudio, options: ExportOptions): ExportChoice[] | undefined {
+  if (!isExportable(source)) return undefined
+  try {
+    return exportChoices(source, options)
+  } catch {
+    return undefined
+  }
+}
 
 /** What the chosen format means for this download, in a sentence or two. */
 function choiceHelp(record: SavableDownload, choice: ExportChoice): string[] {
@@ -40,7 +59,10 @@ function choiceHelp(record: SavableDownload, choice: ExportChoice): string[] {
       `${sourceLabel(source)} is never lossless: converting it gives a bigger file, not a better one.`,
     )
   }
-  if (choice.needsCore) lines.push('FXM converts it on this device, which takes a little while.')
+  // A remux (WebM's tags, Opus into .opus) keeps the audio as it is: only a re-encode converts.
+  if (choice.needsCore && choice.transcoded) {
+    lines.push('FXM converts it on this device, which takes a little while.')
+  }
   return lines
 }
 
@@ -53,6 +75,19 @@ function Notice({ children }: { children: ReactNode }) {
   return <p className="text-sm text-text-muted">{children}</p>
 }
 
+function CloseOnly({ onClose, children }: { onClose: () => void; children: ReactNode }) {
+  return (
+    <>
+      <Notice>{children}</Notice>
+      <DialogActions>
+        <button type="button" className={buttonClasses({ variant: 'ghost' })} onClick={onClose}>
+          Close
+        </button>
+      </DialogActions>
+    </>
+  )
+}
+
 function SaveForm({ track, onClose }: { track: Track; onClose: () => void }) {
   const record = useDownload(track)
   const download = useQualityStore((state) => state.prefs.download)
@@ -60,44 +95,64 @@ function SaveForm({ track, onClose }: { track: Track; onClose: () => void }) {
   const [format, setFormat] = useState<DownloadFormat>(download.format)
   const [state, setState] = useState<SaveState>({ kind: 'idle' })
   const running = useRef<AbortController | undefined>(undefined)
+  // Whether the dialog is still open: a save that ends after it closed changes nothing on it.
+  const open = useRef(true)
   const groupId = useId()
   const helpId = useId()
 
   // Closing the dialog cancels a conversion still running.
-  useEffect(() => () => running.current?.abort(), [])
+  useEffect(() => {
+    open.current = true
+    return () => {
+      open.current = false
+      running.current?.abort()
+    }
+  }, [])
 
   if (record === undefined) return null
   if (!isSavable(record)) {
     return (
-      <>
-        <Notice>This song isn’t downloaded on this device, so there is nothing to save yet.</Notice>
-        <DialogActions>
-          <button type="button" className={buttonClasses({ variant: 'ghost' })} onClick={onClose}>
-            Close
-          </button>
-        </DialogActions>
-      </>
+      <CloseOnly onClose={onClose}>
+        This song isn’t downloaded on this device, so there is nothing to save yet.
+      </CloseOnly>
     )
   }
   const mp3Kbps = download.mp3Kbps
-  const choices = exportChoices(record.format, mp3Kbps === undefined ? {} : { mp3Kbps })
+  const choices = choicesFor(record.format, mp3Kbps === undefined ? {} : { mp3Kbps })
+  if (choices === undefined) {
+    return (
+      <CloseOnly onClose={onClose}>
+        FXM can’t save this download: its file isn’t in a format FXM reads. Remove the download and
+        download it again.
+      </CloseOnly>
+    )
+  }
   const chosen = choices.find((choice) => choice.format === format) ?? choices[0]
   if (chosen === undefined) return null
   const saving = state.kind === 'saving'
 
   const save = async () => {
-    const { plan, fileName } = savePlan(record, chosen.format, mp3Kbps)
-    // First, while the click still counts as the user's: the browser may show its file picker.
-    const target = await getDeviceSaver().choose({
-      fileName,
-      mimeType: plan.output.mimeType,
-      description: fileDescription(plan),
-    })
-    if (target === undefined) return
     const controller = new AbortController()
-    running.current = controller
-    setState({ kind: 'saving', progress: undefined })
     try {
+      const { plan, fileName } = savePlan(record, chosen.format, mp3Kbps)
+      let target: SaveTarget | undefined
+      try {
+        // First, while the click still counts as the user's: the browser may show its picker.
+        target = await getDeviceSaver().choose({
+          fileName,
+          mimeType: plan.output.mimeType,
+          description: fileDescription(plan),
+        })
+      } catch {
+        // A saver that fails to ask (a native dialog that broke): nothing was converted.
+        throw new SaveError('write-failed', saveErrorText('write-failed', chosen.format))
+      }
+      if (target === undefined || !open.current) {
+        await target?.discard()
+        return
+      }
+      running.current = controller
+      setState({ kind: 'saving', progress: undefined })
       const downloads = getDownloads()
       const result = await saveDownload(record, {
         format: chosen.format,
@@ -107,7 +162,9 @@ function SaveForm({ track, onClose }: { track: Track; onClose: () => void }) {
         fetch: downloads.environment.context().fetch,
         lyrics: () => getLyricsProvider().getLyrics(track, lyricsContext(mode, controller.signal)),
         onProgress: (done) => {
-          if (!controller.signal.aborted) setState({ kind: 'saving', progress: done })
+          if (open.current && !controller.signal.aborted) {
+            setState({ kind: 'saving', progress: done })
+          }
         },
         signal: controller.signal,
       })
@@ -117,16 +174,18 @@ function SaveForm({ track, onClose }: { track: Track; onClose: () => void }) {
           ? `Saved “${track.title}” as ${result.fileName}`
           : `Saved “${track.title}” as ${result.fileName}, without its tags`,
       )
-      onClose()
+      if (open.current) onClose()
     } catch (error) {
-      running.current = undefined
+      if (running.current === controller) running.current = undefined
+      if (!open.current) return
       if (controller.signal.aborted) {
         setState({ kind: 'idle' })
         return
       }
       setState({
         kind: 'failed',
-        message: error instanceof SaveError ? error.message : SAVE_ERROR_TEXT.failed,
+        message:
+          error instanceof SaveError ? error.message : saveErrorText('failed', chosen.format),
       })
     }
   }
@@ -177,6 +236,7 @@ function SaveForm({ track, onClose }: { track: Track; onClose: () => void }) {
           {state.message}
         </p>
       )}
+      {chosen.needsCore && <ConverterCredit className="mt-3 text-xs text-text-muted" />}
       <DialogActions>
         <button
           type="button"

@@ -1,4 +1,4 @@
-import { ConvertError, type DeviceSaver, type SaveRequest } from '@fxm/convert'
+import { ConvertError, type Converter, type DeviceSaver, type SaveRequest } from '@fxm/convert'
 import {
   createInProcessConverter,
   FakeFfmpegCore,
@@ -6,23 +6,26 @@ import {
   readVorbisComments,
 } from '@fxm/convert/testing'
 import type { Track } from '@fxm/core'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { downloadId } from '@fxm/downloads'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { track } from '../../../test/library-fixtures'
 import { setLyricsProvider } from '../../lyrics/lyrics-source'
 import { useFeedbackStore } from '../../search/feedback'
 import { useQualityStore } from '../../settings/quality-store'
 import { useSaveMenuItem } from '../menu'
+import { getDownloads } from '../runtime'
 import { setupDownloads } from '../testing'
-import { setConverter, setDeviceSaver } from './save'
+import { SAVE_ERROR_TEXT, setConverter, setDeviceSaver } from './save'
 import { SaveToDeviceDialog } from './save-dialog'
 
-/** A device saver that records what it is asked and what it writes. */
+/** A device saver that records what it is asked, what it writes and what it gives up. */
 function fakeSaver(options: { cancel?: boolean } = {}) {
   const requests: SaveRequest[] = []
   const written: Blob[] = []
+  const counts = { discarded: 0 }
   const saver: DeviceSaver = {
     choose: async (request) => {
       requests.push(request)
@@ -32,12 +35,35 @@ function fakeSaver(options: { cancel?: boolean } = {}) {
         write: async (blob) => {
           written.push(blob)
         },
-        discard: async () => {},
+        discard: async () => {
+          counts.discarded += 1
+        },
       }
     },
   }
   setDeviceSaver(saver)
-  return { requests, written }
+  return { requests, written, counts }
+}
+
+/** A converter whose jobs run until they are cancelled, as a long conversion does. */
+function endlessConverter() {
+  const signals: AbortSignal[] = []
+  const converter: Converter = {
+    exportAudio: (_job, options = {}) =>
+      new Promise((_resolve, reject) => {
+        const { signal } = options
+        if (signal === undefined) return
+        signals.push(signal)
+        signal.addEventListener(
+          'abort',
+          () => reject(new ConvertError('cancelled', 'The conversion was cancelled')),
+          { once: true },
+        )
+      }),
+    dispose: () => {},
+  }
+  setConverter(converter)
+  return { signals }
 }
 
 async function downloaded(n = 1): Promise<Track> {
@@ -55,14 +81,25 @@ async function downloaded(n = 1): Promise<Track> {
   return song
 }
 
-function Harness({ song }: { song: Track }) {
+function Harness({ song, closer }: { song: Track; closer?: { close?: () => void } }) {
   const [open, setOpen] = useState(true)
+  if (closer) closer.close = () => setOpen(false)
   return (
     <>
       <p>{open ? 'open' : 'closed'}</p>
       <SaveToDeviceDialog track={open ? song : null} onClose={() => setOpen(false)} />
     </>
   )
+}
+
+/** Opens the dialog for `song`, picks `format` and presses Save. */
+async function startSaving(song: Track, format: RegExp, closer?: { close?: () => void }) {
+  const user = userEvent.setup()
+  render(<Harness song={song} {...(closer ? { closer } : {})} />)
+  const dialog = await screen.findByRole('dialog', { name: 'Save to device' })
+  await user.click(await within(dialog).findByRole('radio', { name: format }))
+  await user.click(within(dialog).getByRole('button', { name: 'Save' }))
+  return { user, dialog }
 }
 
 describe('Save to device', { timeout: 30_000 }, () => {
@@ -136,6 +173,95 @@ describe('Save to device', { timeout: 30_000 }, () => {
     expect(await within(dialog).findByRole('alert')).toHaveTextContent(
       "Converting doesn't work in this browser right now. Save the original instead, or reload FXM and try again.",
     )
+  })
+
+  it('cancels a running conversion with Cancel, and stays open to try again', async () => {
+    const song = await downloaded()
+    const saver = fakeSaver()
+    const { signals } = endlessConverter()
+    const { user, dialog } = await startSaving(song, /^FLAC/)
+    expect(await within(dialog).findByRole('button', { name: 'Saving…' })).toBeDisabled()
+    await waitFor(() => expect(signals).toHaveLength(1))
+
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(signals[0]?.aborted).toBe(true)
+    expect(await within(dialog).findByRole('button', { name: 'Save' })).toBeEnabled()
+    expect(within(dialog).queryByRole('alert')).toBeNull()
+    expect(screen.getByText('open')).toBeInTheDocument()
+    // The place picked for the file is given up: no empty file stays behind.
+    await waitFor(() => expect(saver.counts.discarded).toBe(1))
+    expect(saver.written).toEqual([])
+  })
+
+  it('cancels the conversion when the dialog closes, and then changes nothing', async () => {
+    const song = await downloaded()
+    const saver = fakeSaver()
+    const { signals } = endlessConverter()
+    const errors = vi.spyOn(console, 'error')
+    const closer: { close?: () => void } = {}
+    await startSaving(song, /^MP3/, closer)
+    await waitFor(() => expect(signals).toHaveLength(1))
+    useFeedbackStore.setState({ message: null } as never)
+
+    act(() => closer.close?.())
+    await screen.findByText('closed')
+    expect(signals[0]?.aborted).toBe(true)
+    await waitFor(() => expect(saver.counts.discarded).toBe(1))
+    // No confirmation, no error and no update of the closed dialog.
+    expect(useFeedbackStore.getState().message).toBeFalsy()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(errors).not.toHaveBeenCalled()
+  })
+
+  it('says so when the device can’t ask where to save, converting nothing', async () => {
+    const song = await downloaded()
+    const converter = createInProcessConverter()
+    setConverter(converter)
+    setDeviceSaver({
+      choose: async () => {
+        throw new Error('The native save dialog failed')
+      },
+    })
+    const { dialog } = await startSaving(song, /^WAV/)
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+      SAVE_ERROR_TEXT['write-failed'],
+    )
+    expect(converter.jobs).toEqual([])
+    expect(within(dialog).getByRole('button', { name: 'Save' })).toBeEnabled()
+  })
+
+  it('says a download FXM can’t read can’t be saved, instead of failing to open', async () => {
+    const song = await downloaded()
+    // A stored video whose audio isn't AAC in MP4, which no source delivers.
+    await getDownloads().db.downloads.update(downloadId(song), {
+      format: { codec: 'opus', container: 'webm', media: 'muxed-video', tier: 'normal' },
+    })
+    render(<Harness song={song} />)
+    const dialog = await screen.findByRole('dialog', { name: 'Save to device' })
+    expect(
+      await within(dialog).findByText(/FXM can’t save this download: its file isn’t in a format/),
+    ).toBeInTheDocument()
+    expect(within(dialog).queryByRole('radio')).toBeNull()
+    expect(within(dialog).queryByRole('button', { name: 'Save' })).toBeNull()
+  })
+
+  it('credits FFmpeg, LAME and Opus with a link to their licences and sources', async () => {
+    const song = await downloaded()
+    const user = userEvent.setup()
+    render(<Harness song={song} />)
+    const dialog = await screen.findByRole('dialog', { name: 'Save to device' })
+    await user.click(await within(dialog).findByRole('radio', { name: /^FLAC/ }))
+    expect(dialog).toHaveTextContent(/converts with code of FFmpeg .*licensed under the LGPLv2\.1/)
+    expect(
+      within(dialog)
+        .getByRole('link', { name: /licences and sources/ })
+        .getAttribute('href'),
+    ).toBe('/third-party-notices.txt')
+    expect(dialog).toHaveTextContent('FXM converts it on this device')
+    // The original WebM is only remuxed, for its tags: nothing is converted.
+    await user.click(within(dialog).getByRole('radio', { name: /^Original/ }))
+    expect(dialog).not.toHaveTextContent('FXM converts it')
+    expect(dialog).toHaveTextContent('The audio exactly as downloaded')
   })
 
   it('says so when the song isn’t downloaded here', async () => {

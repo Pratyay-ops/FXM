@@ -406,7 +406,10 @@ export interface QualityPrefs {
   }
   /** Download settings. */
   download: {
-    /** The format downloads are saved in. */
+    /**
+     * The format downloads are saved in. On the web (stage 4.2) a download keeps the original
+     * file for offline playback, and this is the format "Save to device" starts at.
+     */
     format: DownloadFormat
     /** Bitrate for MP3 conversions. {@link DEFAULT_MP3_KBPS} (320) when absent. */
     mp3Kbps?: Mp3Bitrate

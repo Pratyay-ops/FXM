@@ -72,11 +72,15 @@ export function setDeviceSaver(next: DeviceSaver | undefined): void {
   saver = next
 }
 
-/** A completed download that can be saved: with its file and what the file holds. */
+/** A completed download whose file is there: with its file and what the file holds. */
 export type SavableDownload = DownloadRecord &
   Required<Pick<DownloadRecord, 'file' | 'format'>> & { readonly status: 'completed' }
 
-/** Whether `record` is a completed download whose file can be saved. */
+/**
+ * Whether `record` is a completed download with its file. Whether FXM can save that file is
+ * `isExportable(record.format)` (`@fxm/convert`): a stored video whose audio isn't AAC in MP4
+ * can't be, which no source delivers.
+ */
 export function isSavable(record: DownloadRecord | null | undefined): record is SavableDownload {
   return (
     record !== null &&
@@ -87,17 +91,19 @@ export function isSavable(record: DownloadRecord | null | undefined): record is 
   )
 }
 
-/** The plan, file name and type of saving `record` as `format`. */
+/**
+ * The plan, file name and type of saving `record` as `format`.
+ *
+ * @throws ConvertError `unsupported-input` for a file FXM can't save (`isExportable`).
+ */
 export function savePlan(
   record: SavableDownload,
   format: DownloadFormat,
   mp3Kbps: Mp3Bitrate | undefined,
 ): { plan: ExportPlan; fileName: string } {
   const plan = planExport(record.format, format, mp3Kbps === undefined ? {} : { mp3Kbps })
-  const fileName = exportFileName(
-    { title: record.track.title, artists: record.track.artists.map((artist) => artist.name) },
-    plan.output.extension,
-  )
+  // The tags' title and artists: a stored track's names are checked to be text there.
+  const fileName = exportFileName(tagsFromTrack(record.track), plan.output.extension)
   return { plan, fileName }
 }
 
@@ -111,9 +117,9 @@ export function fileDescription(plan: ExportPlan): string {
 }
 
 /** Why saving failed, for the UI. */
-export type SaveErrorCode = ConvertErrorCode | 'file-missing' | 'write-failed'
+export type SaveErrorCode = ConvertErrorCode | 'file-missing' | 'read-failed' | 'write-failed'
 
-/** What each failure says to the user. */
+/** What each failure says to the user, when a format other than Original was chosen. */
 export const SAVE_ERROR_TEXT: Readonly<Record<SaveErrorCode, string>> = {
   'core-unavailable':
     "Converting doesn't work in this browser right now. Save the original instead, or reload FXM and try again.",
@@ -123,7 +129,24 @@ export const SAVE_ERROR_TEXT: Readonly<Record<SaveErrorCode, string>> = {
   cancelled: 'Cancelled.',
   failed: 'The conversion failed. Try again, or save the original.',
   'file-missing': 'The downloaded file is gone. Download it again.',
+  'read-failed': "FXM couldn't read the downloaded file right now. Reload FXM and try again.",
   'write-failed': "FXM couldn't write the file there. Try another folder.",
+}
+
+/**
+ * What the failures that suggest saving the original say when the original is what failed.
+ * Original never needs the core (an original WebM is saved untagged without it), so these are
+ * rare: memory running out while the audio of a video is extracted, say.
+ */
+const ORIGINAL_ERROR_TEXT: Readonly<Partial<Record<SaveErrorCode, string>>> = {
+  'core-unavailable': "Saving doesn't work in this browser right now. Reload FXM and try again.",
+  'out-of-memory': 'The file is too large to save in this browser.',
+  failed: 'Saving failed. Try again.',
+}
+
+/** What a failure says to the user, for the format that was chosen. */
+export function saveErrorText(code: SaveErrorCode, format?: DownloadFormat): string {
+  return (format === 'original' ? ORIGINAL_ERROR_TEXT[code] : undefined) ?? SAVE_ERROR_TEXT[code]
 }
 
 /** A failed save, with its reason. */
@@ -198,19 +221,23 @@ export interface SaveResult {
 /**
  * Saves `record` as `options.format` to `options.target`: reads the stored file, fetches the
  * cover and the lyrics (each left out when slow or missing), converts and tags it in the
- * conversion worker, and writes it.
+ * conversion worker, and writes it. On any failure the target is given up.
  *
- * @throws SaveError with the reason.
+ * @throws SaveError with the reason, in words for the chosen format.
  */
 export async function saveDownload(
   record: SavableDownload,
   options: SaveOptions,
 ): Promise<SaveResult> {
-  const { plan } = savePlan(record, options.format, options.mp3Kbps)
+  const fail = (code: SaveErrorCode) => new SaveError(code, saveErrorText(code, options.format))
   try {
+    const { plan } = savePlan(record, options.format, options.mp3Kbps)
     const type = mimeTypeOf(record.format) ?? 'application/octet-stream'
     const [input, cover, lyrics] = await Promise.all([
-      options.read(record.file, type),
+      // Storage that can't be read (no Origin Private File System here, say) isn't a missing file.
+      options.read(record.file, type).catch(() => {
+        throw fail('read-failed')
+      }),
       withTimeout(
         fetchCover(record.track.artwork, {
           fetch: options.fetch,
@@ -222,7 +249,7 @@ export async function saveDownload(
       ),
       withTimeout(options.lyrics?.() ?? Promise.resolve(undefined), EXTRAS_TIMEOUT_MS, undefined),
     ])
-    if (input === undefined) throw new SaveError('file-missing')
+    if (input === undefined) throw fail('file-missing')
     options.signal?.throwIfAborted()
     const tags = tagsFromTrack(record.track, {
       ...(lyrics === undefined ? {} : { lyrics }),
@@ -244,14 +271,14 @@ export async function saveDownload(
     try {
       await options.target.write(outcome.blob)
     } catch {
-      throw new SaveError('write-failed')
+      throw fail('write-failed')
     }
     return { fileName: options.target.fileName, plan, tagged: outcome.tagged }
   } catch (error) {
     await options.target.discard().catch(() => undefined)
     if (error instanceof SaveError) throw error
-    if (isConvertError(error)) throw new SaveError(error.code)
-    if (options.signal?.aborted) throw new SaveError('cancelled')
-    throw new SaveError('failed')
+    if (isConvertError(error)) throw fail(error.code)
+    if (options.signal?.aborted) throw fail('cancelled')
+    throw fail('failed')
   }
 }

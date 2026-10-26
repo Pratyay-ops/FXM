@@ -5,6 +5,7 @@ import {
   connectionHelp,
   connectionOptions,
   downloadFormatHelp,
+  SAVE_TO_DEVICE_NOTE,
   shownConnection,
   tierDescription,
 } from './quality-options'
@@ -79,16 +80,29 @@ describe('downloadFormatHelp', () => {
   it('explains YouTube conversions where the platform reads YouTube’s bytes', () => {
     expect(downloadFormatHelp('original', FULL)).toEqual([
       'Saves each file as its source has it, with no conversion and no quality loss: Opus or AAC for YouTube songs, FLAC where a source is lossless.',
+      SAVE_TO_DEVICE_NOTE,
     ])
     expect(downloadFormatHelp('alac', FULL)).toEqual([
       'A YouTube song in Opus: ALAC (converted from Opus, same quality as the source).',
       'A lossless source in FLAC: ALAC (converted from FLAC, lossless).',
       'YouTube audio is never lossless: converting it gives a bigger file, not a better one.',
+      SAVE_TO_DEVICE_NOTE,
     ])
     expect(downloadFormatHelp('aac', FULL)).toEqual([
       'A YouTube song in Opus: AAC (converted from Opus, some quality loss).',
       'A lossless source in FLAC: AAC (converted from FLAC, some quality loss).',
+      SAVE_TO_DEVICE_NOTE,
     ])
+  })
+
+  it('says that downloads stay the original, and the format is where Save to device starts', () => {
+    expect(SAVE_TO_DEVICE_NOTE).toBe(
+      'Downloads keep the original file, which plays offline as it is. A downloaded song’s “Save to device…” starts at this format.',
+    )
+    for (const format of ['original', 'flac', 'mp3'] as const) {
+      expect(downloadFormatHelp(format, FULL).at(-1), format).toBe(SAVE_TO_DEVICE_NOTE)
+      expect(downloadFormatHelp(format, LITE).at(-1), format).toBe(SAVE_TO_DEVICE_NOTE)
+    }
   })
 
   it('covers only the free sources where YouTube’s bytes can’t be read, and says where they can', () => {
@@ -96,12 +110,14 @@ describe('downloadFormatHelp', () => {
       expect(downloadFormatHelp('original', capabilities)).toEqual([
         'Saves each file as its source has it, with no conversion and no quality loss: FLAC, MP3 or Ogg Vorbis from Internet Archive and Jamendo.',
         'YouTube songs can be downloaded with FXM Connect, the desktop app or the Android app.',
+        SAVE_TO_DEVICE_NOTE,
       ])
       expect(downloadFormatHelp('flac', capabilities)).toEqual([
         'An MP3 from Internet Archive or Jamendo: FLAC (converted from MP3, same quality as the source).',
         'A lossless source in FLAC: FLAC (no conversion).',
         'Lossy audio never becomes lossless: converting it gives a bigger file, not a better one.',
         'YouTube songs can be downloaded with FXM Connect, the desktop app or the Android app.',
+        SAVE_TO_DEVICE_NOTE,
       ])
       expect(downloadFormatHelp('mp3', capabilities)[0]).toBe(
         'An MP3 from Internet Archive or Jamendo: MP3 (no conversion).',

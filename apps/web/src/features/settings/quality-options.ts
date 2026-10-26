@@ -181,11 +181,19 @@ const YOUTUBE_DOWNLOADS =
   'YouTube songs can be downloaded with FXM Connect, the desktop app or the Android app.'
 
 /**
+ * What the format is for since stage 4.2: a download stays the original file, which plays
+ * offline as it is, and the format is where a downloaded song's "Save to device…" starts.
+ */
+export const SAVE_TO_DEVICE_NOTE =
+  'Downloads keep the original file, which plays offline as it is. A downloaded song’s “Save to device…” starts at this format.'
+
+/**
  * What a download in `format` will be, in the conversion labels downloads show
  * (`describeConversion`), for a lossy and a lossless source. Where the platform can read
  * YouTube's bytes (`mediaBytes`), the lossy one is a YouTube song in Opus. Elsewhere downloads
  * cover the free sources only (Internet Archive, Jamendo), so it is an MP3 from one of them, and
- * the text says where YouTube songs can be downloaded.
+ * the text says where YouTube songs can be downloaded. The last line says that downloads stay
+ * the original and the format is where "Save to device…" starts ({@link SAVE_TO_DEVICE_NOTE}).
  */
 export function downloadFormatHelp(
   format: DownloadFormat,
@@ -196,10 +204,12 @@ export function downloadFormatHelp(
     return youTube
       ? [
           'Saves each file as its source has it, with no conversion and no quality loss: Opus or AAC for YouTube songs, FLAC where a source is lossless.',
+          SAVE_TO_DEVICE_NOTE,
         ]
       : [
           'Saves each file as its source has it, with no conversion and no quality loss: FLAC, MP3 or Ogg Vorbis from Internet Archive and Jamendo.',
           YOUTUBE_DOWNLOADS,
+          SAVE_TO_DEVICE_NOTE,
         ]
   }
   const lines = [
@@ -216,6 +226,7 @@ export function downloadFormatHelp(
     )
   }
   if (!youTube) lines.push(YOUTUBE_DOWNLOADS)
+  lines.push(SAVE_TO_DEVICE_NOTE)
   return lines
 }
 
