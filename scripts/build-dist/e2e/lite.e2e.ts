@@ -4,9 +4,10 @@
  * self-test passes, a YouTube Music search returns songs, and a song plays, its `currentTime`
  * advancing for at least 10 s. It reaches YouTube for real, so it runs only with FXM_LIVE=1 and
  * FXM_DEPLOY_URL, from a residential connection (YouTube meets datacenter addresses with bot
- * checks), and stays within 10 YouTube requests: thumbnails are answered here, the streams of
- * songs the app prefetches are refused here, and anything past the budget fails the check.
- * Media elements are muted, and the deploy README says how to run it.
+ * checks), and stays within 10 YouTube requests: thumbnails are answered here, the songs the app
+ * prefetches are refused here (their `player` requests never reach YouTube), and every other
+ * request counts, so that one past the budget is refused and fails the check. Media elements are
+ * muted, and the deploy README says how to run it.
  */
 import { expect, test } from '@playwright/test'
 
@@ -46,7 +47,10 @@ test('Lite searches YouTube Music and plays a song without FXM Connect', async (
   browser,
 }) => {
   test.setTimeout(120_000)
-  const youtube: string[] = []
+  /** Every YouTube request the page made, but the refused prefetches: at most BUDGET. */
+  const attempted: string[] = []
+  /** `player` requests for the songs the app prefetches, refused before they reach YouTube. */
+  const prefetches: string[] = []
   let players = 0
   await context.route('**/*', async (route) => {
     const url = new URL(route.request().url())
@@ -54,13 +58,18 @@ test('Lite searches YouTube Music and plays a song without FXM Connect', async (
       return route.fulfill({ status: 200, contentType: 'image/png', body: PIXEL })
     }
     if (YOUTUBE_API.test(url.href) || GOOGLEVIDEO.test(url.href)) {
+      const request = `${route.request().method()} ${url.host}${url.pathname}`
       if (YOUTUBE_API.test(url.href) && url.pathname.endsWith('/player')) {
         players += 1
         // The song the check plays; the lifecycle's prefetches of the next ones stay here.
-        if (players > 1) return route.abort('blockedbyclient')
+        if (players > 1) {
+          prefetches.push(request)
+          return route.abort('blockedbyclient')
+        }
       }
-      if (youtube.length >= BUDGET) return route.abort('blockedbyclient')
-      youtube.push(`${route.request().method()} ${url.host}${url.pathname}`)
+      attempted.push(request)
+      // Past the budget: refused, and the check fails below.
+      if (attempted.length > BUDGET) return route.abort('blockedbyclient')
     }
     return route.continue()
   })
@@ -107,9 +116,11 @@ test('Lite searches YouTube Music and plays a song without FXM Connect', async (
           }
     })
   await expect.poll(playing, { timeout: 60_000 }).not.toBeNull()
-  const first = (await playing()) as Playing
+  const first = await playing()
+  if (first === null) throw new Error('The song stopped right after it started to play')
   await page.waitForTimeout(11_000)
-  const last = (await playing()) as Playing
+  const last = await playing()
+  if (last === null) throw new Error('The song stopped playing within 11 s')
   expect(last.muted).toBe(true)
   expect(last.host).toMatch(/\.googlevideo\.com$/)
   expect(last.currentTime - first.currentTime).toBeGreaterThanOrEqual(10)
@@ -123,10 +134,10 @@ test('Lite searches YouTube Music and plays a song without FXM Connect', async (
     timeout: 30_000,
   })
 
-  expect(youtube.length).toBeLessThanOrEqual(BUDGET)
+  expect(attempted.length, `YouTube requests: ${attempted.join(', ')}`).toBeLessThanOrEqual(BUDGET)
   expect(violations).toEqual([])
   test.info().annotations.push({
     type: 'result',
-    description: `${browser.browserType().name()} ${browser.version()}: played ${last.title} from ${last.host}, ${(last.currentTime - first.currentTime).toFixed(1)} s in ${youtube.length} YouTube requests (${youtube.join(', ')})`,
+    description: `${browser.browserType().name()} ${browser.version()}: played ${last.title} from ${last.host}, ${(last.currentTime - first.currentTime).toFixed(1)} s in ${attempted.length} YouTube requests (${attempted.join(', ')}); ${prefetches.length} prefetch(es) refused`,
   })
 })

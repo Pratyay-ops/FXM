@@ -1,6 +1,9 @@
 import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import { join, relative, sep } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
+import { scanPage } from './html.ts'
 import {
   addPackagesFromBanners,
   addPackagesFromInventory,
@@ -570,6 +573,20 @@ describe('sandbox documents', () => {
         'node_modules/.pnpm/bgutils-js@4.0.3/node_modules/bgutils-js/dist/core/BotGuardClient.js',
       ),
     ])
+  })
+
+  it('finds bgutils-js in the evaluator document the repository ships', () => {
+    // 1.11's eval.html has no source map: its bundler's region markers are all that shows the
+    // packages in it. Built minified, it would keep none, and bgutils-js would silently drop out
+    // of the notices while the document still passed inlineCodeProblems.
+    const root = fileURLToPath(new URL('../../..', import.meta.url))
+    const page = scanPage(readFileSync(join(root, 'apps/web/sandbox/eval.html'), 'utf8'))
+    expect(page.inlineScripts).toHaveLength(1)
+    const [script = ''] = page.inlineScripts
+    expect(inlineCodeProblems('sandbox', 'eval.html', script)).toEqual([])
+    const packages = new Map<string, BundledPackage>()
+    expect(addPackagesFromRegions([script], 'sandbox', 'eval.html', root, packages)).toEqual([])
+    expect([...packages.values()].map((pkg) => pkg.name)).toEqual(['bgutils-js'])
   })
 })
 
