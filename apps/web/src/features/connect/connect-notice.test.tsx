@@ -102,7 +102,7 @@ describe('the connection notice', { timeout: 30_000 }, () => {
     const free = within(await notice('This browser plays free music'))
     expect(
       free.getByText(
-        'Internet Archive and Jamendo work here. For YouTube Music and Spotify, add the free FXM Connect extension.',
+        'Internet Archive and Jamendo work here. For YouTube Music and Spotify, add the free FXM Connect extension, or use the desktop app.',
       ),
     ).toBeInTheDocument()
     expect(free.getByRole('link', { name: 'See your options' })).toHaveAttribute('href', '/connect')
@@ -111,7 +111,7 @@ describe('the connection notice', { timeout: 30_000 }, () => {
     const lite = within(await notice('Try YouTube Music here without an install (experimental)'))
     expect(
       lite.getByText(
-        "This browser passed Lite's check. For Spotify, add the free FXM Connect extension.",
+        "This browser passed Lite's check. For Spotify, add the free FXM Connect extension, or use the desktop app.",
       ),
     ).toBeInTheDocument()
   })
@@ -190,13 +190,13 @@ describe('what the notice says on each device', () => {
 
   it('offers the extension where the browser can add it', () => {
     expect(body(USER_AGENTS.firefoxLinux)).toBe(
-      'Internet Archive and Jamendo work here. For YouTube Music and Spotify, add the free FXM Connect extension.',
+      'Internet Archive and Jamendo work here. For YouTube Music and Spotify, add the free FXM Connect extension, or use the desktop app.',
     )
   })
 
   it('sends Safari on a Mac to another browser on the same Mac', () => {
     expect(body(USER_AGENTS.safariMac)).toBe(
-      "Internet Archive and Jamendo work here. YouTube Music and Spotify need FXM Connect, which Safari can't add. On this Mac, open FXM in Chrome, Edge, Brave or Firefox and add it there.",
+      "Internet Archive and Jamendo work here. YouTube Music and Spotify need FXM Connect, which Safari can't add. On this Mac, open FXM in Chrome, Edge, Brave or Firefox and add it there, or use the desktop app.",
     )
   })
 

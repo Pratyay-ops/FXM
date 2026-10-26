@@ -141,20 +141,20 @@ describe('how a device gets more', () => {
   it('offers the extension in Chromium browsers and Firefox on a computer', () => {
     for (const computer of [chrome, firefox]) {
       expect(howToGetMore(computer, 'youtube-and-spotify')).toBe(
-        'For YouTube Music and Spotify, add the free FXM Connect extension.',
+        'For YouTube Music and Spotify, add the free FXM Connect extension, or use the desktop app.',
       )
       expect(howToGetMore(computer, 'spotify')).toBe(
-        'For Spotify, add the free FXM Connect extension.',
+        'For Spotify, add the free FXM Connect extension, or use the desktop app.',
       )
     }
     expect(howToGetMore({ browser: 'other', os: 'linux' }, 'spotify')).toBe(
-      'For Spotify, add the free FXM Connect extension to Chrome, Edge, Brave or Firefox.',
+      'For Spotify, add the free FXM Connect extension to Chrome, Edge, Brave or Firefox, or use the desktop app.',
     )
   })
 
   it('sends Safari on a Mac to another browser, and offers nothing on iPhone and iPad', () => {
     expect(howToGetMore(macSafari, 'spotify')).toBe(
-      "Spotify needs FXM Connect, which Safari can't add. On this Mac, open FXM in Chrome, Edge, Brave or Firefox and add it there.",
+      "Spotify needs FXM Connect, which Safari can't add. On this Mac, open FXM in Chrome, Edge, Brave or Firefox and add it there, or use the desktop app.",
     )
     expect(howToGetMore(iphone, 'youtube-and-spotify')).toBe(
       "YouTube Music and Spotify need FXM Connect, which isn't available on iPhone and iPad.",
@@ -166,10 +166,12 @@ describe('how a device gets more', () => {
       "YouTube Music and Spotify need FXM Connect, which browsers on Android can't add. The Android app is coming soon.",
     )
     for (const somewhere of [chrome, firefox, macSafari, iphone]) {
-      expect(howToGetMore(somewhere, 'spotify')).not.toMatch(/app/)
+      expect(howToGetMore(somewhere, 'spotify')).not.toMatch(/Android app/)
     }
+    // The desktop app is out, and offered on computers only.
+    expect(howToGetMore(iphone, 'spotify')).not.toMatch(/desktop app/)
     expect(appsSentence()).toBe(
-      'The desktop and Android apps, which need no extension, are coming soon.',
+      'The desktop app needs no extension: it has everything built in. The Android app is coming soon.',
     )
   })
 
