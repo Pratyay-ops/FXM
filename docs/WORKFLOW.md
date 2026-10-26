@@ -134,7 +134,7 @@ So progress happens without anyone polling.
 
 ## 8. Releases
 
-FXM has one product version, SemVer `x.y.z`, in `version` of the root `package.json`. A release publishes what `develop` holds as `vX.Y.Z`: it reaches `main` through a pull request, and `.github/workflows/release.yml` tags and publishes it. Everything it uses is free: git-cliff, GitHub Actions, artifact attestations and GitHub Releases. It needs no secrets; only its optional store jobs use the keys that the owner adds for Firefox Add-ons and Edge Add-ons to the `stores` environment, which only runs on `main` can use, and they skip their work without them ([apps/extension/README.md](../apps/extension/README.md#store-channels)).
+FXM has one product version, SemVer `x.y.z`, in `version` of the root `package.json`. A release publishes what `develop` holds as `vX.Y.Z`: it reaches `main` through a pull request, and `.github/workflows/release.yml` tags and publishes it. Everything it uses is free: git-cliff, GitHub Actions, artifact attestations and GitHub Releases. It needs one secret, the desktop updater's key (`TAURI_SIGNING_PRIVATE_KEY` and its password), and stops without it, as it does while `apps/desktop/src-tauri/tauri.conf.json` carries the placeholder instead of the key's public half ([apps/desktop/README.md](../apps/desktop/README.md#the-updater-key)). Only its optional store jobs use the keys that the owner adds for Firefox Add-ons and Edge Add-ons to the `stores` environment, which only runs on `main` can use, and they skip their work without them ([apps/extension/README.md](../apps/extension/README.md#store-channels)).
 
 ```mermaid
 flowchart LR
@@ -161,7 +161,7 @@ flowchart LR
    git push origin develop
    ```
 
-**What a release contains.** These files, plus the ones later stages add as jobs in `release.yml`: the APK (6.6) and the desktop installers (7.5). The header of `release.yml` says how to add a job.
+**What a release contains.** These files, plus the ones later stages add as jobs in `release.yml`: the APK (6.6). The header of `release.yml` says how to add a job.
 
 | File | Contents |
 |---|---|
@@ -169,6 +169,10 @@ flowchart LR
 | `fxm-connect-firefox-x.y.z.xpi` | FXM Connect for Firefox, signed by Mozilla. Releases have it once the owner has added the AMO keys, while `AMO_CHANNEL` is `unlisted` (the default). With `listed`, Firefox users get FXM Connect from addons.mozilla.org instead |
 | `fxm-web-x.y.z.zip` | The web app for self-hosting, in `app/` because it is served from `/app/` |
 | `fxm-site-x.y.z.zip` | The landing page, served from `/`. Unzipped into one folder with the web app, it gives the site's layout |
+| `fxm-desktop-x.y.z-macos-arm64.dmg`, `-macos-x64.dmg` | The desktop app for Macs with Apple silicon and with Intel, signed ad hoc, not notarized |
+| `fxm-desktop-x.y.z-windows-x64-setup.exe`, `-windows-x64.msi` | The desktop app for Windows, unsigned: the installer for one account, and the MSI package for every user |
+| `fxm-desktop-x.y.z-linux-x64.deb`, `-linux-arm64.deb`, `-linux-x64.AppImage`, `-linux-arm64.AppImage` | The desktop app for Linux |
+| `fxm-desktop-x.y.z-macos-arm64.app.tar.gz`, `-macos-x64.app.tar.gz`, `latest.json` | For the desktop app's updater: the Mac apps, and the manifest that installed apps read from the latest release, with each platform's file and signature. `latest.json` is the one file without the version in its name |
 | `SHA256SUMS` | The SHA-256 checksum of every other file |
 
 Anyone can check a download. `sha256sum --check --ignore-missing SHA256SUMS` compares it with the checksums, and this checks that FXM's release workflow, run for `main` on GitHub's own runners, built it:
