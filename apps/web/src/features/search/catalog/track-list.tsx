@@ -215,7 +215,7 @@ export interface TrackRowProps {
    * list: the menu's entry then follows where the track's download stands.
    */
   downloadEntry?: DownloadMenuItem | undefined
-  /** Whether the track is the player's current one, playing or paused: the row is marked. */
+  /** Whether the track is the player's current one, and how it stands: the row is marked. */
   nowPlaying?: NowPlayingStatus | undefined
 }
 
@@ -226,8 +226,8 @@ export interface TrackRowProps {
  * badges on a third line; wider screens put them after the names, so the names line up.
  *
  * The current track's row (`nowPlaying`) has the "now playing" marker in place of its number,
- * or over its artwork, and its title in the accent colour; its name says "Now playing" or
- * "Paused".
+ * or over its artwork, and its title in the accent colour; its name says "Now playing",
+ * "Paused" or "Couldn’t play".
  */
 export function TrackRow({
   track,

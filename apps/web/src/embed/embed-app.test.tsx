@@ -114,6 +114,25 @@ describe('EmbedApp', () => {
     expect(controller.getState().player?.queue.index).toBe(1)
   })
 
+  it('says in the track list when a song couldn’t play', async () => {
+    const { user, controller, ladder } = await renderEmbed({ target: targetOf(ALBUM) })
+    ladder.errors.set('songB', new FxmError('BotCheck', 'Sign in to confirm'))
+    const list = screen.getByRole('list', { name: 'Tracks' })
+
+    await user.click(
+      within(list).getByRole('button', { name: `Play ${SONG_B.title} by The Testers` }),
+    )
+    await act(() => settle())
+
+    expect(controller.getState().player?.status).toBe('error')
+    const current = within(list).getAllByRole('button')[1]
+    expect(current).toHaveAttribute('aria-current', 'true')
+    expect(current).toHaveAccessibleName(`Play ${SONG_B.title} by The Testers. Couldn’t play`)
+    const bars = current?.querySelector('svg[data-now-playing]')
+    expect(bars).toHaveAttribute('data-now-playing', 'error')
+    expect(bars).not.toHaveAttribute('data-moving')
+  })
+
   it('fits an album in one row in the compact layout', async () => {
     const { user } = await renderEmbed({ target: targetOf(ALBUM), layout: 'compact' })
     expect(screen.getByRole('heading', { level: 1, name: ALBUM.name })).toHaveClass('sr-only')

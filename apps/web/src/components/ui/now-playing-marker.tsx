@@ -1,9 +1,10 @@
 /**
  * The "now playing" marker of track lists: the row of the track the player is on shows
  * equalizer bars, which move while the track plays and stand still, low and even, while it is
- * paused. They take the place of the row's number, or sit over its artwork where it has none.
- * The marker is decorative: the row says the same in words ({@link nowPlayingLabel}), marks
- * itself with `aria-current="true"` and shows its title in the accent colour.
+ * paused or couldn't play. They take the place of the row's number, or sit over its artwork
+ * where it has none. The marker is decorative: the row says the same in words
+ * ({@link nowPlayingLabel}), marks itself with `aria-current="true"` and shows its title in the
+ * accent colour.
  *
  * Presentational only, so the embed uses it too: the app's lists learn the status from
  * `useNowPlayingStatus` in `features/now-playing/current-track.ts`.
@@ -15,14 +16,22 @@ import { cn } from '../../lib/cn'
 import { useMediaQuery } from '../../lib/use-media-query'
 
 /**
- * How the current track stands: `playing` while it plays or is about to (it loads), `paused`
- * otherwise (paused, ended, stopped on a problem, or put back after a reload).
+ * How the current track stands: `playing` while it plays or is about to (it loads), `error` once
+ * playback stopped on a problem with it, `paused` otherwise (paused, ended, or put back after a
+ * reload).
  */
-export type NowPlayingStatus = 'playing' | 'paused'
+export type NowPlayingStatus = 'playing' | 'paused' | 'error'
 
-/** What the marker shows, in words: "Now playing" or "Paused". */
+/** The marker's status in words; a problem as the queue and the player bar say it. */
+const TEXTS: Record<NowPlayingStatus, string> = {
+  playing: 'Now playing',
+  paused: 'Paused',
+  error: 'Couldn’t play',
+}
+
+/** What the marker shows, in words: "Now playing", "Paused" or "Couldn’t play". */
 export function nowPlayingText(status: NowPlayingStatus): string {
-  return status === 'playing' ? 'Now playing' : 'Paused'
+  return TEXTS[status]
 }
 
 /**
@@ -45,7 +54,10 @@ const BARS = [
   { x: 13, height: 0.8, motion: '[animation-duration:1s] [animation-delay:-0.35s]' },
 ] as const
 
-/** How tall every bar stands while the track is paused: low and even, apart from playing. */
+/**
+ * How tall every bar stands while the track is paused or couldn't play: low and even, apart
+ * from playing.
+ */
 const PAUSED_HEIGHT = 0.4
 
 const SIZES = { sm: 'size-4', md: 'size-5', lg: 'size-8' } as const
@@ -65,7 +77,8 @@ export interface NowPlayingBarsProps {
 /**
  * The equalizer bars, in the current text colour (in forced colours, the system's text colour).
  * They move while the track plays, unless the user asked for reduced motion: then they stand
- * still at uneven heights, while paused bars stand low and even.
+ * still at uneven heights, while the bars of a paused track, or of one that couldn't play,
+ * stand low and even.
  */
 export function NowPlayingBars({ status, size = 'sm', className }: NowPlayingBarsProps) {
   const reduceMotion = useMediaQuery(REDUCED_MOTION_QUERY)
@@ -95,7 +108,7 @@ export function NowPlayingBars({ status, size = 'sm', className }: NowPlayingBar
             'origin-bottom [transform-box:fill-box]',
             moving && `animate-now-playing motion-reduce:animate-none ${bar.motion}`,
           )}
-          style={{ transform: `scaleY(${status === 'paused' ? PAUSED_HEIGHT : bar.height})` }}
+          style={{ transform: `scaleY(${status === 'playing' ? bar.height : PAUSED_HEIGHT})` }}
         />
       ))}
     </svg>

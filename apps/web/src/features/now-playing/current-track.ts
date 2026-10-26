@@ -39,7 +39,7 @@ export interface CurrentTrack {
    * the queue holds the track more than once.
    */
   readonly copy: number
-  /** Whether it plays (or loads), or is paused. */
+  /** Whether it plays (or loads), is paused, or couldn't play. */
   readonly status: NowPlayingStatus
 }
 
@@ -51,9 +51,13 @@ export interface RowCopy {
   readonly copies: number
 }
 
-/** The marker's status for a player status: `playing` also while the track loads. */
+/**
+ * The marker's status for a player status: `playing` also while the track loads, and `error`
+ * once playback stopped on a problem (`PlayerState.error`).
+ */
 export function nowPlayingStatusFor(status: PlayerStatus): NowPlayingStatus {
-  return status === 'playing' || status === 'loading' ? 'playing' : 'paused'
+  if (status === 'playing' || status === 'loading') return 'playing'
+  return status === 'error' ? 'error' : 'paused'
 }
 
 type TrackKey = Pick<CurrentTrack, 'id' | 'copy'>
@@ -194,9 +198,10 @@ export function useCurrentTrack(): CurrentTrack | undefined {
 }
 
 /**
- * The marker of a row that shows track `trackId` (see {@link nowPlayingStatusOf}): `playing` or
- * `paused` while it is the current track's row, else `undefined`. Re-renders only when that
- * changes, so a long list re-renders the rows that gain or lose the marker, and no others.
+ * The marker of a row that shows track `trackId` (see {@link nowPlayingStatusOf}): `playing`,
+ * `paused` or `error` while it is the current track's row, else `undefined`. Re-renders only
+ * when that changes, so a long list re-renders the rows that gain or lose the marker, and no
+ * others.
  */
 export function useNowPlayingStatus(
   trackId: string | undefined,

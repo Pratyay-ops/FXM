@@ -1,4 +1,4 @@
-import { currentQueueItem, parseId } from '@fxm/core'
+import { currentQueueItem, FxmError, parseId } from '@fxm/core'
 import { testStream } from '@fxm/player/testing'
 import { act, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -106,6 +106,25 @@ describe('the catalog’s track lists', () => {
     )
     expect(marked(youtube)).toEqual([])
     expect(youtube).toBeInTheDocument()
+  })
+
+  it('say when the song couldn’t play, with its bars still', async () => {
+    const { user, player, resolver } = renderPlaying('/album/ytm:alb-neon-harbor')
+    resolver.handler = () => {
+      throw new FxmError('NotFound', 'Gone')
+    }
+    const list = await screen.findByRole('list', { name: 'Tracks' }, SLOW)
+    // The album's last song: nothing follows it, so the player stops on it.
+    const last = rows(list).at(-1) as HTMLElement
+
+    await user.click(playButton(last))
+
+    await vi.waitFor(() => expect(player.getState().status).toBe('error'))
+    expect(marked(list)).toEqual([last])
+    expect(playButton(last)).toHaveAccessibleName(/\. Couldn’t play$/)
+    expect(bars(last)).toHaveAttribute('data-now-playing', 'error')
+    expect(bars(last)).not.toHaveAttribute('data-moving')
+    expect(list).toBeInTheDocument()
   })
 
   it('put the marker over the artwork in a list without numbers', async () => {

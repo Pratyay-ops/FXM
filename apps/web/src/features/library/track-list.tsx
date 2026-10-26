@@ -94,7 +94,7 @@ interface RowBodyProps {
   selecting: boolean
   selected: boolean
   menuOpen: boolean
-  /** Whether the row's song is the player's current one, playing or paused: it is marked. */
+  /** Whether the row's song is the player's current one, and how it stands: it is marked. */
   nowPlaying: NowPlayingStatus | undefined
   onToggleSelect: (id: string, extend: boolean) => void
   onToggleLike: (id: string) => void
@@ -114,7 +114,7 @@ interface RowBodyProps {
  *
  * The current song's row (`nowPlaying`) has the "now playing" marker where the number shows
  * (from 768px), else over the cover, and its title in the accent colour; its name says "Now
- * playing" or "Paused".
+ * playing", "Paused" or "Couldn’t play".
  */
 const RowBody = memo(function RowBody({
   id,

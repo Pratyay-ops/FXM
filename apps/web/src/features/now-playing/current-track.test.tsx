@@ -1,6 +1,7 @@
 import {
   createQueue,
   currentQueueItem,
+  FxmError,
   formatId,
   type QueueState,
   setQueue,
@@ -69,14 +70,14 @@ describe('currentTrackOf', () => {
     expect(currentTrackOf(stateOf(queue))).toEqual({ id: PICKED.id, copy: 1, status: 'playing' })
   })
 
-  it('says playing while the track plays or loads, and paused otherwise', () => {
+  it('says playing while it plays or loads, error once it failed, and paused otherwise', () => {
     const statuses: PlayerStatus[] = ['loading', 'playing', 'paused', 'ended', 'error', 'idle']
     expect(statuses.map(nowPlayingStatusFor)).toEqual([
       'playing',
       'playing',
       'paused',
       'paused',
-      'paused',
+      'error',
       'paused',
     ])
     expect(currentTrackOf(stateOf(queueOf(testTracks('a')), 'paused'))?.status).toBe('paused')
@@ -203,6 +204,20 @@ describe('useNowPlayingStatus', () => {
     expect(result.current).toEqual([undefined, 'playing', undefined])
     await act(() => player.setQueue([]))
     expect(result.current).toEqual([undefined, undefined, undefined])
+  })
+
+  it('says the current song couldn’t play once playback stopped on a problem', async () => {
+    const { player, resolver } = setupTestPlayback()
+    const [a] = testTracks('a') as [Track]
+    const { result } = renderHook(() => useNowPlayingStatus(a.id))
+    resolver.handler = () => {
+      throw new FxmError('NotFound', 'Gone')
+    }
+
+    await act(() => player.setQueue([a]))
+
+    expect(player.getState().status).toBe('error')
+    expect(result.current).toBe('error')
   })
 
   it('marks the row of a matched song while its match plays', async () => {

@@ -311,7 +311,8 @@ function FollowsPanel({ kind }: { kind: Exclude<FollowKind, 'playlist'> }) {
 
 /**
  * A song of the listening history. The song the player is on has the "now playing" marker over
- * its cover and its title in the accent colour, and says "Now playing" or "Paused".
+ * its cover and its title in the accent colour, and says "Now playing", "Paused" or "Couldn’t
+ * play".
  */
 function RecentRowItem({ row, onAdd }: { row: RecentRow; onAdd: (track: Track) => void }) {
   const repo = useLibrary()

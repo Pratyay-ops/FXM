@@ -209,10 +209,13 @@ function CurrentRow({
         {failed ? <FailedMark /> : label !== undefined && <ReviewMark label={label} />}
         {autoplay && <AutoplayMark />}
       </div>
-      {/* The marker of the track lists, moving while it plays, still while it is paused. */}
+      {/* The marker of the track lists: moving while it plays, still while paused or failed. */}
       <span className="mr-1 flex shrink-0 text-accent">
         <NowPlayingBars status={status} size="md" />
-        <span className="sr-only">{nowPlayingText(status)}</span>
+        {/* A song that couldn't play says so under its title already (FailedMark). */}
+        {!(failed && status === 'error') && (
+          <span className="sr-only">{nowPlayingText(status)}</span>
+        )}
       </span>
     </div>
   )

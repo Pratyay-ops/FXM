@@ -210,8 +210,8 @@ export function rowFields({ track, file }: LocalTrack): RowFields {
 
 export interface LocalTrackRowProps extends RowFields {
   /**
-   * Whether it is the player's current track, and whether that plays (or loads) or is paused:
-   * `undefined` for any other track.
+   * Whether it is the player's current track, and whether that plays (or loads), is paused or
+   * couldn't play: `undefined` for any other track.
    */
   nowPlaying: NowPlayingStatus | undefined
   liked: boolean
@@ -228,8 +228,9 @@ export interface LocalTrackRowProps extends RowFields {
 }
 
 /**
- * The play button's name: Play, Pause while it plays, Resume while it is paused, with the
- * current track's status: "Pause Slow Tide. Now playing".
+ * The play button's name: Play, Pause while it plays, Resume while it is paused or couldn't
+ * play (the player tries it again from there), with the current track's status: "Pause Slow
+ * Tide. Now playing", "Resume Slow Tide. Couldn’t play".
  */
 function playLabel(title: string, nowPlaying: NowPlayingStatus | undefined): string {
   if (nowPlaying === undefined) return `Play ${title}`
