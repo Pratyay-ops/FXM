@@ -96,6 +96,11 @@ export interface TierFeature {
   readonly from: Tier
   /** Whether it is released; the panels mark the others "Coming soon". */
   readonly released: boolean
+  /**
+   * Whether it is released but experimental, as Lite is: the panels mark it "Experimental" and
+   * the summaries say "(experimental)". Absent means not.
+   */
+  readonly experimental?: boolean
 }
 
 /** What the tiers give, in the order the panels list it. */
@@ -173,8 +178,16 @@ export const TIER_FEATURES: readonly TierFeature[] = [
     short: 'a read-only sync of your Spotify account',
     from: 'full',
     released: RELEASED.spotifyAccount,
+    // Tested only against a stand-in for Spotify so far, never a real account: Settings says so
+    // (features/spotify-account, "Manual test with a real account" in its README).
+    experimental: true,
   },
 ]
+
+/** " (experimental)" after a feature that is, nothing after the rest: as `tierLabel` marks Lite. */
+export function featureMark(feature: Pick<TierFeature, 'experimental'>): string {
+  return feature.experimental === true ? ' (experimental)' : ''
+}
 
 /** Whether `tier` gives `feature`. */
 export function hasFeature(tier: Tier, feature: TierFeature): boolean {
@@ -217,7 +230,9 @@ export interface MissingLine {
  */
 export function missingSummary(tier: Tier): MissingLine[] {
   return missingFeatures(tier).map(({ tier: other, features }) => {
-    const out = features.filter((feature) => feature.released).map((feature) => feature.short)
+    const out = features
+      .filter((feature) => feature.released)
+      .map((feature) => `${feature.short}${featureMark(feature)}`)
     const later = features.filter((feature) => !feature.released).map((feature) => feature.short)
     // Full also gives what Lite gives, without Lite's experimental route.
     const adds =

@@ -4,7 +4,9 @@ import { type ReactNode, useId, useState } from 'react'
 import { Link } from 'react-router'
 import { useStore } from 'zustand'
 import { buttonClasses } from '../../components/ui/button'
+import { REPOSITORY_URL } from '../connect/config'
 import { useConnection } from '../connect/connection'
+import { ExperimentalChip } from '../connect/ui'
 import { Dialog, DialogActions } from '../library/ui/dialog'
 import { useSourcesSnapshot } from '../search/sources-context'
 import { SettingsSection } from '../settings/settings-layout'
@@ -17,6 +19,17 @@ import type { SyncProgress } from './sync'
 
 /** Where the user signs in to Spotify in this browser. */
 export const SPOTIFY_WEB_PLAYER_URL = 'https://open.spotify.com/'
+
+/** Where problems with FXM, the Spotify account sync among them, can be reported. */
+export const ISSUES_URL = `${REPOSITORY_URL}/issues`
+
+/**
+ * Why the sync is experimental, in plain words: its logged-in calls have run only against the
+ * browser test's made-up Spotify, never a real account (the README's "Manual test with a real
+ * account" is the owner's to run).
+ */
+export const EXPERIMENTAL_NOTE =
+  'It has been tested with a stand-in for Spotify, not yet with real accounts.'
 
 /** "1 song", "3 playlists", with grouping. */
 function count(n: number, noun: string): string {
@@ -197,6 +210,11 @@ function ConnectDialog({
           FXM reads your liked songs, your playlists and Spotify’s home for you, and keeps a copy of
           them in your library on this device. It never changes anything in your Spotify account. It
           syncs again about every six hours while FXM is open, and whenever you select Sync now.
+        </p>
+        <p>
+          This is experimental. {EXPERIMENTAL_NOTE} If Spotify answers in a way FXM doesn’t
+          understand, Settings says so, and FXM never takes an answer it can’t read for an empty
+          list.
         </p>
         {librarySync ? (
           <p className="font-semibold">
@@ -548,8 +566,12 @@ export function SpotifyAccountSettings() {
       <section aria-labelledby={headingId} className="space-y-4 p-4 sm:p-5">
         <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
           <div className="min-w-0 flex-1 basis-64 space-y-1">
-            <h3 id={headingId} className="font-semibold">
-              Your Spotify account
+            <h3
+              id={headingId}
+              className="inline-flex flex-wrap items-center gap-x-2 gap-y-1 font-semibold"
+            >
+              <span>Your Spotify account</span>
+              <ExperimentalChip />
             </h3>
             <div aria-live="polite" className="space-y-1 text-sm text-text-muted">
               {status}
@@ -558,6 +580,10 @@ export function SpotifyAccountSettings() {
           </div>
           {actions}
         </div>
+        <p className="text-sm text-text-muted">
+          Connecting your account is experimental. {EXPERIMENTAL_NOTE} If something goes wrong,{' '}
+          <NewTabLink href={ISSUES_URL}>report it on GitHub</NewTabLink>.
+        </p>
       </section>
       <ConnectDialog
         open={dialog === 'connect'}

@@ -36,7 +36,7 @@ export function Chip({
   )
 }
 
-/** "Experimental", for Lite. */
+/** "Experimental", for Lite and for the Spotify account sync. */
 export function ExperimentalChip() {
   return (
     <Chip icon={<FlaskConical aria-hidden="true" />} tone="accent">

@@ -469,7 +469,10 @@ describe('Home', () => {
       }),
     )
     const section = await shelfNamed('Made For You')
-    expect(within(section).getByText('From your Spotify account.')).toBeInTheDocument()
+    // The account sync is experimental, and its sections say so.
+    expect(
+      within(section).getByText('From your Spotify account (experimental sync).'),
+    ).toBeInTheDocument()
     expect(within(section).getByText('Somewhere')).toBeInTheDocument()
   })
 })

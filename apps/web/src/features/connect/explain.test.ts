@@ -109,10 +109,10 @@ describe('explainConnection', () => {
         lite: 'not-needed',
       }),
     )
-    // The app uses the login only for a connected account (stage 3.5, released).
+    // The app uses the login only for a connected account (stage 3.5, released, experimental).
     expect(RELEASED.spotifyAccount).toBe(true)
     expect(lines).toContain(
-      'FXM Connect allows your Spotify login from this browser, for when you connect your Spotify account.',
+      'FXM Connect allows your Spotify login from this browser, for when you connect your Spotify account (experimental).',
     )
     expect(lines.join(' ')).not.toMatch(/lets FXM use your Spotify login/)
   })
@@ -147,7 +147,7 @@ describe('the short descriptions', () => {
     expect(describeSpotify(TIER_CAPABILITIES.lite)).toBe('Not reachable')
     // With FXM Connect's login option on: allowed, and used once an account is connected.
     expect(describeSpotify({ ...TIER_CAPABILITIES.full, spotify: 'account' })).toBe(
-      'Reachable. Your Spotify login is allowed, for when you connect your Spotify account',
+      'Reachable. Your Spotify login is allowed, for when you connect your Spotify account (experimental)',
     )
   })
 })

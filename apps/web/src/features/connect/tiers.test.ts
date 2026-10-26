@@ -97,7 +97,15 @@ describe('the tiers', () => {
   it('keeps downloads and the Spotify account to Full, both released', () => {
     const feature = (id: string) => TIER_FEATURES.find((candidate) => candidate.id === id)
     // Stage 3.5: the web app with FXM Connect connects a Spotify account.
-    expect(feature('spotify-account')).toMatchObject({ from: 'full', released: true })
+    // Out, but experimental: tested with a stand-in for Spotify only, never a real account.
+    expect(feature('spotify-account')).toMatchObject({
+      from: 'full',
+      released: true,
+      experimental: true,
+    })
+    expect(TIER_FEATURES.filter((one) => one.experimental === true).map((one) => one.id)).toEqual([
+      'spotify-account',
+    ])
     // Downloads are out, and so are conversions (stage 4.2): a download stays the original file,
     // and Save to device converts a copy.
     expect(feature('downloads')).toMatchObject({
@@ -128,7 +136,7 @@ describe('missingSummary', () => {
       { tier: 'lite', adds: 'YouTube Music and its ad-free audio' },
       {
         tier: 'full',
-        adds: "YouTube Music without Lite's experimental route, YouTube Music downloads, Spotify search and related artists and a read-only sync of your Spotify account",
+        adds: "YouTube Music without Lite's experimental route, YouTube Music downloads, Spotify search and related artists and a read-only sync of your Spotify account (experimental)",
       },
     ])
   })

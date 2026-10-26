@@ -14,7 +14,14 @@ import { createAccountChoice, SPOTIFY_ACCOUNT_STORAGE_KEY } from './account-stor
 import { type AccountAccess, SpotifyAccountProvider } from './context'
 import { LIKED_NAME } from './ids'
 import { type AccountRuntime, createAccountRuntime } from './runtime'
-import { failureText, progressText, syncedText, whenText } from './spotify-account-settings'
+import {
+  EXPERIMENTAL_NOTE,
+  failureText,
+  ISSUES_URL,
+  progressText,
+  syncedText,
+  whenText,
+} from './spotify-account-settings'
 import { type FakeServices, fakeLocks, fakeServices } from './testing'
 
 const FULL: NetworkCapabilities = {
@@ -98,6 +105,10 @@ describe('Settings → Spotify account', () => {
     )
     expect(dialog).toHaveTextContent('No case is known of an account suspended')
     expect(dialog).toHaveTextContent('never changes anything in your Spotify account')
+    // Experimental: tested with a stand-in for Spotify only, which the notice says first.
+    expect(dialog).toHaveTextContent(
+      'This is experimental. It has been tested with a stand-in for Spotify, not yet with real accounts.',
+    )
     expect(dialog).toHaveTextContent('The token stays in FXM’s memory and is never saved')
     // Library sync is off: the copies stay on the device, until it goes on.
     expect(dialog).toHaveTextContent(
@@ -161,6 +172,33 @@ describe('Settings → Spotify account', () => {
       '/connect',
     )
     expect(account.queryByRole('button', { name: 'Connect your account' })).toBeNull()
+  })
+
+  it('says the sync is experimental, how it was tested, and where to report problems', async () => {
+    tier(FULL)
+    const { user } = setup()
+    const account = await section()
+    const heading = account.getByRole('heading', { level: 3 })
+    expect(heading).toHaveTextContent('Your Spotify account')
+    expect(within(heading).getByText('Experimental')).toBeVisible()
+    const note = account.getByText(/^Connecting your account is experimental\./)
+    expect(note).toHaveTextContent(
+      `Connecting your account is experimental. ${EXPERIMENTAL_NOTE} If something goes wrong, report it on GitHub`,
+    )
+    expect(EXPERIMENTAL_NOTE).toBe(
+      'It has been tested with a stand-in for Spotify, not yet with real accounts.',
+    )
+    const report = within(note).getByRole('link', { name: /report it on GitHub/ })
+    expect(report).toHaveAttribute('href', 'https://github.com/Pratyay-ops/FXM/issues')
+    expect(ISSUES_URL).toBe('https://github.com/Pratyay-ops/FXM/issues')
+    expect(report).toHaveAttribute('target', '_blank')
+
+    // It stays once connected.
+    await user.click(account.getByRole('button', { name: 'Connect your account' }))
+    const dialog = await screen.findByRole('alertdialog', { name: 'Connect your Spotify account?' })
+    await user.click(within(dialog).getByRole('button', { name: 'Connect' }))
+    await account.findByText(/^Last synced just now/)
+    expect(account.getByText(/^Connecting your account is experimental\./)).toBeVisible()
   })
 
   it('asks to switch Spotify on first', async () => {
