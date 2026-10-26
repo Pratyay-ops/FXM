@@ -9,3 +9,7 @@
 
 # The build the desktop app embeds (build:desktop, base '/'; removed by make clean)
 /dist-desktop/
+
+# The embeddable player's build (build:embed), and the browser tests' build of it (e2e:embed)
+/dist-embed/
+/dist-embed-e2e/
