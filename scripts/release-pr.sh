@@ -2,12 +2,16 @@
 # Opens the release pull request from develop into main: make release-pr VERSION=x.y.z
 #
 #   1. Checks that develop is checked out, clean, equal to origin/develop and contains
-#      origin/main and every release tag; that the version is higher than the current one and
-#      has no tag; that apps/mobile/release-certificate.txt pins the certificate the Android APKs
-#      are signed with; and that no release pull request is open.
+#      origin/main and every release tag; that the version is higher than the current one, has
+#      no tag and has a finished summary (docs/releases/vX.Y.Z.md, not marked as a draft); that
+#      apps/mobile/release-certificate.txt pins the certificate the Android APKs are signed
+#      with; that no release pull request is open; and that the release commit passes make lint
+#      and the release script tests, by making its changes in a temporary worktree and running
+#      them there.
 #   2. Sets the version everywhere (release-version.sh) and regenerates CHANGELOG.md (git-cliff).
 #   3. Commits "chore(release): vX.Y.Z" on develop and pushes develop.
-#   4. Opens the pull request "Release vX.Y.Z" with the version's notes and prints its URL.
+#   4. Opens the pull request "Release vX.Y.Z" with the version's notes (release-notes.sh: the
+#      summary, the legal notice, then the changes) and prints its URL.
 #
 # Run with the version of a release that is under way (develop already has it, and it has no
 # tag yet), it updates that release instead: after a fix reached develop while the pull request
@@ -33,17 +37,36 @@ dry_run=false
 if fxm_release_flag DRY_RUN "${DRY_RUN:-}"; then dry_run=true; fi
 tag=v$version
 cd "$FXM_ROOT"
+root=$(pwd -P)
 
-work=$(mktemp -d)
+# The run's temporary folder, by its real path, which is how git worktree list names the
+# worktree in it. Two steps, each of which stops the script when it fails: `cd ""` succeeds, so
+# a failed mktemp inside the cd would leave work naming the checkout, for finish to delete.
+work=$(mktemp -d) || fxm_die "could not create a temporary folder (mktemp -d)"
+work=$(cd "$work" && pwd -P)
+# The temporary worktree the release commit's checks run in (check_release_commit below).
+release_commit=$work/release-commit
 step=checks
 finish() {
-  local status=$?
-  rm -rf "$work"
+  local status=$? worktrees
+  worktrees=$(git worktree list --porcelain 2>/dev/null || true)
+  if grep -qxF "worktree $release_commit" <<<"$worktrees" &&
+    ! git worktree remove --force "$release_commit" 2>/dev/null; then
+    fxm_warn "Could not remove the temporary worktree $release_commit: git worktree prune drops it"
+  fi
+  # Only a folder that is neither the checkout nor one that holds it, whatever went wrong.
+  case "$root/" in
+    "$work"/*) fxm_warn "Left $work alone: it holds the checkout" ;;
+    *) rm -rf "$work" ;;
+  esac
   if [ "$status" -ne 0 ] && [ "$step" = changes ]; then
     fxm_warn "Stopped before the release commit. Undo its changes with: git restore --staged --worktree ."
   fi
 }
 trap finish EXIT
+# An interrupted run cleans up too.
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 problems=0
 pass() { printf '  \033[32m✔\033[0m %s\n' "$*"; }
@@ -118,6 +141,18 @@ else
   pass "tag $tag does not exist yet"
 fi
 
+# The notes start with the release's own summary, written for the people who use FXM.
+summary=$(fxm_release_summary_file "$version")
+if ! fxm_release_has_summary "$version"; then
+  problem "$summary is missing or empty: write the release's summary for the people who use" \
+    "FXM (docs/WORKFLOW.md, \"Releases\"), then commit and push it on develop"
+elif fxm_release_summary_is_draft "$version"; then
+  problem "$summary is still a draft: check it against what $tag ships, delete its" \
+    "'<!-- draft' line, then commit and push it on develop"
+else
+  pass "$summary has the release's summary"
+fi
+
 # The release workflow signs the Android APKs only with the key whose certificate this file pins,
 # and stops before tagging while it pins none (apps/mobile/RELEASING.md, The signing key).
 certificate=apps/mobile/release-certificate.txt
@@ -161,26 +196,71 @@ else
   fxm_die "could not install git-cliff"
 fi
 
+# The release commit's own checks. CI runs make check and make release-check on the commit this
+# script makes, and its changes alone, the versions and CHANGELOG.md, can break them: the
+# generated changelog may trip a lint rule, or a test that reads it. So the same changes go into
+# a temporary worktree of HEAD, which gets the dependencies from the lockfile, and make lint and
+# the release script tests run there; the checkout itself stays untouched. A real run skips this
+# when another check failed already, since it stops anyway.
+release_log=$work/release-commit.log
+changelog_entries=
+show_release_log() { tail -15 "$release_log" | sed 's/^/      | /'; }
+check_release_commit() {
+  local where="the release commit (checked in a temporary worktree)"
+  if ! git worktree add --quiet --detach "$release_commit" HEAD >"$release_log" 2>&1; then
+    problem "could not add a temporary worktree to check the release commit in"
+    show_release_log
+    return
+  fi
+  if ! (cd "$release_commit" && scripts/release-version.sh "$version" &&
+    scripts/release-notes.sh --changelog "$version") >"$release_log" 2>&1; then
+    problem "could not make $where: release-version.sh or release-notes.sh --changelog failed"
+    show_release_log
+    return
+  fi
+  changelog_entries=$(awk -v start="## [$version]" \
+    'index($0, start) == 1 { on = 1; next } /^## / { on = 0 } on && /^- /' \
+    "$release_commit/CHANGELOG.md" | wc -l | tr -d ' ')
+  if ! (cd "$release_commit" && scripts/run.sh pnpm install --frozen-lockfile --prefer-offline) \
+    >"$release_log" 2>&1; then
+    problem "the dependencies of $where don't install from the lockfile (pnpm install --frozen-lockfile)"
+    show_release_log
+    return
+  fi
+  if (cd "$release_commit" && make lint) >"$release_log" 2>&1; then
+    pass "$where passes make lint"
+  else
+    problem "$where fails make lint"
+    show_release_log
+  fi
+  if (cd "$release_commit" && scripts/release-test.sh) >"$release_log" 2>&1; then
+    pass "$where passes the release script tests"
+  else
+    problem "$where fails the release script tests (scripts/release-test.sh)"
+    show_release_log
+  fi
+}
+if $dry_run || [ "$problems" -eq 0 ]; then check_release_commit; fi
+
 if ! $dry_run && [ "$problems" -gt 0 ]; then
   fxm_die "$problems check(s) failed: fix them and run make release-pr again"
 fi
 
 notes=$work/notes.md
 "$here/release-notes.sh" "$version" >"$notes"
-entries=$(grep -c '^- ' "$notes" || true)
 
 body=$work/pull-request.md
 {
   echo "Merging this pull request with a merge commit releases FXM $tag: the release workflow"
   echo "tags the merge commit, builds the release files and publishes the GitHub Release with"
-  echo "these notes. Afterwards, merge main back into develop."
+  echo "the notes below. Afterwards, merge main back into develop."
   echo
-  echo "## Notes"
+  echo "---"
   echo
   cat "$notes"
 } >"$body"
 fxm_release_fit "$body" 65000 \
-  "The full list is in CHANGELOG.md on develop, and in the GitHub Release once it is published."
+  "The list goes on in the GitHub Release once it is published, and CHANGELOG.md on develop has every change."
 
 if $dry_run; then
   echo
@@ -192,7 +272,7 @@ if $dry_run; then
     echo "  1. Set the version (scripts/release-version.sh $version):"
   fi
   "$here/release-version.sh" --dry-run "$version" | sed 's/^/   /'
-  echo "  2. Regenerate CHANGELOG.md with git-cliff: $tag gets $entries entries"
+  echo "  2. Regenerate CHANGELOG.md with git-cliff${changelog_entries:+: $tag gets $changelog_entries entries}"
   if $update; then
     echo "  3. If either changed, commit \"chore(release): $tag\" on develop and push develop"
   else

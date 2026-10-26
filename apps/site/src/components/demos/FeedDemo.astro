@@ -1,4 +1,5 @@
 ---
+import { AVAILABLE } from '../../config'
 import Icon from '../Icon.astro'
 
 const picks = [
@@ -11,13 +12,14 @@ const mixes = [
   { number: 2, art: 'art-1' },
   { number: 3, art: 'art-2' },
 ]
+
+// Endless radio (stage 3.4) shows once it is out.
+const label = AVAILABLE.radio
+  ? 'A home feed with three quick picks, three daily mixes and an endless radio station based on a song.'
+  : 'A home feed with three quick picks and three daily mixes.'
 ---
 
-<div
-  class="demo"
-  role="img"
-  aria-label="A home feed with three quick picks, three daily mixes and an endless radio station based on a song."
->
+<div class="demo" role="img" aria-label={label}>
   <div class="head">
     <span class="hello">Made for you</span>
     <span class="today">Today</span>
@@ -44,13 +46,17 @@ const mixes = [
       </span>
     ))}
   </div>
-  <div class="radio">
-    <span class="radio-icon"><Icon name="radio" size={18} /></span>
-    <span class="meta">
-      <span class="title">Endless radio</span>
-      <span class="artist">Based on Paper Lanterns · keeps going</span>
-    </span>
-  </div>
+  {AVAILABLE.radio && (
+    <div class="radio">
+      <span class="radio-icon">
+        <Icon name="radio" size={18} />
+      </span>
+      <span class="meta">
+        <span class="title">Endless radio</span>
+        <span class="artist">Based on Paper Lanterns · keeps going</span>
+      </span>
+    </div>
+  )}
 </div>
 
 <style>

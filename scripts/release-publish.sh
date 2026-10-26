@@ -104,12 +104,12 @@ body=$(mktemp)
 trap 'rm -f "$sums" "$body"' EXIT
 cp "$notes" "$body"
 fxm_release_fit "$body" 115000 \
-  "The full list is in [CHANGELOG.md](https://github.com/$repo/blob/$tag/CHANGELOG.md)."
+  "The list goes on in [CHANGELOG.md](https://github.com/$repo/blob/$tag/CHANGELOG.md), which has every change."
 {
   echo
   echo "---"
   echo
-  echo "### Files"
+  echo "## Files"
   echo
   echo "| File | What it is |"
   echo "|---|---|"

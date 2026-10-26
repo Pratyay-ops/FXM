@@ -6,13 +6,15 @@ import {
   headersRevision,
   PLANNED_APP_CSP,
   PWA_REVALIDATE_PATHS,
+  pageRevision,
   parseCsp,
   pwaCspProblems,
+  setPageRevision,
 } from './host.ts'
 
 describe('what the PWA needs from the host', () => {
-  // Integration with 2.8: check the /app/* rule its _headers generator writes here instead.
-  it("is allowed by the /app/* policy that stage 2.8's _headers will send", () => {
+  // scripts/build-dist checks the policy make dist generates the same way (policies.test.ts).
+  it('is allowed by the /app/* policy of docs/PLAN.md §2.8', () => {
     expect(pwaCspProblems(PLANNED_APP_CSP)).toEqual([])
   })
 
@@ -54,7 +56,7 @@ describe('what the PWA needs from the host', () => {
     ])
   })
 
-  it('sends the /app/* rule of docs/PLAN.md §2.8 until 2.8 provides its own', () => {
+  it('revisions builds outside make dist with the /app/* rule of docs/PLAN.md §2.8', () => {
     expect(APP_HEADERS).toEqual({
       'Content-Security-Policy': PLANNED_APP_CSP,
       'Referrer-Policy': 'no-referrer',
@@ -79,5 +81,50 @@ describe('headersRevision', () => {
 
   it('ignores the order of the headers and the case of their names', () => {
     expect(headersRevision({ A: '1', b: '2' })).toBe(headersRevision({ B: '2', a: '1' }))
+  })
+})
+
+describe('the page revision make dist sets', () => {
+  const page = '<!doctype html><title>FXM</title>'
+  const rule = { 'Content-Security-Policy': "default-src 'self'", 'Referrer-Policy': 'no-referrer' }
+
+  it('changes when only the policy changes, so installed apps get the new headers', () => {
+    const revision = pageRevision(page, rule)
+    expect(revision).toMatch(/^[0-9a-f]{32}$/)
+    expect(pageRevision(page, { ...rule })).toBe(revision)
+    expect(
+      pageRevision(page, {
+        ...rule,
+        'Content-Security-Policy': "default-src 'self'; img-src data:",
+      }),
+    ).not.toBe(revision)
+    expect(pageRevision(page, { ...rule, 'Permissions-Policy': 'camera=()' })).not.toBe(revision)
+  })
+
+  it('changes with the page, and not with the order of the headers or the case of their names', () => {
+    expect(pageRevision(`${page}<p>`, rule)).not.toBe(pageRevision(page, rule))
+    const reordered = Object.fromEntries(
+      Object.entries(rule)
+        .reverse()
+        .map(([name, value]) => [name.toLowerCase(), value]),
+    )
+    expect(pageRevision(page, reordered)).toBe(pageRevision(page, rule))
+  })
+
+  it('replaces the revision the build gave the page in the service worker, and only that', () => {
+    const built = `${'0'.repeat(32)}-${headersRevision(APP_HEADERS)}`
+    const worker = `precache([{url:"index.html",revision:"${built}"},{url:"icons/icon-192.png",revision:"abc"}])`
+    expect(setPageRevision(worker, 'f'.repeat(32))).toBe(
+      `precache([{url:"index.html",revision:"${'f'.repeat(32)}"},{url:"icons/icon-192.png",revision:"abc"}])`,
+    )
+    expect(setPageRevision(`precache([{revision:'${built}',url:'index.html'}])`, 'new')).toBe(
+      "precache([{revision:'new',url:'index.html'}])",
+    )
+  })
+
+  it("refuses a service worker without the build's page revision, or with two", () => {
+    const built = `"abc-${headersRevision(APP_HEADERS)}"`
+    expect(() => setPageRevision('precache([])', 'new')).toThrow(/has 0 precache revisions/)
+    expect(() => setPageRevision(`[${built},${built}]`, 'new')).toThrow(/has 2 precache revisions/)
   })
 })

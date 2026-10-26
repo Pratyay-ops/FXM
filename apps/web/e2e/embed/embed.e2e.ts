@@ -431,7 +431,7 @@ test('fits the install hint in the compact layout, also on phones', async ({ pag
     await expect(frame.getByRole('heading', { name: 'A song from YouTube Music' })).toBeAttached()
     await expect(frame.locator('p', { hasText: 'A song from YouTube Music' })).toBeVisible()
     const message = frame.getByRole('status').locator('p')
-    await expect(message).toHaveText('Needs FXM Connect or the FXM app to play here.')
+    await expect(message).toHaveText('Needs FXM Connect to play here.')
     // Two lines at most, nothing clamped, and the action (an icon on phones) in reach.
     expect(await message.evaluate((text) => text.scrollHeight <= text.clientHeight)).toBe(true)
     await expect(frame.getByRole('link', { name: 'Get FXM (opens a new tab)' })).toBeVisible()

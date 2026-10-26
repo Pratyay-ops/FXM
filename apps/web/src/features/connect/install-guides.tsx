@@ -11,6 +11,7 @@
 
 import { CircleAlert, Info, RefreshCw, Wrench } from 'lucide-react'
 import type { ReactNode } from 'react'
+import { freeSources } from '../../lib/free-sources'
 import { RELEASED, RELEASES_URL } from './config'
 import {
   BROWSER_NAMES,
@@ -360,8 +361,8 @@ export function InstallGuides({ device, openFirst }: InstallGuidesProps) {
             </p>
             {!RELEASED.android && device.os === 'android' && (
               <p className="text-sm">
-                Until it's out, this browser plays free music from Internet Archive and Jamendo and,
-                where its check passes, YouTube Music in the experimental Lite tier.
+                Until it's out, this browser plays free music from {freeSources().and} and, where
+                its check passes, YouTube Music in the experimental Lite tier.
               </p>
             )}
             {RELEASED.android ? (
@@ -384,9 +385,8 @@ export function InstallGuides({ device, openFirst }: InstallGuidesProps) {
           <Guide key={guide} id={guide} title="Safari, iPhone and iPad" chips={chips} open={open}>
             <p className="text-sm text-text-muted">
               FXM Connect isn't available for Safari, iPhone or iPad, and there is no iPhone app.
-              There, FXM plays free music from Internet Archive and Jamendo and, where its check
-              passes, YouTube Music in the experimental Lite tier. Lite hasn't been tested in Safari
-              yet.
+              There, FXM plays free music from {freeSources().and} and, where its check passes,
+              YouTube Music in the experimental Lite tier. Lite hasn't been tested in Safari yet.
             </p>
             {isMacSafari(device) && (
               <p className="text-sm">

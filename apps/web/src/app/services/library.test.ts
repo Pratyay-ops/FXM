@@ -3,9 +3,10 @@ import {
   type CatalogMode,
   type EntityId,
   formatId,
+  MATCHER_VERSION,
   type Track,
 } from '@fxm/core'
-import type { MatchKey, StoredMatch } from '@fxm/player'
+import { createMemoryMatchStore, type MatchKey, type StoredMatch } from '@fxm/player'
 import { describe, expect, it, vi } from 'vitest'
 import { getLibrary } from '../../db/repo'
 import {
@@ -15,6 +16,7 @@ import {
   lazyLibrary,
   libraryActionsFrom,
   matchStoreFrom,
+  withEffectiveBands,
 } from './library'
 
 const TRACK: Track = {
@@ -255,5 +257,55 @@ describe("stage 2.6's repository", () => {
 
     await store.delete(song)
     await expect(store.get(song)).resolves.toBeUndefined()
+  })
+})
+
+describe('withEffectiveBands', () => {
+  const key: MatchKey = { sourceTrackId: SOURCE, mode: 'music', target: 'song' }
+  const sure: AudioCandidate = {
+    ...CANDIDATE,
+    verdict: { band: 'auto', blockers: [], matcherVersion: MATCHER_VERSION },
+  }
+  const decision = (overrides: Partial<StoredMatch>): StoredMatch => ({
+    band: 'suggest',
+    candidate: sure,
+    alternatives: [],
+    evidence: [],
+    userPinned: false,
+    decidedAt: Date.now(),
+    ...overrides,
+  })
+
+  it('reads an engine decision with the Auto setting as it is now', async () => {
+    const store = createMemoryMatchStore()
+    let auto = false
+    const read = withEffectiveBands(store, () => auto)
+    // Kept while the setting was on, and read after it was turned off: a suggestion again.
+    await read.put(key, decision({ band: 'auto' }))
+    expect((await read.get(key))?.band).toBe('suggest')
+    // And the other way round, as core's MatchVerdict asks of a cache.
+    auto = true
+    await read.put(key, decision({ band: 'suggest' }))
+    expect((await read.get(key))?.band).toBe('auto')
+  })
+
+  it('never lets a guess of another matcher, or without a verdict, play unasked', async () => {
+    const read = withEffectiveBands(createMemoryMatchStore(), () => true)
+    const old = { ...sure, verdict: { band: 'auto' as const, blockers: [], matcherVersion: 0 } }
+    await read.put(key, decision({ band: 'auto', candidate: old }))
+    expect((await read.get(key))?.band).toBe('suggest')
+    await read.put(key, decision({ band: 'auto', candidate: CANDIDATE }))
+    expect((await read.get(key))?.band).toBe('suggest')
+  })
+
+  it('leaves pins, "nothing came close" and lossless decisions as they are', async () => {
+    const read = withEffectiveBands(createMemoryMatchStore(), () => false)
+    await read.put(key, decision({ band: 'auto', userPinned: true }))
+    expect((await read.get(key))?.band).toBe('auto')
+    await read.put(key, decision({ band: 'none' }))
+    expect((await read.get(key))?.band).toBe('none')
+    const lossless: MatchKey = { ...key, target: 'lossless' }
+    await read.put(lossless, decision({ band: 'auto' }))
+    expect((await read.get(lossless))?.band).toBe('auto')
   })
 })

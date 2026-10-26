@@ -20,8 +20,10 @@
  *   `Origin: null` and expects `Access-Control-Allow-Origin: null`, which no rule can give
  *   without also breaking requests that were not redirected: fetch(), MediaSource and downloads
  *   fail there, while a plain <audio src> still plays (see the README).
- * - open.spotify.com/api/token, /api/server-time and clienttoken.spotify.com send no CORS
- *   headers but answer OPTIONS with 200. api-partner and spclient echo any Origin today.
+ * - open.spotify.com/api/token and /api/server-time send no CORS headers but answer OPTIONS
+ *   with 200. api-partner and spclient echo any Origin today. clienttoken.spotify.com answers CORS
+ *   for open.spotify.com only, but FXM doesn't use it, so no rule touches it (a stage that needs
+ *   it adds the rule, its host permission and the platform's host-table row together).
  *
  * Every rule also strips cookies from the request and Set-Cookie and
  * Access-Control-Allow-Credentials from the response, so a page can never act as the user's
@@ -204,12 +206,6 @@ export const CORS_RULE_SPECS: readonly CorsRuleSpec[] = [
     'spotify-server-time',
     'https://open.spotify.com/*',
     { urlFilter: '|https://open.spotify.com/api/server-time^' },
-    true,
-  ),
-  spotify(
-    'spotify-clienttoken',
-    'https://clienttoken.spotify.com/*',
-    { requestDomains: ['clienttoken.spotify.com'] },
     true,
   ),
   spotify(

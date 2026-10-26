@@ -41,6 +41,12 @@ export interface HomeSourcesSnapshot {
   readonly capabilities: NetworkCapabilities
   /** Whether the user switched Spotify on (it is used only when it is also reachable). */
   readonly spotifyEnabled: boolean
+  /**
+   * Whether the tier is still being worked out (FXM Connect waking up, the first Lite check).
+   * Meanwhile Home shows a placeholder instead of saying what this browser lacks, which would
+   * most likely be wrong. Absent means `false`.
+   */
+  readonly detecting?: boolean
 }
 
 /**
@@ -148,7 +154,8 @@ const refuseFetch: Fetch = () =>
 
 /**
  * Sources with fixed capabilities (Free only unless told otherwise) and the Spotify switch on:
- * the stand-in until 2.4's `appSources` is wired in, and what tests use.
+ * Home's default until the composition root sets the app's services (stage 2.9b), after it
+ * takes them back, and what tests use.
  */
 export function staticSources(
   capabilities: NetworkCapabilities = FREE_ONLY,
