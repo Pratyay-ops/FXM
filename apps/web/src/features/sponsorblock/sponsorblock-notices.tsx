@@ -382,9 +382,16 @@ export function SponsorBlockNotices() {
 }
 
 /**
+ * The root's CSS variable with the height the cards cover above the bars, unset while they cover
+ * none: the app's toast (`FeedbackToast`) rises by as much, so it never hides a card's buttons.
+ */
+export const CARDS_HEIGHT_PROPERTY = '--shell-cards'
+
+/**
  * How much of the page the cards cover above the bars, in pixels, while `active`. Meanwhile the
  * page's `scroll-padding-bottom` grows by as much, so the browser scrolls keyboard focus clear
- * of them (WCAG 2.4.11), as it does for the bars (`--shell-bottom`).
+ * of them (WCAG 2.4.11), as it does for the bars (`--shell-bottom`), and so does the toast's
+ * place (`CARDS_HEIGHT_PROPERTY`).
  */
 function useCoveredHeight(ref: RefObject<HTMLElement | null>, active: boolean): number {
   const [height, setHeight] = useState(0)
@@ -401,6 +408,8 @@ function useCoveredHeight(ref: RefObject<HTMLElement | null>, active: boolean): 
       setHeight(covered)
       root.style.scrollPaddingBottom =
         covered > 0 ? `calc(var(--shell-bottom) + ${covered}px + 0.5rem)` : ''
+      if (covered > 0) root.style.setProperty(CARDS_HEIGHT_PROPERTY, `${covered}px`)
+      else root.style.removeProperty(CARDS_HEIGHT_PROPERTY)
     }
     update()
     const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(update) : undefined
@@ -408,6 +417,7 @@ function useCoveredHeight(ref: RefObject<HTMLElement | null>, active: boolean): 
     return () => {
       observer?.disconnect()
       root.style.scrollPaddingBottom = ''
+      root.style.removeProperty(CARDS_HEIGHT_PROPERTY)
     }
   }, [ref, active])
   return height

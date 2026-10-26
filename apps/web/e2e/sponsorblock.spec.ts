@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { expect, type Page, test } from '@playwright/test'
 import { SEED_QUEUE } from './now-playing-seed'
 
@@ -7,6 +8,9 @@ import { SEED_QUEUE } from './now-playing-seed'
 
 const OFFER = 'Skip non-music parts of videos?'
 const SWITCH = 'Skip non-music parts of videos'
+
+/** A library backup (fictional songs): restoring it confirms in the app's toast. */
+const LIBRARY_BACKUP = fileURLToPath(new URL('./fixtures/library-backup.json', import.meta.url))
 
 async function seedMode(page: Page, catalogMode: 'music' | 'all') {
   await page.addInitScript((mode) => {
@@ -243,6 +247,28 @@ test.describe('on a 390 px phone', () => {
     ).toBeVisible()
     await expect(page.getByRole('region', { name: OFFER })).toHaveCount(0)
     expect(await playPauseHittable(page)).toBe(true)
+  })
+
+  test('keeps the app’s toast clear of the offer', async ({ page }) => {
+    await seedMode(page, 'all')
+    await page.goto('library')
+    const offer = page.getByRole('region', { name: OFFER })
+    await expect(offer).toBeVisible()
+
+    await page.getByRole('main').getByRole('button', { name: 'Backup' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Back up your library' })
+    await dialog.getByLabel('Choose a backup file').setInputFiles(LIBRARY_BACKUP)
+    await dialog.getByRole('radio', { name: /Replace/ }).check()
+    await dialog.getByRole('button', { name: 'Replace my library' }).click()
+    const toast = page.getByText('Library replaced from the backup', { exact: true })
+    await expect(toast).toBeVisible()
+
+    // The toast rises above the card, which keeps its place under the user's finger.
+    const card = await offer.boundingBox()
+    const message = await toast.boundingBox()
+    expect(card && message && message.y + message.height).toBeLessThanOrEqual(card?.y ?? 0)
+    const player = await page.getByRole('region', { name: 'Player' }).boundingBox()
+    expect(card && player && card.y + card.height).toBeLessThanOrEqual(player?.y ?? 0)
   })
 
   test('shows the skip notice under Now playing’s controls, which stay clear', async ({ page }) => {

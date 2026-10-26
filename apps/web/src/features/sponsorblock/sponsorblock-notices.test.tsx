@@ -4,7 +4,12 @@ import { renderApp } from '../../test/render'
 import { setupTestPlayback } from '../now-playing/testing'
 import { useSettingsStore } from '../settings/settings-store'
 import { type SkipNotice, useSkipNoticeStore } from './skipping'
-import { PHONE_QUERY, SHORT_QUERY, SKIP_NOTICE_MS } from './sponsorblock-notices'
+import {
+  CARDS_HEIGHT_PROPERTY,
+  PHONE_QUERY,
+  SHORT_QUERY,
+  SKIP_NOTICE_MS,
+} from './sponsorblock-notices'
 import {
   OFFER_SESSION_KEY,
   SPONSORBLOCK_STORAGE_KEY,
@@ -180,6 +185,22 @@ describe('SponsorBlock offer', () => {
     expect(screen.getByRole('button', { name: 'No thanks' })).toHaveFocus()
     await user.keyboard('{Enter}')
     expect(link).toHaveFocus()
+  })
+
+  it('lifts the app’s toast above the cards while they show', async () => {
+    // happy-dom lays nothing out: give the cards a height.
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(120)
+    const lift = () => document.documentElement.style.getPropertyValue(CARDS_HEIGHT_PROPERTY)
+    const { unmount } = renderApp('/')
+    await screen.findByRole('heading', { level: 1 })
+    expect(lift()).toBe('')
+
+    act(() => useSettingsStore.getState().setCatalogMode('all'))
+    await screen.findByRole('region', { name: OFFER })
+    // The cards, and the gap between them and the bars.
+    expect(lift()).toBe('132px')
+    unmount()
+    expect(lift()).toBe('')
   })
 })
 
