@@ -482,6 +482,10 @@ describe('the headers of every response', () => {
     for (const [name, value] of COMMON_HEADERS) {
       expect(EMBED_HEADERS[name.toLowerCase()], name).toBe(value)
     }
+    // Its policy too, without the app's theme-script hash, which the player doesn't need.
+    expect(EMBED_HEADERS['content-security-policy']).toBe(
+      serializePolicy(appPolicy([], { ...ALL, embeddable: true })),
+    )
   })
 
   it('find a Permissions-Policy that turns off more, or allows something', () => {
