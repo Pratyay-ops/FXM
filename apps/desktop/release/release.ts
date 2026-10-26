@@ -50,7 +50,14 @@ import {
 } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { createReporter, parseOptions, type Reporter, requireOption } from './actions.ts'
+import {
+  createReporter,
+  isRecord,
+  messageOf,
+  parseOptions,
+  type Reporter,
+  requireOption,
+} from './actions.ts'
 import {
   appImageArch,
   appImageTools,
@@ -87,21 +94,39 @@ export function isReleaseVersion(version: string): boolean {
   return match?.slice(1).every((part) => Number(part) <= 65535) ?? false
 }
 
+/** A JSON file, parsed, as nothing more than JSON. */
+const readJson = (path: string): unknown => JSON.parse(readFileSync(path, 'utf8'))
+
 /** The version in a package.json. */
 export function readAppVersion(path = PACKAGE_JSON): string {
-  const version = (JSON.parse(readFileSync(path, 'utf8')) as { version?: unknown }).version
+  const manifest = readJson(path)
+  const version = isRecord(manifest) ? manifest.version : undefined
   if (typeof version !== 'string') throw new Error(`${path} has no version`)
   return version
 }
 
 /** The updater's public key in a tauri.conf.json, as the apps carry it. */
 export function readUpdaterPubkey(path = TAURI_CONFIG): string {
-  const config = JSON.parse(readFileSync(path, 'utf8')) as {
-    plugins?: { updater?: { pubkey?: unknown } }
-  }
-  const pubkey = config.plugins?.updater?.pubkey
+  const config = readJson(path)
+  const plugins = isRecord(config) ? config.plugins : undefined
+  const updater = isRecord(plugins) ? plugins.updater : undefined
+  const pubkey = isRecord(updater) ? updater.pubkey : undefined
   if (typeof pubkey !== 'string') throw new Error(`${path} has no plugins > updater > pubkey`)
   return pubkey
+}
+
+/** tauri-action's artifactPaths output: a JSON array of the paths it found. */
+export function parseArtifactPaths(text: string): string[] {
+  let paths: unknown
+  try {
+    paths = JSON.parse(text)
+  } catch {
+    throw new Error('ARTIFACT_PATHS is not JSON')
+  }
+  if (!Array.isArray(paths) || !paths.every((path) => typeof path === 'string')) {
+    throw new Error('ARTIFACT_PATHS is not a JSON array of paths')
+  }
+  return paths
 }
 
 /** The updater's public key, or why a release can't use it. */
@@ -360,7 +385,7 @@ export async function main(
       return appImageToolsCommand(options, reporter, download)
     case 'collect': {
       const target = targetById(requireOption(options, 'target'))
-      const paths = env.ARTIFACT_PATHS ? (JSON.parse(env.ARTIFACT_PATHS) as string[]) : undefined
+      const paths = env.ARTIFACT_PATHS ? parseArtifactPaths(env.ARTIFACT_PATHS) : undefined
       const files = collectTarget({
         target,
         version: requireOption(options, 'version'),
@@ -420,7 +445,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   try {
     await main(process.argv.slice(2), process.env, reporter)
   } catch (error) {
-    reporter.error('Desktop release', (error as Error).message)
+    reporter.error('Desktop release', messageOf(error))
     process.exitCode = 1
   }
 }

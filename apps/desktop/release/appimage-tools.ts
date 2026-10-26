@@ -48,6 +48,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { join, resolve } from 'node:path'
+import { isRecord } from './actions.ts'
 
 /** The Tauri CLI whose bundler (tauri-bundler 2.10.2) looks for these tools by these names. */
 export const TAURI_CLI = '2.12.2'
@@ -288,9 +289,6 @@ export function checkAfterBuild({ out, tools, bundleDir }: AfterBuildCheck): str
   }
   return appImages.sort()
 }
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value)
 
 /** The version of the Tauri CLI in apps/desktop/node_modules, which builds the release. */
 export function readTauriCliVersion(

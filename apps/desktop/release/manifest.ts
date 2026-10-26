@@ -5,6 +5,7 @@
  *
  * @module
  */
+import { isRecord, messageOf } from './actions.ts'
 import { type PublicKey, signedVersion, verify } from './minisign.ts'
 import { releaseFiles } from './targets.ts'
 
@@ -70,9 +71,6 @@ export interface ManifestCheck {
   read(name: string): Uint8Array | undefined
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value)
-
 /**
  * What is wrong with a manifest, as each platform's updater would find it: the version, the date,
  * exactly the expected platforms, each pointing at its own file of this release, with a signature
@@ -122,7 +120,7 @@ export function checkManifest(manifest: unknown, check: ManifestCheck): string[]
         problems.push(`${platform}: ${file} is signed for version ${signed ?? 'none'}`)
       }
     } catch (error) {
-      problems.push(`${platform}: ${(error as Error).message}`)
+      problems.push(`${platform}: ${messageOf(error)}`)
     }
   }
   return problems

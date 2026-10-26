@@ -10,6 +10,7 @@ import {
   gatherArtifacts,
   isReleaseVersion,
   main,
+  parseArtifactPaths,
   parseMode,
   readAppVersion,
   readUpdaterPubkey,
@@ -145,6 +146,17 @@ describe('check', () => {
     expect(() => parseMode('relase')).toThrow(/--mode must be release or dry-run/)
   })
 
+  it('says what is missing from a file that is not what it should be', () => {
+    const file = join(folder, 'file.json')
+    for (const text of ['null', '[]', '{"version":1}', '{"plugins":{"updater":null}}']) {
+      writeFileSync(file, text)
+      expect(() => readAppVersion(file), text).toThrow(`${file} has no version`)
+      expect(() => readUpdaterPubkey(file), text).toThrow(
+        `${file} has no plugins > updater > pubkey`,
+      )
+    }
+  })
+
   it('reads the key the apps carry from tauri.conf.json', () => {
     const pubkey = readUpdaterPubkey()
     expect(pubkey.startsWith('PLACEHOLDER') || decodePublicKey(pubkey).key.length === 32).toBe(true)
@@ -212,6 +224,25 @@ describe('collect', () => {
     expect(() =>
       collectTarget({ target, version: '0.7.0', bundleDir: bundle(), out: folder }),
     ).toThrow('windows-x64: the build made no nsis/FXM_0.7.0_x64-setup.exe')
+  })
+
+  it('takes tauri-action’s paths only as a JSON array of strings', async () => {
+    expect(parseArtifactPaths('["/a/b.msi","/a/c.exe"]')).toEqual(['/a/b.msi', '/a/c.exe'])
+    for (const text of ['{"paths":[]}', '"/a/b.msi"', '[1]', '["/a", null]', 'null']) {
+      expect(() => parseArtifactPaths(text), text).toThrow(
+        'ARTIFACT_PATHS is not a JSON array of paths',
+      )
+    }
+    expect(() => parseArtifactPaths('[/a/b.msi]')).toThrow('ARTIFACT_PATHS is not JSON')
+    const { reporter } = recorder()
+    const args = ['collect', '--target', 'windows-x64', '--version', '0.7.0']
+    await expect(
+      main(
+        [...args, '--bundle-dir', bundle(), '--out', folder],
+        { ARTIFACT_PATHS: '{}' },
+        reporter,
+      ),
+    ).rejects.toThrow('ARTIFACT_PATHS is not a JSON array of paths')
   })
 
   it('stops when tauri-action didn’t report a file, if it reported any', () => {

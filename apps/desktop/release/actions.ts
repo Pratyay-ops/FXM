@@ -85,3 +85,11 @@ export function requireOption(options: Map<string, string>, name: string): strin
   if (value === undefined || value === 'true') throw new Error(`--${name} <value> is required`)
   return value
 }
+
+/** Whether a parsed JSON value is an object (not `null`, not an array). */
+export const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+
+/** What went wrong, from anything thrown: an error's message, or the value itself. */
+export const messageOf = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error)
