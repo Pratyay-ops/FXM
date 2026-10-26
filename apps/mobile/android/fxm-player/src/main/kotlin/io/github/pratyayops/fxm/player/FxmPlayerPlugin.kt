@@ -16,7 +16,7 @@ import com.getcapacitor.PluginCall
 import com.getcapacitor.PluginMethod
 import com.getcapacitor.WebViewListener
 import com.getcapacitor.annotation.CapacitorPlugin
-import io.github.pratyayops.fxm.downloads.DownloadFiles
+import io.github.pratyayops.fxm.downloads.DeviceFiles
 import org.json.JSONObject
 
 /**
@@ -41,7 +41,7 @@ class FxmPlayerPlugin : Plugin() {
   private val waiting = mutableListOf<(PlaybackService?) -> Unit>()
 
   /** The files entries may play: the app's downloads, and the device's music (stage 6.4). */
-  private val local by lazy { LocalSources(listOf(DownloadFiles.directory(context))) }
+  private val local by lazy { DeviceFiles.of(context) }
 
   private val link =
     JsLink { event ->

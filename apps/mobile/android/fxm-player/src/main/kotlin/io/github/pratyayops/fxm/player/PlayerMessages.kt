@@ -1,5 +1,7 @@
 package io.github.pratyayops.fxm.player
 
+import io.github.pratyayops.fxm.downloads.DeviceFileRefusedException
+import io.github.pratyayops.fxm.downloads.DeviceFiles
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import org.json.JSONArray
@@ -36,7 +38,7 @@ object PlayerMessages {
   // --- From the web app ------------------------------------------------------------------------
 
   /** An entry; its file source, if it has one, must be one [local] allows. */
-  fun entry(json: JSONObject?, local: LocalSources = LocalSources.NONE): Entry {
+  fun entry(json: JSONObject?, local: DeviceFiles = DeviceFiles.NONE): Entry {
     if (json == null) throw bad("An entry is missing")
     val id = json.opt("id") as? String
     if (id == null || !ID.matches(id)) throw bad("Invalid entry id")
@@ -47,7 +49,7 @@ object PlayerMessages {
   }
 
   /** At most [MAX_UPCOMING] entries with distinct ids. */
-  fun entries(array: JSONArray?, local: LocalSources = LocalSources.NONE): List<Entry> {
+  fun entries(array: JSONArray?, local: DeviceFiles = DeviceFiles.NONE): List<Entry> {
     if (array == null) return emptyList()
     if (array.length() > MAX_UPCOMING) throw bad("At most $MAX_UPCOMING entries can be queued")
     val entries = (0 until array.length()).map { entry(array.optJSONObject(it), local) }
@@ -59,13 +61,19 @@ object PlayerMessages {
    * A source: an HTTPS stream (`kind` `http`, the default), or a file on the device (`file`)
    * that [local] allows. A file has nothing but its URI: no headers, expiry, network or key.
    */
-  fun source(json: JSONObject?, local: LocalSources = LocalSources.NONE): Source {
+  fun source(json: JSONObject?, local: DeviceFiles = DeviceFiles.NONE): Source {
     if (json == null) throw bad("A source is missing")
     when (json.opt("kind")) {
       null, JSONObject.NULL, "http" -> {}
       "file" -> {
         val url = json.opt("url") as? String ?: throw bad("A file source needs a URI")
-        return Source(local.check(url), kind = SourceKind.FILE)
+        val checked =
+          try {
+            local.check(url)
+          } catch (e: DeviceFileRefusedException) {
+            throw bad(e.message ?: "The player can't read that file")
+          }
+        return Source(checked, kind = SourceKind.FILE)
       }
       else -> throw bad("Unknown source kind")
     }

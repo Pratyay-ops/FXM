@@ -16,8 +16,8 @@ enum class SourceKind(val wire: String) {
   HTTP("http"),
 
   /**
-   * On the device ([LocalSources]): an offline copy in the app's downloads folder (a `file:` URI)
-   * or the device's own music (a MediaStore `content:` URI).
+   * On the device (fxm-downloads' `DeviceFiles`): an offline copy in the app's downloads folder
+   * (a `file:` URI) or the device's own music (a MediaStore `content:` URI).
    */
   FILE("file"),
 }
@@ -29,7 +29,7 @@ enum class SourceKind(val wire: String) {
 data class Source(
   /**
    * The HTTPS URL of the whole file, fetched with plain `GET`s; for a [SourceKind.FILE] source,
-   * the `file:` or `content:` URI [LocalSources] checked.
+   * the `file:` or `content:` URI `DeviceFiles` checked.
    */
   val url: String,
   /** Request headers the URL needs, e.g. a `Referer`. FXM's network rules still apply. */

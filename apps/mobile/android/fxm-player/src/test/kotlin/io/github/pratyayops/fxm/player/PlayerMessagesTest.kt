@@ -88,7 +88,7 @@ class PlayerMessagesTest {
     bad { PlayerMessages.source(source("fileKey" to 7)) }
     bad { PlayerMessages.source(source("fileKey" to "k".repeat(PlayerMessages.MAX_FILE_KEY_CHARS + 1))) }
     assertTrue(bad { PlayerMessages.source(source("kind" to "magnet")) }.contains("kind"))
-    // A file source must be a file the player may play (LocalSourcesTest): an HTTPS URL isn't.
+    // A file source must be a file the player may play (FileSourcesTest): an HTTPS URL isn’t.
     bad { PlayerMessages.source(source("kind" to "file")) }
     bad { PlayerMessages.source(source("ipBound" to "yes")) }
   }

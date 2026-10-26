@@ -31,7 +31,7 @@ import io.github.pratyayops.fxm.http.FxmHttp
  *
  * Every request, audio and artwork alike, goes through fxm-http's shared OkHttp client
  * ([FxmHttp.client]): FXM's host and header rules, no cookies, a browser `User-Agent`. Offline
- * copies and the device's music play from the device ([LocalSources], stage 6.4).
+ * copies and the device's music play from the device (fxm-downloads' `DeviceFiles`, stage 6.4).
  * The [Coordinator] decides what plays; the FxmPlayer plugin binds this service to reach it.
  */
 class PlaybackService : MediaSessionService() {
@@ -60,7 +60,7 @@ class PlaybackService : MediaSessionService() {
     val client = FxmHttp.client(this)
     val table = SourceTable()
     // HTTPS through the shared OkHttp client (never DefaultHttpDataSource: DefaultDataSource
-    // uses the base factory it is given), and the files LocalSources allowed from the device.
+    // uses the base factory it is given), and the files DeviceFiles allowed from the device.
     val upstream = DefaultDataSource.Factory(this, OkHttpDataSource.Factory(client))
     val media =
       ProgressiveMediaSource.Factory(ResolvingDataSource.Factory(upstream, EntryResolver(table)))

@@ -13,7 +13,7 @@ import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
  * seek or reconnect). Under it, HTTPS goes through OkHttp on fxm-http's shared client, so FXM's
  * host, header and cookie rules apply; requests stay plain `GET`s: from the start without a
  * `Range` header, and `Range: bytes=<n>-` after a seek, never in chunks. A file source's
- * `file:` or `content:` URI, which [LocalSources] checked, is read from the device.
+ * `file:` or `content:` URI, which fxm-downloads' `DeviceFiles` allowed, is read from the device.
  */
 class EntryResolver(private val table: SourceTable) : ResolvingDataSource.Resolver {
   override fun resolveDataSpec(dataSpec: DataSpec): DataSpec {

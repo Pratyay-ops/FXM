@@ -315,9 +315,9 @@ describe('the Android project', () => {
       expect(read('android/fxm-player/build.gradle')).toContain(
         "implementation project(':fxm-downloads')",
       )
-      expect(player('FxmPlayerPlugin.kt')).toContain(
-        'LocalSources(listOf(DownloadFiles.directory(context)))',
-      )
+      // The same list as the WebView's (fxm-downloads' DeviceFiles, below).
+      expect(player('FxmPlayerPlugin.kt')).toContain('DeviceFiles.of(context)')
+      expect(player('PlayerMessages.kt')).toContain('local.check(url)')
       // HTTPS stays on the shared OkHttp client: DefaultDataSource only routes files to Media3's
       // file and content readers, given OkHttp as its base (without one it would make a
       // DefaultHttpDataSource).
@@ -333,6 +333,50 @@ describe('the Android project', () => {
         expect(bridge).toContain(`'${prefix}'`)
         expect(files).toContain(`'${prefix}'`)
       }
+    })
+
+    it('shows the page no file of the device but its downloads and the songs it lists', () => {
+      // Installed once the bridge exists, before the page can run a script.
+      const activity = withoutComments(
+        read('android/app/src/main/java/io/github/pratyayops/fxm/MainActivity.java'),
+      )
+      const install = activity.indexOf('DeviceFileFilter.install(bridge)')
+      expect(install).toBeGreaterThan(activity.indexOf('super.onCreate(savedInstanceState)'))
+      const filter = withoutComments(kotlin('DeviceFileFilter.kt'))
+      expect(filter).toMatch(/class DeviceFileFilter[^{]*: BridgeWebViewClient\(bridge\)/)
+      expect(filter).toMatch(
+        /override fun shouldInterceptRequest\(view: WebView\?, request: WebResourceRequest\?\)[\s\S]*?webViewAllows[\s\S]*?super\.shouldInterceptRequest/,
+      )
+      expect(filter).toContain('bridge.setWebViewClient(DeviceFileFilter(bridge, files))')
+      // Service workers' requests skip the WebView's client: Capacitor answers them too.
+      expect(filter).toMatch(
+        /setServiceWorkerClient\([\s\S]*?webViewAllows[\s\S]*?bridge\.localServer\.shouldInterceptRequest/,
+      )
+      // DeviceFiles repeats what Capacitor's local server opens: the same prefixes, the same
+      // order (content first), and the same replacements.
+      const capacitor = (name: string) =>
+        read(`node_modules/@capacitor/android/capacitor/src/main/java/com/getcapacitor/${name}`)
+      const devices = kotlin('DeviceFiles.kt')
+      for (const [constant, name] of [
+        ['CAPACITOR_FILE_START', 'WEBVIEW_FILE_PATH'],
+        ['CAPACITOR_CONTENT_START', 'WEBVIEW_CONTENT_PATH'],
+      ]) {
+        const value = new RegExp(`${constant} = "([^"]+)"`).exec(capacitor('Bridge.java'))?.[1]
+        expect(value, constant).toBeDefined()
+        expect(devices).toContain(`const val ${name} = "${value}"`)
+      }
+      const handler = capacitor('AndroidProtocolHandler.java')
+      expect(handler).toContain('filePath.replace(Bridge.CAPACITOR_FILE_START, "")')
+      expect(handler).toContain('new File(realPath)')
+      expect(handler).toContain(
+        'uri.toString().replace(baseUrl + Bridge.CAPACITOR_CONTENT_START, "content:/")',
+      )
+      expect(handler).toContain('String baseUrl = uri.getScheme() + "://" + uri.getHost();')
+      const server = capacitor('WebViewLocalServer.java')
+      expect(server).toMatch(
+        /if \(path\.startsWith\(capacitorContentStart\)\) \{\s*stream = protocolHandler\.openContentUrl\(url\);\s*\} else if \(path\.startsWith\(capacitorFileStart\)\) \{\s*stream = protocolHandler\.openFile\(path\);/,
+      )
+      expect(server).toContain('String path = url.getPath();')
     })
   })
 

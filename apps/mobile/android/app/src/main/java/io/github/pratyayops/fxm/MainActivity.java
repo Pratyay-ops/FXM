@@ -2,6 +2,7 @@ package io.github.pratyayops.fxm;
 
 import android.os.Bundle;
 import com.getcapacitor.BridgeActivity;
+import io.github.pratyayops.fxm.downloads.DeviceFileFilter;
 import io.github.pratyayops.fxm.downloads.FxmDeviceMusicPlugin;
 import io.github.pratyayops.fxm.downloads.FxmDownloadsPlugin;
 import io.github.pratyayops.fxm.evaluator.EvaluatorPlugin;
@@ -30,5 +31,12 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(FxmDownloadsPlugin.class);
         registerPlugin(FxmDeviceMusicPlugin.class);
         super.onCreate(savedInstanceState);
+        // Capacitor's local server would serve the page any file the app can read and any content
+        // URI, the user's photos among them once FXM may read their music. From here on it serves
+        // FXM's downloads and MediaStore's songs only (fxm-downloads' DeviceFiles). Before this
+        // line the WebView can only have asked for the page itself: no script runs yet.
+        if (bridge != null) {
+            DeviceFileFilter.install(bridge);
+        }
     }
 }
