@@ -46,6 +46,8 @@ export {
   NoDownloadableStreamError,
   type PolicyDownloadResolverOptions,
   type ResolvedDownload,
+  UnreadableStreamError,
+  unreadableStream,
 } from './resolver'
 export {
   assertSafeFileName,
@@ -69,6 +71,8 @@ export {
   type RecordChange,
 } from './store'
 export {
+  DEFAULT_RESPONSE_TIMEOUT_MS,
+  DEFAULT_STALL_TIMEOUT_MS,
   DEFAULT_WRITE_BYTES,
   DownloadHttpError,
   DownloadNetworkError,

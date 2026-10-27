@@ -43,6 +43,7 @@ import {
   type UnavailableReason,
 } from '@fxm/core'
 import {
+  checkMediaRead,
   LIFECYCLE_DEFAULTS,
   type MatchKey,
   type MatchStore,
@@ -103,8 +104,9 @@ export interface ResolvedDownload {
  * acts, `Unavailable` with a `PlaybackProblem` (`playbackProblemOf`) when there is nothing to
  * download (`needs-review` for a match that is only a best guess), `RateLimited` (with
  * `retryAfterMs`) when the request budget or a source asks to wait, `Network` or `Parse` for
- * other passing trouble, and a {@link NoDownloadableStreamError} when the sources answered but no
- * stream may be downloaded.
+ * other passing trouble, a {@link NoDownloadableStreamError} when the sources answered but no
+ * stream may be downloaded, and an {@link UnreadableStreamError} when, on the web, the browser
+ * won't let the page read the stream's bytes.
  */
 export interface DownloadResolver {
   /** What to download for `track`. */
@@ -134,6 +136,63 @@ export class NoDownloadableStreamError extends Error {
     super(message)
     this.reason = reason
   }
+}
+
+/**
+ * On the web, the browser won't let the page read the stream's bytes (`checkMediaRead`), so no
+ * retry or fresh resolution can help until something changes in the browser:
+ *
+ * - `redirected`: the server moved the request to another host, and the answer after the redirect
+ *   is unreadable: googlevideo's `cms_redirect` with an FXM Connect older than 0.2.1
+ *   (`CONNECT_REDIRECT_FIX_VERSION` in `@fxm/platform`), or a host FXM Connect doesn't cover
+ * - `refused`: the answer itself is unreadable: FXM Connect's header rules didn't apply to it
+ */
+export class UnreadableStreamError extends Error {
+  /** Always `UnreadableStreamError`. */
+  override readonly name = 'UnreadableStreamError'
+  /** Why. */
+  readonly reason: 'redirected' | 'refused'
+
+  constructor(reason: 'redirected' | 'refused', message: string) {
+    super(message)
+    this.reason = reason
+  }
+}
+
+/**
+ * Whether the page can read `url` (see `checkMediaRead`): `undefined` when it can, or when the
+ * check couldn't tell (a timeout, no route), and otherwise an {@link UnreadableStreamError} that
+ * says why not. Only on the web: native HTTP on desktop and Android reads every answer.
+ */
+export async function unreadableStream(
+  url: string,
+  ctx: Pick<ProviderContext, 'fetch' | 'platform'>,
+  signal?: AbortSignal,
+): Promise<UnreadableStreamError | undefined> {
+  if (ctx.platform !== 'web') return undefined
+  const { verdict } = await checkMediaRead(url, {
+    fetch: ctx.fetch,
+    ...(signal === undefined ? {} : { signal }),
+  })
+  let host = 'the server'
+  try {
+    host = new URL(url).host
+  } catch {
+    // The host only goes into the message.
+  }
+  if (verdict === 'redirected') {
+    return new UnreadableStreamError(
+      'redirected',
+      `${host} redirected the request to a host whose answer this browser won't let the page read`,
+    )
+  }
+  if (verdict === 'refused') {
+    return new UnreadableStreamError(
+      'refused',
+      `This browser won't let the page read the answers of ${host}`,
+    )
+  }
+  return undefined
 }
 
 /** Options for {@link createPolicyDownloadResolver}. */
@@ -212,6 +271,8 @@ interface RunState {
   readonly problems: PlaybackProblem[]
   /** Whether a YouTube candidate resolved only to streams the probe didn't verify. */
   unverified: boolean
+  /** Why the page can't read such a stream's bytes, when that is why the probe failed. */
+  unreadable?: UnreadableStreamError
 }
 
 function aborted(signal: AbortSignal, error: unknown): boolean {
@@ -250,7 +311,9 @@ function chooseDownloadStream(
  *
  * - **Only downloadable streams:** progressive, not capped, and for YouTube verified by the
  *   end-of-file probe; on the web that also rules out URLs whose bytes a googlevideo redirect
- *   made unreadable. When the top rung has none, the fallback rung (itag 18) is asked.
+ *   made unreadable. When the top rung has none, the fallback rung (itag 18) is asked, unless a
+ *   readability check (`checkMediaRead`) shows that the browser won't let the page read the
+ *   bytes: then it rejects with an {@link UnreadableStreamError}, which no retry can fix.
  * - **The best quality,** not the connection's ceiling: `lossless` as the ceiling, audio only
  *   before a muxed video, and only streams this device can play (`canPlay`), so the copy plays
  *   offline here. Quality comes before how sure the browser is: a lossless original it is only
@@ -285,6 +348,21 @@ export function createPolicyDownloadResolver(
     reason,
     alternatives: [],
   })
+
+  /**
+   * The best stream of a YouTube resolution that the end-of-file probe couldn't verify: the one a
+   * readability check looks at.
+   */
+  const firstUnverified = (
+    found: readonly StreamOption[],
+    request: DownloadResolveRequest,
+  ): StreamOption | undefined =>
+    found.find(
+      (option) =>
+        option.protocol === 'progressive' &&
+        option.fullLength === 'unverified' &&
+        !request.exclude.has(option.url),
+    )
 
   /**
    * The stream to download from one resolution; `unverified` when a YouTube resolution had
@@ -359,7 +437,20 @@ export function createPolicyDownloadResolver(
         signal,
       })
     try {
-      const top = choose(candidate, await resolveRung('top'), request)
+      const found = await resolveRung('top')
+      const top = choose(candidate, found, request)
+      if (top === 'unverified') {
+        // On the web, a probe that failed because the browser won't let the page read the bytes
+        // fails every URL alike (a googlevideo redirect with an older FXM Connect): say so now,
+        // rather than ask for more URLs (each a /player call) that can't be read either.
+        const unverified = firstUnverified(found, request)
+        const unreadable =
+          unverified === undefined ? undefined : await unreadableStream(unverified.url, ctx, signal)
+        if (unreadable !== undefined) {
+          state.unreadable = unreadable
+          return undefined
+        }
+      }
       let stream = top
       if (typeof stream !== 'object' && source.hasFallback === true) {
         stream = choose(candidate, await resolveRung('fallback'), request)
@@ -517,6 +608,7 @@ export function createPolicyDownloadResolver(
     if (stop !== undefined) return stop
     const review = state.problems.find((problem) => problem.type === 'needs-review')
     if (review !== undefined) return playbackProblemError(review)
+    if (state.unreadable !== undefined) return state.unreadable
     if (state.unverified) {
       return new NoDownloadableStreamError(
         'unverified',

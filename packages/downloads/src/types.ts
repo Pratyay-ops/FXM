@@ -52,6 +52,8 @@ export const DOWNLOAD_ERROR_CODES = [
   'unavailable',
   'needs-review',
   'unverified',
+  'redirected',
+  'unreadable',
   'network',
   'server',
   'storage-full',
@@ -72,7 +74,12 @@ export const DOWNLOAD_ERROR_CODES = [
  * - `needs-review`: the track's match is a best guess the user hasn't confirmed, and FXM never
  *   stores a guess as a download
  * - `unverified`: no stream URL passed the end-of-file probe, or the bytes stayed unreadable
- *   after fresh resolutions (on the web, a googlevideo redirect does that)
+ *   after fresh resolutions
+ * - `redirected`: on the web, the server moved the download to another host whose answer the
+ *   browser wouldn't let the page read: googlevideo's `cms_redirect` with an FXM Connect older
+ *   than 0.2.1, or a redirect to a host FXM Connect doesn't cover
+ * - `unreadable`: on the web, the browser refused to let the page read the stream's bytes at all
+ *   (FXM Connect's header rules didn't apply to them)
  * - `network`: the network failed too often
  * - `server`: the server refused or failed too often
  * - `storage-full`: the device, or the browser's share of it, is full

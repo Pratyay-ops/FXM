@@ -41,7 +41,7 @@ import { type AppServices, type AppServicesOptions, createAppServices } from '..
 import { markConnecting } from '../connecting'
 import { createMemoryStore, type DeviceStore } from '../device-store'
 import type { LibraryRepository } from '../library'
-import { createFakeNetwork, type FakeNetwork } from './fake-network'
+import { createFakeNetwork, type FakeNetwork, type FakeNetworkOptions } from './fake-network'
 import { FIXTURES } from './fixtures'
 
 /** The FXM origin's app page, as the tests' page. */
@@ -57,6 +57,8 @@ export interface TierSetup {
   readonly library?: LibraryRepository
   /** How the Full tier's fake FXM Connect behaves, e.g. `answerPings: false` to answer late. */
   readonly connect?: FakeConnectOptions
+  /** How googlevideo answers (`FakeNetworkOptions`): readable by default. */
+  readonly googlevideo?: Pick<FakeNetworkOptions, 'googlevideo' | 'googlevideoAllowOrigin'>
   /** Imports `@fxm/sources/youtube`, e.g. to hold it back. Default: `import()`. */
   readonly importYouTube?: AppServicesOptions['importYouTube']
   /** Called once YouTube's code has loaded (`AppServicesOptions.onYouTube`). */
@@ -131,7 +133,7 @@ export function untilSources(
 
 /** Creates the app's services on `tier`: see the module documentation. */
 export function servicesOnTier(tier: Tier, setup: TierSetup = {}): TierServices {
-  const network = createFakeNetwork({ fixtures: FIXTURES })
+  const network = createFakeNetwork({ fixtures: FIXTURES, ...setup.googlevideo })
   // Its own page at the FXM origin: in Vitest's global happy-dom page, a message's `source`
   // is not the page's window, so FXM Connect's messages would not count.
   const window = new Window({ url: APP_URL })

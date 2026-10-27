@@ -1,6 +1,6 @@
 import { expect, type Page, test } from '@playwright/test'
 import { createFakeNetwork, wavTone } from '../src/app/services/testing/fake-network'
-import { FIXTURES, installFakeConnect, stubNetwork } from './fake-services'
+import { FIXTURES, installFakeConnect, startRedirectTarget, stubNetwork } from './fake-services'
 
 // Downloads (stage 4.1) through the app's real composition (src/app/services), in a real
 // browser: the queue, the Origin Private File System and the providers run for real, and only
@@ -86,4 +86,48 @@ test('a YouTube download left unfinished continues when FXM Connect answers late
   // It is in the Downloads playlist, ready to play offline.
   await next.goto('library?tab=downloads')
   await expect(next.getByRole('list', { name: 'Songs in Downloads' })).toContainText(title)
+})
+
+test('a YouTube download that googlevideo moves to another server fails at once, asking to update an older FXM Connect', async ({
+  page,
+}) => {
+  // googlevideo's cms_redirect, with FXM Connect 0.2.0's exact Access-Control-Allow-Origin: the
+  // browser sends Origin: null after the redirect and refuses the answer. The download used to
+  // stay at "Starting" for minutes. The fake FXM Connect is 0.1.0.
+  const appOrigin = new URL(test.info().project.use.baseURL ?? 'http://localhost/').origin
+  const audio = wavTone(1.5)
+  const target = await startRedirectTarget(audio, appOrigin)
+  try {
+    const network = createFakeNetwork({
+      fixtures: FIXTURES,
+      audio,
+      googlevideo: 'redirected',
+      googlevideoAllowOrigin: appOrigin,
+      googlevideoRedirectTo: target.origin,
+    })
+    await installFakeConnect(page)
+    await stubNetwork(page, network)
+    await page.goto('search?q=radiohead%20creep')
+    const more = page
+      .getByRole('list', { name: 'Songs' })
+      .getByRole('button', { name: /^More options for / })
+      .first()
+    await expect(more).toBeVisible({ timeout: 15_000 })
+    const title = ((await more.getAttribute('aria-label')) ?? '').replace('More options for ', '')
+    await more.click()
+    await page.getByRole('menuitem', { name: 'Download' }).click()
+    await expect
+      .poll(() => downloads(page), { timeout: 10_000 })
+      .toEqual([{ title, status: 'failed', error: 'redirected' }])
+    await page.goto('library?tab=downloads')
+    await expect(
+      page
+        .getByText(
+          'YouTube moved this download to another server that FXM Connect 0.1.0 can’t read. Update FXM Connect to 0.2.1',
+        )
+        .first(),
+    ).toBeVisible()
+  } finally {
+    await target.close()
+  }
 })

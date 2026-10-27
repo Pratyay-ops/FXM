@@ -2,7 +2,7 @@ import { FxmError, formatId, playbackProblemError } from '@fxm/core'
 import { testCandidate } from '@fxm/player/testing'
 import { describe, expect, it } from 'vitest'
 import { classifyDownloadFailure, type DownloadFailure } from './recovery'
-import { NoDownloadableStreamError } from './resolver'
+import { NoDownloadableStreamError, UnreadableStreamError } from './resolver'
 import { storageFullError, storageUnavailableError } from './storage'
 import { DownloadHttpError, DownloadNetworkError, DownloadProtocolError } from './transfer'
 
@@ -116,6 +116,16 @@ describe('classifyDownloadFailure', () => {
   it('takes a request to a signed URL that got no answer on the web for a redirect', () => {
     expect(classifyDownloadFailure(new DownloadNetworkError('', 'request'), signed)).toEqual(
       decision('url', 'unverified'),
+    )
+  })
+
+  it("ends at once with bytes the browser won't let the page read", () => {
+    // A readability check found out: no fresh resolution or retry can change it.
+    expect(classifyDownloadFailure(new UnreadableStreamError('redirected', ''), signed)).toEqual(
+      decision('fatal', 'redirected'),
+    )
+    expect(classifyDownloadFailure(new UnreadableStreamError('refused', ''), signed)).toEqual(
+      decision('fatal', 'unreadable'),
     )
   })
 

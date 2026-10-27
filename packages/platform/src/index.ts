@@ -77,10 +77,12 @@ export {
   CONNECT_ERROR_CODES,
   CONNECT_MARKER_ATTRIBUTE,
   CONNECT_PING_TIMEOUT_MS,
+  CONNECT_REDIRECT_FIX_VERSION,
   ConnectBridgeError,
   createConnectClient,
   hasConnectFeature,
   MIN_CONNECT_VERSION,
+  needsRedirectFix,
   SPOTIFY_LOGIN_TEXT_VERSION,
   saysSpotifyLoginUnused,
 } from './connect'

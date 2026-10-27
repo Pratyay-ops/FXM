@@ -52,6 +52,13 @@ export interface FakeMediaRules {
   holdAt?: number
   /** Answer a page (`text/html`) instead of the file. */
   page?: boolean
+  /**
+   * On the web, the browser won't let the page read this URL's answers: every request fails
+   * without an answer, as a refused CORS read does. With `redirected`, a request sent with
+   * `redirect: 'manual'` gets the opaque redirect a browser gives for googlevideo's redirect to
+   * another host (whose answer an FXM Connect older than 0.2.1 leaves unreadable).
+   */
+  unreadable?: 'redirected' | 'refused'
 }
 
 /** One request the server received. */
@@ -143,6 +150,17 @@ export class FakeMediaServer {
     const request: FakeMediaRequest = { url, range }
     this.requests.push(request)
     const rules = this.rules.get(url) ?? {}
+    if (rules.unreadable !== undefined) {
+      if (rules.unreadable === 'redirected' && init?.redirect === 'manual') {
+        const redirect = new Response(null, { status: 200 })
+        Object.defineProperties(redirect, {
+          type: { value: 'opaqueredirect' },
+          status: { value: 0 },
+        })
+        return redirect
+      }
+      throw new TypeError('Failed to fetch')
+    }
     if (rules.dropRequests !== undefined && rules.dropRequests > 0) {
       this.rule(url, { dropRequests: rules.dropRequests - 1 })
       throw new TypeError('Failed to fetch')

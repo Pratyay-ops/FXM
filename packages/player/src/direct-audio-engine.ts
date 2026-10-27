@@ -24,7 +24,10 @@
  *   bytes the page can read: such streams (see `isReadable`) play on a second pair of elements
  *   with `crossorigin="anonymous"`, routed through the effects graph (`effects/web-audio.ts`),
  *   only while an effect needs it. A routed stream that fails before it plays (CORS, e.g. after a
- *   googlevideo redirect) plays again at once without effects.
+ *   googlevideo redirect with an FXM Connect older than 0.2.1) plays again at once without
+ *   effects. The `effects` status says why the equalizer can't process a stream
+ *   (`equalizerReason`): unreadable here, a read the browser refused, or Web Audio not started yet
+ *   (the next user gesture starts it, see {@link DirectAudioEngine.unlock}).
  *
  * Events are checked against the element's state when they arrive, so events of a replaced
  * source never leak through, even in a browser that delivers them late.
@@ -865,6 +868,18 @@ export class DirectAudioEngine implements Engine {
     }
   }
 
+  /** Why the equalizer can't process `stream`, which plays on a plain element. */
+  #unavailableReason(stream: StreamOption): NonNullable<AudioEffectsStatus['equalizerReason']> {
+    if (this.#unreadable.has(stream.url)) return 'read-failed'
+    if (!this.#isReadable(stream)) return 'unreadable'
+    const context = this.#context
+    if (context !== undefined && context.state !== 'running' && context.state !== 'closed') {
+      return 'suspended'
+    }
+    // No context could be created, or the browser refused to connect the element.
+    return 'no-web-audio'
+  }
+
   /** Reports what the effects do to the active stream, when it changed. */
   #report(): void {
     const effects = this.#effects
@@ -873,10 +888,12 @@ export class DirectAudioEngine implements Engine {
     const stream = this.#source?.stream
     const loaded = stream !== undefined && slot.element.hasAttribute('src')
     let equalizer: AudioEffectsStatus['equalizer'] = 'off'
+    let equalizerReason: AudioEffectsStatus['equalizerReason']
     if (effects.equalizer.enabled) {
       // A flat equalizer has nothing to process, wherever the stream plays.
       const processes = !loaded || slot.chain !== undefined || !shapesSound(effects.equalizer)
       equalizer = processes ? 'on' : 'unavailable'
+      if (!processes && stream !== undefined) equalizerReason = this.#unavailableReason(stream)
     }
     let loudness: AudioEffectsStatus['loudness'] = 'off'
     let loudnessGainDb = 0
@@ -890,8 +907,11 @@ export class DirectAudioEngine implements Engine {
         loudnessGainDb = slot.chain === undefined ? Math.min(0, slot.gainDb) : slot.gainDb
       }
     }
-    const status: AudioEffectsStatus = { equalizer, loudness, loudnessGainDb }
-    const key = `${equalizer}|${loudness}|${loudnessGainDb}`
+    const status: AudioEffectsStatus =
+      equalizerReason === undefined
+        ? { equalizer, loudness, loudnessGainDb }
+        : { equalizer, equalizerReason, loudness, loudnessGainDb }
+    const key = `${equalizer}|${equalizerReason ?? ''}|${loudness}|${loudnessGainDb}`
     if (key === this.#reported) return
     this.#reported = key
     this.#events.emit('effects', status)
