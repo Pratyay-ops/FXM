@@ -41,13 +41,13 @@ const autoplay = AVAILABLE.radio
   ? 'When your queue runs low, autoplay adds songs like the ones you just played, so the music keeps going.'
   : 'Autoplay, which keeps your queue going with songs like the ones you just played, is coming soon.'
 
-// Downloads keep the source's file, which plays offline; since stage 4.2 a downloaded song can
-// be saved to the device in another format, converted there.
+// Downloads keep the source's file, which plays offline; since stage 4.2 Download also saves a
+// file to the device in the format chosen, converted there (v0.2.1: in one step).
 const downloadTitle = AVAILABLE.conversions
-  ? 'Download, then save in the format you want'
+  ? 'Download in the format you want'
   : 'Download for offline listening'
 const downloadText = AVAILABLE.conversions
-  ? "Save any track for offline listening, as the file its source has: FLAC where it's lossless, Opus or AAC from YouTube Music. Then save it to your device as it is, or as FLAC, ALAC, WAV, MP3, AAC or Opus, converted on your device, with tags, cover art and lyrics. In the web app, downloading from YouTube Music takes FXM Connect; free sources download in any browser."
+  ? "Download any track, album or playlist as files on your device: as the file its source has (FLAC where it's lossless, Opus or AAC from YouTube Music), or as FLAC, ALAC, WAV, MP3, AAC or Opus, converted on your device, with tags, cover art and lyrics. FXM keeps each download for offline listening too. In the web app, downloading from YouTube Music takes FXM Connect; free sources download in any browser."
   : "Save any track for offline listening, as the file its source has: FLAC where it's lossless, Opus or AAC from YouTube Music. In the web app, downloading from YouTube Music takes FXM Connect; free sources download in any browser."
 // Jamendo is among the lossless sources only in a build that offers it (AVAILABLE.jamendo).
 const lossless = `You get real lossless FLAC where the source has it ${losslessSources(AVAILABLE.jamendo)}.`
