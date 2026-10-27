@@ -1,13 +1,14 @@
 import { CircleAlert, ListMusic } from 'lucide-react'
-import { Link, useLocation, useSearchParams } from 'react-router'
+import { Link } from 'react-router'
 import { Artwork } from '../../components/ui/artwork'
-import { iconButtonClasses } from '../../components/ui/icon-button'
+import { IconButton } from '../../components/ui/icon-button'
 import { cn } from '../../lib/cn'
 import { useAudioEffectsStore } from '../audio-effects/effects-store'
 import { SoundButton } from '../audio-effects/sound-button'
 import { formatRate } from '../audio-effects/status'
 import { useCurrentItem, usePlayerState } from '../now-playing/playback'
 import { TrackArtwork } from '../now-playing/track-artwork'
+import { useQueueToggle } from '../queue/use-queue-toggle'
 import { CATALOG_MODE_OPTIONS } from '../settings/options'
 import { useSettingsStore } from '../settings/settings-store'
 import {
@@ -92,19 +93,11 @@ export function ModeIndicator({ className }: { className?: string }) {
   )
 }
 
+/** Opens the queue and, pressed while it is open, closes it again (see useQueueToggle). */
 function QueueButton() {
-  const { pathname } = useLocation()
-  const [params] = useSearchParams()
-  const active = pathname === '/now-playing' && params.get('tab') === 'queue'
+  const { open, toggle } = useQueueToggle()
   return (
-    <Link
-      to="/now-playing?tab=queue"
-      aria-label="Queue"
-      aria-current={active ? 'page' : undefined}
-      className={iconButtonClasses({ size: 'sm', highlighted: active, dot: true })}
-    >
-      <ListMusic aria-hidden="true" />
-    </Link>
+    <IconButton label="Queue" icon={<ListMusic />} size="sm" pressed={open} dot onClick={toggle} />
   )
 }
 

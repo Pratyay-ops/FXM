@@ -6,6 +6,8 @@ import { setupTestLyrics, setupTestPlayback } from '../now-playing/testing'
 
 // Both bars render; CSS shows the player bar from 768px and the mini player below.
 const bars = () => screen.getAllByRole('region', { name: 'Player' })
+/** The player bar, which comes first (Now playing has no mini player). */
+const playerBar = () => within(bars()[0] as HTMLElement)
 /** The mini player, which comes after the player bar. */
 const miniPlayer = () => within(bars()[1] as HTMLElement)
 
@@ -13,6 +15,95 @@ const miniPlayer = () => within(bars()[1] as HTMLElement)
 function destination(router: ReturnType<typeof renderApp>['router']): string {
   return (router.state.navigation.location ?? router.state.location).pathname
 }
+
+/** The page the app shows, with its query. */
+function shown(router: ReturnType<typeof renderApp>['router']): string {
+  const { pathname, search } = router.state.location
+  return pathname + search
+}
+
+describe('the Queue button', () => {
+  const queueButton = () => playerBar().getByRole('button', { name: 'Queue' })
+  const library = () => screen.findByRole('heading', { level: 1, name: 'Your library' })
+
+  it('is a toggle: pressed again, it closes the queue back to the page it opened on', async () => {
+    setupTestPlayback()
+    const { user, router } = renderApp('/library')
+    await library()
+    expect(queueButton()).toHaveAttribute('aria-pressed', 'false')
+
+    await user.click(queueButton())
+
+    expect(await screen.findByRole('heading', { name: 'Your queue is empty' })).toBeVisible()
+    expect(shown(router)).toBe('/now-playing?tab=queue')
+    expect(queueButton()).toHaveAttribute('aria-pressed', 'true')
+
+    await user.click(queueButton())
+
+    // Back, as the browser's Back button would go: the queue is ahead, not behind.
+    expect(await library()).toBeVisible()
+    expect(router.state.historyAction).toBe('POP')
+    expect(shown(router)).toBe('/library')
+    expect(queueButton()).toHaveAttribute('aria-pressed', 'false')
+    expect(queueButton()).toHaveFocus()
+  })
+
+  it('opens and closes the queue with Enter and Space, keeping the focus', async () => {
+    setupTestPlayback()
+    const { user, router } = renderApp('/library')
+    await library()
+
+    queueButton().focus()
+    await user.keyboard('{Enter}')
+    await screen.findByRole('heading', { name: 'Your queue is empty' })
+    expect(queueButton()).toHaveFocus()
+    expect(queueButton()).toHaveAttribute('aria-pressed', 'true')
+
+    await user.keyboard(' ')
+    await library()
+    expect(shown(router)).toBe('/library')
+    expect(queueButton()).toHaveFocus()
+    expect(queueButton()).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('closes a queue opened by Now playing’s Queue tab to the lyrics', async () => {
+    setupTestPlayback()
+    const { user, router } = renderApp('/library')
+    await library()
+    await user.click(playerBar().getByRole('link', { name: 'Open now playing' }))
+    await user.click(await screen.findByRole('tab', { name: 'Queue' }))
+    expect(queueButton()).toHaveAttribute('aria-pressed', 'true')
+
+    await user.click(queueButton())
+
+    expect(shown(router)).toBe('/now-playing')
+    expect(router.state.historyAction).toBe('REPLACE')
+    expect(screen.getByRole('tab', { name: 'Lyrics' })).toHaveAttribute('aria-selected', 'true')
+    expect(queueButton()).toHaveAttribute('aria-pressed', 'false')
+
+    // Opened by the button from there, it closes back to the lyrics too.
+    await user.click(queueButton())
+    expect(shown(router)).toBe('/now-playing?tab=queue')
+    await user.click(queueButton())
+    expect(shown(router)).toBe('/now-playing')
+    expect(router.state.historyAction).toBe('POP')
+  })
+
+  it('closes a queue opened straight from a link to Home, without leaving FXM', async () => {
+    setupTestPlayback()
+    const { user, router } = renderApp('/now-playing?tab=queue')
+    await screen.findByRole('heading', { name: 'Your queue is empty' })
+    expect(queueButton()).toHaveAttribute('aria-pressed', 'true')
+
+    await user.click(queueButton())
+
+    expect(await screen.findByRole('heading', { level: 1, name: /^Good/ })).toBeVisible()
+    expect(shown(router)).toBe('/')
+    // In place of the queue: Back doesn't open it again.
+    expect(router.state.historyAction).toBe('REPLACE')
+    expect(queueButton()).toHaveAttribute('aria-pressed', 'false')
+  })
+})
 
 describe('the mini player', () => {
   it('has Like, Previous, Play and Next, off while nothing plays, as in the player bar', async () => {
