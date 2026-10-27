@@ -802,7 +802,7 @@ Cover Art Archive and iTunes Search fill artwork gaps (3.2).
 YouTube downloads are on by default (Decision 2, option A, 2026-10-25). Every streamable track can be downloaded wherever its bytes are readable: the web app with FXM Connect, desktop and Android (the Full tier). Downloads are never offered in Lite, where the bytes are unreadable. Free sources can be downloaded everywhere.
 
 - Only URLs that passed the end-of-file probe are downloaded. Byte fetches are single-range GETs, so they trigger no preflight.
-- On the web, a googlevideo redirect makes the bytes unreadable; the download then retries with a fresh resolution.
+- On the web, a googlevideo redirect to another host makes the bytes unreadable with an FXM Connect older than 0.2.1. A readability check (`checkMediaRead`) tells that apart from a passing failure: the download then fails at once as `redirected` (the row asks to update FXM Connect), or as `unreadable` when the browser refuses the read itself, instead of resolving afresh in vain.
 
 | Output | Lossless? | Notes |
 |---|---|---|

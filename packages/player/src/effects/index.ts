@@ -7,9 +7,14 @@
  */
 
 export {
+  checkMediaRead,
   isLocalMediaUrl,
   isMediaReadable,
+  MEDIA_READ_TIMEOUT_MS,
   type MediaReadabilityContext,
+  type MediaReadCheck,
+  type MediaReadOptions,
+  type MediaReadVerdict,
 } from './readable'
 export {
   type EffectsContext,

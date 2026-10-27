@@ -376,6 +376,33 @@ describe('transfer', () => {
     expect(storage.bytes('a')).toEqual(file)
   })
 
+  it('gives up on a request that never answers', async () => {
+    const { options } = await setup()
+    // A connection that never answers, as some networks leave one hanging.
+    const silent = ((_input: RequestInfo | URL, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason))
+      })) as typeof fetch
+    const error = await transfer(options({ fetch: silent, responseTimeoutMs: 20 })).catch(
+      (caught: unknown) => caught,
+    )
+    expect(error).toBeInstanceOf(DownloadNetworkError)
+    expect(error).toMatchObject({
+      phase: 'request',
+      message: "media.test didn't answer within 0 s",
+    })
+  })
+
+  it('gives up on an answer that stalls, keeping what arrived', async () => {
+    const { server, file, storage, options } = await setup()
+    server.rule(URL, { holdAt: 1200 })
+    const error = await transfer(options({ stallTimeoutMs: 20 })).catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(DownloadNetworkError)
+    expect(error).toMatchObject({ phase: 'body' })
+    expect(String((error as Error).message)).toMatch(/stalled/)
+    expect(storage.bytes('a')).toEqual(file.slice(0, 1200))
+  })
+
   it('needs a positive chunk size', async () => {
     const { options } = await setup()
     await expect(transfer(options({ chunkBytes: 0 }))).rejects.toBeInstanceOf(RangeError)

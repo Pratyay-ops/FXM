@@ -8,7 +8,10 @@
  *   recorded VISIONOS answer rewritten for the video asked for (its ID, and URLs that expire six
  *   hours from now);
  * - googlevideo: ranged GETs as a file of the URL's `clen` (zeros), so end-of-file probes pass,
- *   and a request from the start of the file (what a media element sends) with `audio`;
+ *   and a request from the start of the file (what a media element sends) with `audio`. With
+ *   `googlevideo: 'redirected'` every first request answers with a 302 to another googlevideo
+ *   host (`cms_redirect=yes`), as googlevideo does behind some networks; with `'refused'` its
+ *   answers carry no CORS headers, as when FXM Connect's rules don't apply;
  * - Internet Archive: a recorded search, recorded items by identifier (others are unknown), and
  *   `audio` for every file download;
  * - MusicBrainz: nothing found, as for a Spotify track no recording links;
@@ -18,7 +21,10 @@
  *
  * Anything else is refused with a network error, like a host that does not answer. Both the
  * Vitest tests and the Playwright test (`e2e/playback.spec.ts`) use it, so it imports nothing:
- * the fixtures are passed in.
+ * the fixtures are passed in. Its `fetch` reads answers as a page's does: it follows redirects,
+ * gives an opaque redirect for `redirect: 'manual'`, and refuses (`TypeError`) an answer without
+ * `Access-Control-Allow-Origin`, or after a redirect to another host one that allows neither `*`
+ * nor `null` (the `Origin` the browser sends then).
  *
  * @module
  */
@@ -56,6 +62,28 @@ export interface FakeNetworkOptions {
   readonly now?: () => number
   /** The visitorData `sw.js_data` and the suggestions call issue. */
   readonly visitorData?: string
+  /**
+   * How googlevideo answers:
+   *
+   * - `readable` (the default): with CORS headers, as through FXM Connect;
+   * - `redirected`: a request for a URL without `cms_redirect` gets a 302 to the same URL on
+   *   another googlevideo host, with `cms_redirect=yes`, as googlevideo sends behind some
+   *   networks; the answers there carry `googlevideoAllowOrigin`;
+   * - `refused`: without CORS headers, as when FXM Connect's rules don't apply to them.
+   */
+  readonly googlevideo?: 'readable' | 'redirected' | 'refused'
+  /**
+   * The `Access-Control-Allow-Origin` googlevideo's answers carry. Default `*`, as FXM Connect
+   * 0.2.1 sends; an exact origin stands for FXM Connect 0.2.0 and older, whose answers after a
+   * redirect to another host the page can't read.
+   */
+  readonly googlevideoAllowOrigin?: string
+  /**
+   * Where `redirected` sends googlevideo's requests: an origin such as `http://127.0.0.1:4000`
+   * (a browser test's own server, since a browser doesn't let the test answer the request after
+   * a redirect). Default: the same URL on another googlevideo host, which this network answers.
+   */
+  readonly googlevideoRedirectTo?: string
 }
 
 /** One request the fake network received. */
@@ -179,11 +207,15 @@ function rangeOf(
 }
 
 /** A media file: the whole of it, or the range asked for. */
-function media(bytes: Uint8Array, range: [number, number | undefined] | undefined): Response {
+function media(
+  bytes: Uint8Array,
+  range: [number, number | undefined] | undefined,
+  cors: Readonly<Record<string, string>> = CORS,
+): Response {
   const type = { 'content-type': 'audio/wav', 'accept-ranges': 'bytes' }
   if (range === undefined) {
     return new Response(bytes.slice(), {
-      headers: { ...CORS, ...type, 'content-length': String(bytes.length) },
+      headers: { ...cors, ...type, 'content-length': String(bytes.length) },
     })
   }
   const first = Math.min(range[0], bytes.length - 1)
@@ -191,7 +223,7 @@ function media(bytes: Uint8Array, range: [number, number | undefined] | undefine
   return new Response(bytes.slice(first, last + 1), {
     status: 206,
     headers: {
-      ...CORS,
+      ...cors,
       ...type,
       'content-length': String(last - first + 1),
       'content-range': `bytes ${first}-${last}/${bytes.length}`,
@@ -205,6 +237,12 @@ export function createFakeNetwork(options: FakeNetworkOptions): FakeNetwork {
   const now = options.now ?? Date.now
   const audio = options.audio ?? new Uint8Array(64)
   const visitorData = options.visitorData ?? FAKE_VISITOR_DATA
+  const googlevideoMode = options.googlevideo ?? 'readable'
+  /** The CORS headers of googlevideo's answers (none when they are refused). */
+  const googlevideoCors: Readonly<Record<string, string>> =
+    googlevideoMode === 'refused'
+      ? {}
+      : { ...CORS, 'access-control-allow-origin': options.googlevideoAllowOrigin ?? '*' }
   const requests: FakeRequest[] = []
   const players: string[] = []
 
@@ -238,18 +276,36 @@ export function createFakeNetwork(options: FakeNetworkOptions): FakeNetwork {
   }
 
   function googleVideo(url: URL, headers: Readonly<Record<string, string>>): Response {
+    const cors = googlevideoCors
+    if (googlevideoMode === 'redirected' && !url.searchParams.has('cms_redirect')) {
+      // googlevideo's cms_redirect: the same file on another host. The 302's own CORS check
+      // passes with FXM Connect's header; the answer after it is what may be refused.
+      const location = new URL(url)
+      if (options.googlevideoRedirectTo === undefined) {
+        location.hostname = 'rr5---sn-fxmother.googlevideo.com'
+      } else {
+        const target = new URL(options.googlevideoRedirectTo)
+        location.protocol = target.protocol
+        location.host = target.host
+      }
+      location.searchParams.set('cms_redirect', 'yes')
+      return new Response(null, {
+        status: 302,
+        headers: { ...cors, location: location.href, 'content-type': 'text/html' },
+      })
+    }
     const range = rangeOf(headers)
     // A media element asks from the start of the file: give it something it can play.
     if (range === undefined || (range[0] === 0 && range[1] === undefined))
-      return media(audio, range)
+      return media(audio, range, cors)
     const length = Number(url.searchParams.get('clen') ?? Number.NaN)
-    if (!Number.isFinite(length)) return new Response(null, { status: 403, headers: CORS })
+    if (!Number.isFinite(length)) return new Response(null, { status: 403, headers: cors })
     const first = range[0]
     const last = Math.min(range[1] ?? length - 1, length - 1)
     return new Response(new Uint8Array(last - first + 1), {
       status: 206,
       headers: {
-        ...CORS,
+        ...cors,
         'content-type': url.searchParams.get('mime') ?? 'audio/webm',
         'content-length': String(last - first + 1),
         'content-range': `bytes ${first}-${last}/${length}`,
@@ -306,7 +362,7 @@ export function createFakeNetwork(options: FakeNetworkOptions): FakeNetwork {
   const fetch: typeof globalThis.fetch = async (input, init) => {
     const signal = init?.signal ?? (input instanceof Request ? input.signal : undefined)
     signal?.throwIfAborted()
-    const url = input instanceof Request ? input.url : String(input)
+    let url = input instanceof Request ? input.url : String(input)
     const headers: Record<string, string> = {}
     new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined)).forEach(
       (value, name) => {
@@ -314,12 +370,38 @@ export function createFakeNetwork(options: FakeNetworkOptions): FakeNetwork {
       },
     )
     const body = typeof init?.body === 'string' ? init.body : undefined
-    return respond({
-      method: init?.method ?? (input instanceof Request ? input.method : 'GET'),
-      url,
-      headers,
-      ...(body === undefined ? {} : { body }),
-    })
+    const method = init?.method ?? (input instanceof Request ? input.method : 'GET')
+    const refused = () => new TypeError('Failed to fetch')
+    /** The browser's CORS check: the answer must allow the page, or `null` after a redirect. */
+    const readable = (response: Response, tainted: boolean) => {
+      const allowed = response.headers.get('access-control-allow-origin')
+      return allowed === '*' || (allowed !== null && (!tainted || allowed === 'null'))
+    }
+    let tainted = false
+    for (let hops = 0; ; hops += 1) {
+      const response = respond({
+        method,
+        url,
+        headers,
+        ...(body === undefined ? {} : { body }),
+      })
+      if (!readable(response, tainted)) throw refused()
+      const location = response.headers.get('location')
+      if (response.status < 300 || response.status > 399 || location === null) return response
+      if (init?.redirect === 'manual') {
+        const redirect = new Response(null, { status: 200 })
+        Object.defineProperties(redirect, {
+          type: { value: 'opaqueredirect' },
+          status: { value: 0 },
+        })
+        return redirect
+      }
+      if (init?.redirect === 'error' || hops >= 20) throw refused()
+      const next = new URL(location, url)
+      // After a redirect to another origin the browser sends `Origin: null`.
+      if (next.origin !== new URL(url).origin) tainted = true
+      url = next.href
+    }
   }
 
   return { fetch, respond, requests, players }

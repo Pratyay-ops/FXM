@@ -95,7 +95,7 @@ Every command is a change to a record in the `DownloadStore`, and only a **start
 
 ## Transfers
 
-`transfer()` asks for one bounded range at a time (4 MiB by default) with a single-range `Range` header, which is CORS-safelisted, so a page needs no preflight. It sends `cache: 'no-store'` so the browser's HTTP cache doesn't keep a second copy.
+`transfer()` asks for one bounded range at a time (4 MiB by default) with a single-range `Range` header, which is CORS-safelisted, so a page needs no preflight. It sends `cache: 'no-store'` so the browser's HTTP cache doesn't keep a second copy. A request that gets no answer within 30 s (`responseTimeoutMs`), or an answer whose body brings nothing for 30 s (`stallTimeoutMs`), fails like a dropped connection, so a connection that hangs never holds a download forever.
 
 - **`206`**: checked against the range asked for. `Content-Range`, when readable, gives the size. Many hosts don't expose it to pages (Internet Archive doesn't, see [CLEAN-ROOM.md](CLEAN-ROOM.md)), so the end is where the server says there is nothing more: a `416` (or an empty answer) to the range after the last byte. A chunk shorter than asked for is not enough on its own, since a server may cap its answers; it costs one more request per file.
 - **`200`**: the server ignored the range; the bytes already stored are skipped.
@@ -108,7 +108,8 @@ Every command is a change to a record in the `DownloadStore`, and only a **start
 | Failure | Next | Limit, then fails as |
 |---|---|---|
 | HTTP 401, 403, 410, 404; an expired URL; a page (text, JSON, HTML, XML) or an empty file instead of the file | Resolve afresh, continue from the stored bytes, never hand out the failed URL again | 3 fresh resolutions: `server` or `unavailable` |
-| **On the web, a request to a signed, IP-bound URL that gets no answer:** what a googlevideo redirect to another host looks like (its bytes are unreadable). Native HTTP on desktop and Android follows redirects | Resolve afresh | 3: `unverified` |
+| **On the web, a request to a signed, IP-bound URL that gets no answer:** first a readability check (`checkMediaRead` from `@fxm/player`, at most two one-byte requests). When the browser won't let the page read the bytes, the download fails at once (next row). Otherwise, as a passing redirect or failure: resolve afresh. Native HTTP on desktop and Android follows redirects and reads every answer, so neither applies there | Resolve afresh | 3: `unverified` |
+| **On the web, bytes the browser won't let the page read** (`UnreadableStreamError`): googlevideo's redirect to another host (`cms_redirect`) with an FXM Connect older than 0.2.1, whose header doesn't match the `Origin: null` the browser sends after it, or answers FXM Connect's rules don't apply to. The resolver checks too when the end-of-file probe failed, before asking for the fallback URL | Fail at once: no fresh resolution can help | `redirected`, `unreadable` |
 | No stream passed the end-of-file probe | Resolve afresh | 3: `unverified` |
 | No answer, offline | Wait for the network without counting, then resolve afresh (a new IP address invalidates signed URLs) | none |
 | `RateLimited` from the resolver: the request budget refused, or a source asks to slow down | Queue it again and hold its lane for the wait, without counting (see above) | none |

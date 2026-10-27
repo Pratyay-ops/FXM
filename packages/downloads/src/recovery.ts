@@ -6,7 +6,7 @@
  */
 
 import { type FxmErrorCode, isFxmError, type Platform, playbackProblemOf } from '@fxm/core'
-import { NoDownloadableStreamError } from './resolver'
+import { NoDownloadableStreamError, UnreadableStreamError } from './resolver'
 import { isStorageFullError, isStorageUnavailableError } from './storage'
 import { DownloadHttpError, DownloadNetworkError, DownloadProtocolError } from './transfer'
 import type { DownloadErrorCode } from './types'
@@ -127,6 +127,7 @@ function protocolFailure(error: DownloadProtocolError): DownloadFailure {
  * | A file far larger than the track can be | `fatal`, `too-large` |
  * | No answer, offline | `offline` |
  * | On the web, a request to a signed, IP-bound URL that got no answer (what a googlevideo redirect looks like) | `url`; `unverified` once fresh resolutions run out |
+ * | On the web, bytes the browser won't let the page read (`UnreadableStreamError`, from a readability check) | `fatal`: `redirected` after a redirect, else `unreadable` |
  * | No answer otherwise, or an answer that broke off (the URL works) | `transient` |
  * | No stream passed the end-of-file probe | `url`; `unverified` once fresh resolutions run out |
  * | `RateLimited` from the resolver: the request budget refused, or a source asks to slow down | `throttled` |
@@ -146,6 +147,9 @@ export function classifyDownloadFailure(
     return redirected ? decide('url', 'unverified') : decide('transient', 'network')
   }
   if (error instanceof DownloadProtocolError) return protocolFailure(error)
+  if (error instanceof UnreadableStreamError) {
+    return decide('fatal', error.reason === 'redirected' ? 'redirected' : 'unreadable')
+  }
   if (error instanceof NoDownloadableStreamError) {
     return error.reason === 'unverified'
       ? decide('url', 'unverified')

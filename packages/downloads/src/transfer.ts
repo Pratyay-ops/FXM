@@ -31,9 +31,11 @@ export class DownloadHttpError extends Error {
 /**
  * Where a {@link DownloadNetworkError} happened:
  *
- * - `request`: the request got no answer at all (offline, a dropped connection, or on the web a
- *   CORS failure, which is what a googlevideo redirect to another host looks like)
- * - `body`: an answer came, but its body broke off or ended short, so the URL itself works
+ * - `request`: the request got no answer at all (offline, a dropped connection, no answer within
+ *   {@link TransferOptions.responseTimeoutMs}, or on the web a CORS failure, which is what a
+ *   googlevideo redirect to another host looks like with an FXM Connect older than 0.2.1)
+ * - `body`: an answer came, but its body broke off, ended short or stalled, so the URL itself
+ *   works
  */
 export type DownloadNetworkPhase = 'request' | 'body'
 
@@ -118,6 +120,17 @@ export interface TransferOptions {
   maxBytes?: number
   /** How many received bytes to collect before each write. Default: 256 KiB. */
   writeBytes?: number
+  /**
+   * How long a request may wait for its answer, in milliseconds, before it fails as a `request`
+   * {@link DownloadNetworkError}: a connection that never answers must not hold a download
+   * forever. Default: {@link DEFAULT_RESPONSE_TIMEOUT_MS}.
+   */
+  responseTimeoutMs?: number
+  /**
+   * How long an answer's body may go without a byte, in milliseconds, before it fails as a `body`
+   * {@link DownloadNetworkError}. Default: {@link DEFAULT_STALL_TIMEOUT_MS}.
+   */
+  stallTimeoutMs?: number
   /** Stops the transfer. */
   signal: AbortSignal
   /** Called after each write with the number of bytes stored and the size, when known. */
@@ -134,6 +147,44 @@ export interface TransferResult extends TransferFacts {
 
 /** The default for {@link TransferOptions.writeBytes}. */
 export const DEFAULT_WRITE_BYTES = 256 * 1024
+
+/** The default for {@link TransferOptions.responseTimeoutMs}. */
+export const DEFAULT_RESPONSE_TIMEOUT_MS = 30_000
+
+/** The default for {@link TransferOptions.stallTimeoutMs}. */
+export const DEFAULT_STALL_TIMEOUT_MS = 30_000
+
+/**
+ * A timer that cancels one request when it runs out: armed for the answer, then again for every
+ * piece of its body. `fired` says whether it was the timer, not the caller, that cancelled it.
+ */
+interface Deadline {
+  readonly signal: AbortSignal
+  readonly fired: boolean
+  arm(ms: number): void
+  stop(): void
+}
+
+function deadline(): Deadline {
+  const controller = new AbortController()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  return {
+    signal: controller.signal,
+    get fired() {
+      return controller.signal.aborted
+    },
+    arm(ms) {
+      clearTimeout(timer)
+      timer = setTimeout(
+        () => controller.abort(new DOMException('The request took too long', 'TimeoutError')),
+        ms,
+      )
+    },
+    stop() {
+      clearTimeout(timer)
+    },
+  }
+}
 
 /** `Content-Range` of a 206 answer, or of a 416 answer (`bytes *\/total`). */
 interface ContentRange {
@@ -240,20 +291,27 @@ function concat(parts: readonly Uint8Array[], length: number): Uint8Array {
   return bytes
 }
 
-async function request(options: TransferOptions, range: string): Promise<Response> {
+async function request(
+  options: TransferOptions,
+  range: string,
+  timer: Deadline,
+): Promise<Response> {
+  const timeoutMs = options.responseTimeoutMs ?? DEFAULT_RESPONSE_TIMEOUT_MS
+  timer.arm(timeoutMs)
   try {
     return await options.fetch(options.url, {
       method: 'GET',
       headers: { ...options.headers, Range: range },
-      signal: options.signal,
+      signal: AbortSignal.any([options.signal, timer.signal]),
       // The file goes to storage; a copy in the HTTP cache would only take space twice.
       cache: 'no-store',
     })
   } catch (error) {
     if (options.signal.aborted) throw abortReason(options.signal, error)
-    throw new DownloadNetworkError(`Couldn't reach ${hostOf(options.url)}`, 'request', {
-      cause: error,
-    })
+    const message = timer.fired
+      ? `${hostOf(options.url)} didn't answer within ${Math.round(timeoutMs / 1000)} s`
+      : `Couldn't reach ${hostOf(options.url)}`
+    throw new DownloadNetworkError(message, 'request', { cause: error })
   }
 }
 
@@ -268,9 +326,19 @@ async function pipe(
   at: number,
   skip: number,
   total: number | undefined,
+  timer: Deadline,
 ): Promise<number> {
   const { writer, signal } = options
   const writeBytes = options.writeBytes ?? DEFAULT_WRITE_BYTES
+  const stallMs = options.stallTimeoutMs ?? DEFAULT_STALL_TIMEOUT_MS
+  const brokeOff = (error: unknown) =>
+    new DownloadNetworkError(
+      timer.fired
+        ? `The answer stalled for ${Math.round(stallMs / 1000)} s`
+        : 'The answer broke off',
+      'body',
+      { cause: error },
+    )
   let received = 0
   let position = at
   const pending: Uint8Array[] = []
@@ -298,13 +366,16 @@ async function pipe(
     if (pendingBytes >= writeBytes) await write()
   }
   const body = response.body
+  timer.arm(stallMs)
   if (body === null || typeof body.getReader !== 'function') {
     let buffer: ArrayBuffer
     try {
       buffer = await response.arrayBuffer()
     } catch (error) {
       if (signal.aborted) throw abortReason(signal, error)
-      throw new DownloadNetworkError('The answer broke off', 'body', { cause: error })
+      throw brokeOff(error)
+    } finally {
+      timer.stop()
     }
     // One piece: `take` keeps all of it, or rejects before keeping any (`too-large`).
     await take(new Uint8Array(buffer))
@@ -320,14 +391,19 @@ async function pipe(
         chunk = await reader.read()
       } catch (error) {
         if (signal.aborted) throw abortReason(signal, error)
-        throw new DownloadNetworkError('The answer broke off', 'body', { cause: error })
+        throw brokeOff(error)
       }
       if (chunk.done) break
+      // Writing to storage doesn't count as a stall.
+      timer.stop()
       await take(chunk.value)
+      timer.arm(stallMs)
     }
+    timer.stop()
     done = true
     await write()
   } finally {
+    timer.stop()
     if (!done) {
       // What arrived before a failure or an abort is kept, so a resume continues after it.
       // The failure itself is what the caller hears about.
@@ -393,7 +469,9 @@ export async function transfer(options: TransferOptions): Promise<TransferResult
     }
     signal.throwIfAborted()
     const end = total === undefined ? offset + chunkBytes : Math.min(offset + chunkBytes, total)
-    const response = await request(options, `bytes=${offset}-${end - 1}`)
+    const timer = deadline()
+    const response = await request(options, `bytes=${offset}-${end - 1}`, timer)
+    timer.stop()
     const { headers, status } = response
     // Only an answer about the file itself tells anything about it: an error page's
     // `Last-Modified` is the page's.
@@ -441,7 +519,7 @@ export async function transfer(options: TransferOptions): Promise<TransferResult
       }
       const size = length ?? total
       await checkSize(size, response)
-      const received = await pipe(response, options, offset, offset, size)
+      const received = await pipe(response, options, offset, offset, size, timer)
       offset = Math.max(offset, received)
       if (size !== undefined && received < size) {
         throw new DownloadNetworkError(
@@ -475,7 +553,7 @@ export async function transfer(options: TransferOptions): Promise<TransferResult
     }
     const expected =
       range?.start !== undefined && range.end !== undefined ? range.end - range.start + 1 : length
-    const received = await pipe(response, options, offset, 0, total)
+    const received = await pipe(response, options, offset, 0, total, timer)
     offset += received
     if (expected !== undefined && received < expected) {
       throw new DownloadNetworkError(

@@ -1,4 +1,6 @@
 import { readFileSync } from 'node:fs'
+import { createServer } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { type Page, type Request, test } from '@playwright/test'
 import type { FakeNetwork, FakeNetworkFixtures } from '../src/app/services/testing/fake-network'
 
@@ -41,7 +43,8 @@ export async function stubNetwork(
 ): Promise<void> {
   const app = new URL(test.info().project.use.baseURL ?? 'http://localhost/')
   await page.route(
-    (url) => url.origin !== app.origin,
+    // This machine's other servers (a redirect target, `startRedirectTarget`) answer themselves.
+    (url) => url.origin !== app.origin && url.hostname !== '127.0.0.1',
     async (route) => {
       const request = route.request()
       if (hold?.(request) === true) return
@@ -111,4 +114,62 @@ export async function installFakeConnect(page: Page, { pongDelayMs = 0 } = {}): 
       }, delayMs)
     })
   }, pongDelayMs)
+}
+
+/** A local server that stands in for the googlevideo host a redirect sends a request to. */
+export interface RedirectTarget {
+  /** Its origin, e.g. `http://127.0.0.1:53124`: the fake network's `googlevideoRedirectTo`. */
+  readonly origin: string
+  /** How many requests it answered. */
+  readonly requests: () => number
+  close(): Promise<void>
+}
+
+/**
+ * Starts the host googlevideo's cms_redirect sends media requests to, on this machine: the browser
+ * follows a redirect itself, so the test can't answer the request after it the way the network
+ * stub answers the others. It serves `audio` (with single ranges) with
+ * `Access-Control-Allow-Origin: allowOrigin`: the exact FXM origin, as FXM Connect 0.2.0 sends
+ * it, which the `Origin: null` the browser sends after the redirect doesn't match; or `*`, as
+ * from 0.2.1 on.
+ */
+export async function startRedirectTarget(
+  audio: Uint8Array,
+  allowOrigin: string,
+): Promise<RedirectTarget> {
+  let count = 0
+  const server = createServer((request, response) => {
+    count += 1
+    const headers: Record<string, string> = {
+      'access-control-allow-origin': allowOrigin,
+      'access-control-expose-headers': 'content-length, content-range, accept-ranges',
+      'accept-ranges': 'bytes',
+      'content-type': 'audio/wav',
+    }
+    const range = /^bytes=(\d+)-(\d*)$/u.exec(request.headers.range ?? '')
+    if (range === null) {
+      response.writeHead(200, { ...headers, 'content-length': String(audio.length) })
+      response.end(Buffer.from(audio))
+      return
+    }
+    const first = Math.min(Number(range[1]), audio.length - 1)
+    const last = Math.min(range[2] ? Number(range[2]) : audio.length - 1, audio.length - 1)
+    response.writeHead(206, {
+      ...headers,
+      'content-length': String(last - first + 1),
+      'content-range': `bytes ${first}-${last}/${audio.length}`,
+    })
+    response.end(Buffer.from(audio.subarray(first, last + 1)))
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const { port } = server.address() as AddressInfo
+  return {
+    origin: `http://127.0.0.1:${port}`,
+    requests: () => count,
+    close: () =>
+      new Promise<void>((resolve) => {
+        server.closeAllConnections()
+        server.close(() => resolve())
+      }),
+  }
 }

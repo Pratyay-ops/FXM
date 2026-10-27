@@ -9,7 +9,10 @@ describe('the @fxm/player entry point', () => {
     ['media session', ['connectMediaSession', 'MEDIA_SESSION_ACTIONS', 'mediaMetadataInit']],
     ['media session helpers', ['mediaImages', 'MEDIA_SESSION_SEEK_OFFSET_MS']],
     ['formats', ['mimeTypeOf', 'formatTime']],
-    ['audio effects', ['EffectsGraph', 'isMediaReadable', 'isLocalMediaUrl', 'setParam']],
+    [
+      'audio effects',
+      ['EffectsGraph', 'isMediaReadable', 'isLocalMediaUrl', 'setParam', 'checkMediaRead'],
+    ],
   ])('exports the %s', (_group, names) => {
     for (const name of names) expect(player).toHaveProperty(name)
   })

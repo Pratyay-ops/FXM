@@ -1,10 +1,16 @@
 import { DEFAULT_QUALITY_PREFS, type Track } from '@fxm/core'
-import { downloadAvailability } from '@fxm/downloads'
+import {
+  createMemoryDownloadStorage,
+  createMemoryDownloadStore,
+  DownloadManager,
+  type DownloadRecord,
+  downloadAvailability,
+} from '@fxm/downloads'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { DownloadEnvironment } from '../../features/downloads/environment'
 import { createSources } from '../../features/search/sources'
 import { createAppDownloadEnvironment, startAppDownloads } from './downloads'
-import { servicesOnTier, type TierServices } from './testing/tiers'
+import { APP_URL, servicesOnTier, type TierServices } from './testing/tiers'
 
 let setups: TierServices[] = []
 
@@ -53,6 +59,77 @@ function resolveRequest(environment: DownloadEnvironment) {
     signal: new AbortController().signal,
   }
 }
+
+/** Downloads `track` with a manager over the app's environment, until it ends one way or another. */
+async function download(environment: DownloadEnvironment, track: Track): Promise<DownloadRecord> {
+  const store = createMemoryDownloadStore()
+  const manager = new DownloadManager({
+    store,
+    storage: createMemoryDownloadStorage(),
+    resolver: environment.resolver,
+    context: () => environment.context(),
+  })
+  await manager.start()
+  try {
+    await manager.enqueue(track)
+    await vi.waitFor(
+      async () => {
+        const status = (await manager.get(track))?.status
+        expect(status === 'completed' || status === 'failed').toBe(true)
+      },
+      { timeout: 10_000, interval: 50 },
+    )
+    return (await manager.get(track)) as DownloadRecord
+  } finally {
+    await manager.destroy()
+  }
+}
+
+/** The FXM page's origin, the exact Access-Control-Allow-Origin of FXM Connect 0.2.0. */
+const FXM_ORIGIN = new URL(APP_URL).origin
+
+describe('YouTube downloads when googlevideo redirects to another host (cms_redirect)', () => {
+  it('fail within seconds, saying so, where FXM Connect 0.2.0 leaves the bytes unreadable', async () => {
+    // FXM Connect 0.2.0 answers with the exact FXM origin, which the Origin: null the browser
+    // sends after a redirect to another host doesn't match. Songs still play (a plain <audio>),
+    // but a download used to stay at "Starting" for minutes, resolving again and again, and then
+    // fail as a server problem.
+    const { setup, environment } = await downloadsOn('full', {
+      googlevideo: { googlevideo: 'redirected', googlevideoAllowOrigin: FXM_ORIGIN },
+    })
+    const song = await firstTrack(setup, 'ytm', 'radiohead creep')
+    const started = Date.now()
+    const record = await download(environment, song)
+    expect(record).toMatchObject({ status: 'failed', error: { code: 'redirected' } })
+    expect(Date.now() - started).toBeLessThan(5_000)
+    // One /player call: no fallback URL and no fresh resolution, which couldn't be read either.
+    expect(setup.network.players).toHaveLength(1)
+  })
+
+  it('complete with FXM Connect 0.2.1, whose answers allow any origin', async () => {
+    const { setup, environment } = await downloadsOn('full', {
+      googlevideo: { googlevideo: 'redirected' },
+    })
+    const song = await firstTrack(setup, 'ytm', 'radiohead creep')
+    expect(await download(environment, song)).toMatchObject({ status: 'completed' })
+    // The bytes came from the host googlevideo redirected to.
+    expect(setup.network.requests.some((request) => request.url.includes('cms_redirect=yes'))).toBe(
+      true,
+    )
+  })
+
+  it("fail at once, saying so, where the browser won't let FXM read googlevideo at all", async () => {
+    const { setup, environment } = await downloadsOn('full', {
+      googlevideo: { googlevideo: 'refused' },
+    })
+    const song = await firstTrack(setup, 'ytm', 'radiohead creep')
+    expect(await download(environment, song)).toMatchObject({
+      status: 'failed',
+      error: { code: 'unreadable' },
+    })
+    expect(setup.network.players).toHaveLength(1)
+  })
+})
 
 describe("downloads on the app's services", () => {
   it('download a YouTube Music song with FXM Connect: a URL that passed the end-of-file probe', async () => {

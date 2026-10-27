@@ -5,6 +5,7 @@ import {
   CONNECT_BRIDGE_TIMEOUT_MS,
   CONNECT_MARKER_ATTRIBUTE,
   CONNECT_PING_TIMEOUT_MS,
+  CONNECT_REDIRECT_FIX_VERSION,
   CONNECT_SEEN_KEY,
   ConnectBridgeError,
   type ConnectClient,
@@ -14,6 +15,7 @@ import {
   createConnectClient,
   hasConnectFeature,
   MIN_CONNECT_VERSION,
+  needsRedirectFix,
   SPOTIFY_LOGIN_TEXT_VERSION,
   saysSpotifyLoginUnused,
 } from './connect'
@@ -530,6 +532,17 @@ describe('compareVersions', () => {
     expect(saysSpotifyLoginUnused('1.0.0')).toBe(false)
     expect(saysSpotifyLoginUnused('dev')).toBe(false)
     expect(saysSpotifyLoginUnused(undefined)).toBe(false)
+  })
+
+  it('knows which versions lose googlevideo bytes after a redirect to another host', () => {
+    // 0.2.1 answers googlevideo media with Access-Control-Allow-Origin: *.
+    expect(CONNECT_REDIRECT_FIX_VERSION).toBe('0.2.1')
+    expect(needsRedirectFix('0.1.0')).toBe(true)
+    expect(needsRedirectFix('0.2.0')).toBe(true)
+    expect(needsRedirectFix('0.2.1')).toBe(false)
+    expect(needsRedirectFix('0.3.0')).toBe(false)
+    expect(needsRedirectFix('dev')).toBe(false)
+    expect(needsRedirectFix(undefined)).toBe(false)
   })
 })
 

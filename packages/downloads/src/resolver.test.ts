@@ -23,6 +23,7 @@ import {
   type DownloadResolveRequest,
   NoDownloadableStreamError,
   type PolicyDownloadResolverOptions,
+  UnreadableStreamError,
 } from './resolver'
 
 function request(overrides: Partial<DownloadResolveRequest> = {}): DownloadResolveRequest {
@@ -147,6 +148,59 @@ describe('the policy download resolver', () => {
     const error = await resolver.resolve(testTrack('a'), request()).catch((caught) => caught)
     expect(error).toBeInstanceOf(NoDownloadableStreamError)
     expect(error).toMatchObject({ reason: 'unverified' })
+    expect(youtube.log).toEqual(['a:top', 'a:fallback'])
+  })
+
+  it("says at once when the browser won't let the page read the unverified bytes", async () => {
+    // A probe that failed because the read was refused after googlevideo redirected it (an FXM
+    // Connect older than 0.2.1): the readability check tells, so no fallback URL is asked for.
+    const redirected = (redirect: RequestRedirect | undefined) => {
+      if (redirect !== 'manual') return Promise.reject(new TypeError('Failed to fetch'))
+      const response = new Response(null)
+      Object.defineProperty(response, 'type', { value: 'opaqueredirect' })
+      return Promise.resolve(response)
+    }
+    for (const [answer, reason] of [
+      [redirected, 'redirected'],
+      [() => Promise.reject(new TypeError('Failed to fetch')), 'refused'],
+    ] as const) {
+      const { resolver, youtube } = setup()
+      youtube.handler = async (candidate, { rung }) =>
+        ladderStreams(candidate.ref, { rung, fullLength: 'unverified', serial: 1 })
+      const checked: string[] = []
+      const ctx = testContext('full', {
+        fetch: async (input, init) => {
+          checked.push(String(input))
+          return answer(init?.redirect)
+        },
+      })
+      const error = await resolver
+        .resolve(testTrack('a'), request({ ctx }))
+        .catch((caught: unknown) => caught)
+      expect(error).toBeInstanceOf(UnreadableStreamError)
+      expect(error).toMatchObject({ reason })
+      expect(youtube.log).toEqual(['a:top'])
+      expect(new Set(checked)).toEqual(new Set(['https://media.test/a/251?n=1']))
+    }
+  })
+
+  it('checks nothing where native HTTP reads every answer: desktop and Android', async () => {
+    const { resolver, youtube } = setup()
+    youtube.handler = async (candidate, { rung }) =>
+      ladderStreams(candidate.ref, { rung, fullLength: 'unverified', serial: 1 })
+    let fetches = 0
+    const ctx = testContext('full', {
+      platform: 'desktop',
+      fetch: async () => {
+        fetches += 1
+        throw new TypeError('Failed to fetch')
+      },
+    })
+    const error = await resolver
+      .resolve(testTrack('a'), request({ ctx }))
+      .catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(NoDownloadableStreamError)
+    expect(fetches).toBe(0)
     expect(youtube.log).toEqual(['a:top', 'a:fallback'])
   })
 
