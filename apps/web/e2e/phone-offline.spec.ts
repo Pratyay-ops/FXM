@@ -119,10 +119,20 @@ async function downloadSong(phone: Phone): Promise<string> {
   const title = ((await more.getAttribute('aria-label')) ?? '').replace('More options for ', '')
   await more.click()
   await page.getByRole('menuitem', { name: 'Download' }).click()
+  // The Download dialog, at the original: on the iPhone the file then goes to the browser's
+  // downloads by itself; where the browser has a save picker, it asks once the song is in.
+  const dialog = page.getByRole('dialog', { name: 'Download' })
+  await dialog.getByRole('button', { name: 'Download' }).click()
   // The item's FLAC, byte for byte in the Origin Private File System.
   await expect
     .poll(() => storedDownloads(page), { timeout: 30_000 })
     .toEqual([{ title, status: 'completed', container: 'flac', bytes: FLAC.length }])
+  // The iPhone saves the file to its downloads and closes the dialog; where the browser has a
+  // save picker, the dialog asks for a second click, which this test leaves.
+  const asks = dialog.getByRole('status')
+  await expect(asks.or(page.getByText(/^Saved “/u))).toBeVisible({ timeout: 30_000 })
+  if (await asks.isVisible()) await dialog.getByRole('button', { name: 'Cancel' }).click()
+  await expect(dialog).toBeHidden()
   await openLibraryDownloads(page)
   await expect(page.getByRole('list', { name: 'Songs in Downloads' })).toContainText(title)
   // The service worker has the shell by now: it controls the page once it is installed.
