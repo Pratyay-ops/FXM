@@ -5,7 +5,8 @@ import {
   connectionHelp,
   connectionOptions,
   downloadFormatHelp,
-  SAVE_TO_DEVICE_NOTE,
+  downloadFormatNote,
+  saveFileHelp,
   shownConnection,
   tierDescription,
 } from './quality-options'
@@ -80,29 +81,28 @@ describe('downloadFormatHelp', () => {
   it('explains YouTube conversions where the platform reads YouTube’s bytes', () => {
     expect(downloadFormatHelp('original', FULL)).toEqual([
       'Saves each file as its source has it, with no conversion and no quality loss: Opus or AAC for YouTube songs, FLAC where a source is lossless.',
-      SAVE_TO_DEVICE_NOTE,
     ])
     expect(downloadFormatHelp('alac', FULL)).toEqual([
       'A YouTube song in Opus: ALAC (converted from Opus, same quality as the source).',
       'A lossless source in FLAC: ALAC (converted from FLAC, lossless).',
       'YouTube audio is never lossless: converting it gives a bigger file, not a better one.',
-      SAVE_TO_DEVICE_NOTE,
     ])
     expect(downloadFormatHelp('aac', FULL)).toEqual([
       'A YouTube song in Opus: AAC (converted from Opus, some quality loss).',
       'A lossless source in FLAC: AAC (converted from FLAC, some quality loss).',
-      SAVE_TO_DEVICE_NOTE,
     ])
   })
 
-  it('says that downloads stay the original, and the format is where Save to device starts', () => {
-    expect(SAVE_TO_DEVICE_NOTE).toBe(
+  it('says that downloads keep the original, and what the format is for', () => {
+    expect(downloadFormatNote('download')).toBe(
+      'FXM keeps the original file to play offline. The file Download saves, and “Save to device…”, start at this format; you can pick another each time.',
+    )
+    expect(downloadFormatNote('save-later')).toBe(
       'Downloads keep the original file, which plays offline as it is. A downloaded song’s “Save to device…” starts at this format.',
     )
-    for (const format of ['original', 'flac', 'mp3'] as const) {
-      expect(downloadFormatHelp(format, FULL).at(-1), format).toBe(SAVE_TO_DEVICE_NOTE)
-      expect(downloadFormatHelp(format, LITE).at(-1), format).toBe(SAVE_TO_DEVICE_NOTE)
-    }
+    expect(downloadFormatNote('none')).toMatch(
+      /^Downloads keep the original file, which plays offline as it is\. This app can’t save files yet/,
+    )
   })
 
   it('covers only the free sources where YouTube’s bytes can’t be read, and says where they can', () => {
@@ -110,14 +110,12 @@ describe('downloadFormatHelp', () => {
       expect(downloadFormatHelp('original', capabilities)).toEqual([
         'Saves each file as its source has it, with no conversion and no quality loss: FLAC, MP3 or Ogg Vorbis from Internet Archive.',
         'YouTube songs can be downloaded with FXM Connect.',
-        SAVE_TO_DEVICE_NOTE,
       ])
       expect(downloadFormatHelp('flac', capabilities)).toEqual([
         'An MP3 from Internet Archive: FLAC (converted from MP3, same quality as the source).',
         'A lossless source in FLAC: FLAC (no conversion).',
         'Lossy audio never becomes lossless: converting it gives a bigger file, not a better one.',
         'YouTube songs can be downloaded with FXM Connect.',
-        SAVE_TO_DEVICE_NOTE,
       ])
       expect(downloadFormatHelp('mp3', capabilities)[0]).toBe(
         'An MP3 from Internet Archive: MP3 (no conversion).',
@@ -130,6 +128,33 @@ describe('downloadFormatHelp', () => {
     expect(downloadFormatHelp('original', fullWithoutBytes)).toEqual(
       downloadFormatHelp('original', LITE),
     )
+  })
+})
+
+describe('saveFileHelp', () => {
+  it('says where Download saves the file, as the browser saves it', () => {
+    expect(saveFileHelp(true, 'picker', 'web')).toBe(
+      'Download asks for the format and where to save, then keeps the song in FXM to play offline and saves its file there. An album or a playlist goes into a folder you pick.',
+    )
+    expect(saveFileHelp(true, 'downloads', 'web')).toBe(
+      'Download asks for the format, then keeps the song in FXM to play offline and saves its file to your browser’s downloads.',
+    )
+    expect(saveFileHelp(true, 'app', 'android')).toMatch(/saves its file on this device\.$/)
+  })
+
+  it('says what Download does with the setting off', () => {
+    expect(saveFileHelp(false, 'picker', 'web')).toBe(
+      'Download keeps the song in FXM only, where it plays offline. To get a file, use “Save to device…” in a downloaded song’s menu.',
+    )
+  })
+
+  it('says where no file can be saved, whatever the setting', () => {
+    for (const on of [true, false]) {
+      expect(saveFileHelp(on, 'none', 'android')).toBe(
+        'The Android app can’t save files yet, so Download keeps each song in FXM, where it plays offline.',
+      )
+    }
+    expect(saveFileHelp(true, 'none', 'desktop')).toMatch(/^The desktop app can’t save files yet/)
   })
 })
 

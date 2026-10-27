@@ -255,6 +255,26 @@ describe('failures', () => {
     expect(h.resolver.reasonsFor(track)).toEqual(['start', 'refresh'])
   })
 
+  it("fails at once when the browser won't let the page read a signed URL", async () => {
+    // googlevideo redirected the transfer to another host, and an FXM Connect older than 0.2.1
+    // leaves the answer unreadable; or FXM Connect's rules don't apply at all. Resolving afresh
+    // can't help: the download fails with the reason, without a second resolution.
+    for (const [unreadable, code] of [
+      ['redirected', 'redirected'],
+      ['refused', 'unreadable'],
+    ] as const) {
+      const h = setup({ retryDelaysMs: [1] })
+      const track = song('a')
+      h.serve(track, 3000)
+      h.server.rule(mediaUrl(track, 1), { unreadable })
+      await h.manager.start()
+      await h.manager.enqueue(track)
+      await h.manager.idle()
+      expect(await h.record(track)).toMatchObject({ status: 'failed', error: { code } })
+      expect(h.resolver.reasonsFor(track)).toEqual(['start'])
+    }
+  })
+
   it('retries a stable URL after a passing failure, without resolving again', async () => {
     const h = setup({ retryDelaysMs: [5] })
     const track = song('a')

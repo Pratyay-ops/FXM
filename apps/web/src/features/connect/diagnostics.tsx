@@ -1,24 +1,51 @@
 /**
  * Settings → Diagnostics: the current tier and why, the details behind it (FXM Connect, the Lite
- * self-test, what YouTube and Spotify allow, the request budget), a re-check, and the "resolve
- * and play one song" self-test (docs/ARCHITECTURE.md §10).
+ * self-test, what YouTube and Spotify allow, the request budget), a re-check, the "resolve and
+ * play one song" self-test (docs/ARCHITECTURE.md §10), after it the YouTube audio check
+ * (`audio-check.ts`), and a button that copies it all as a redacted plain-text report
+ * (`diagnostics-report.ts`).
  *
  * @module
  */
 
-import { isFxmError } from '@fxm/core'
-import { type BudgetSnapshot, type ConnectStatus, MIN_CONNECT_VERSION } from '@fxm/platform'
-import { CircleCheck, CircleX, LoaderCircle, Play, RefreshCw, Square } from 'lucide-react'
+import { APP_VERSION } from '@fxm/core'
+import {
+  Check,
+  CircleCheck,
+  CircleX,
+  Copy,
+  LoaderCircle,
+  Play,
+  RefreshCw,
+  Square,
+} from 'lucide-react'
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import { buttonClasses } from '../../components/ui/button'
 import {
+  type AudioCheckResult,
+  type AudioCheckState,
+  audioCheckSkip,
+  audioCheckUrl,
+  describeAudioCheck,
+  runAudioCheck,
+  shownAudioCheck,
+} from './audio-check'
+import {
   type ConnectionState,
   connectionContext,
-  type LiteStatus,
   recheckConnection,
   useConnection,
 } from './connection'
+import { diagnosticsReport } from './diagnostics-report'
+import {
+  budgetSummary,
+  connectSummary,
+  failureText,
+  liteSummary,
+  seconds,
+  selfTestFailure,
+} from './diagnostics-text'
 import {
   connectionTier,
   describeSpotify,
@@ -26,8 +53,8 @@ import {
   explainConnection,
   isDetecting,
 } from './explain'
-import { createPlaybackProbe, type ProbeFailure, type ProbeResult } from './playback-probe'
-import { SELF_TEST_SONG, unavailableResolver, useSongResolver } from './resolver'
+import { createPlaybackProbe, type ProbeResult } from './playback-probe'
+import { SELF_TEST_SONG, type SongResolver, unavailableResolver, useSongResolver } from './resolver'
 import {
   runSongSelfTest,
   type SelfTestAttempt,
@@ -44,56 +71,6 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
       <div className="min-w-0 space-y-2">{children}</div>
     </div>
   )
-}
-
-/** FXM Connect's state, in a few words. */
-export function connectSummary(status: ConnectStatus | undefined, platform: string): string {
-  if (platform !== 'web') return 'Not needed in the app'
-  switch (status?.state) {
-    case undefined:
-      return 'Not checked yet'
-    case 'present':
-      return `Version ${status.version ?? '?'}, on`
-    case 'outdated':
-      return `Version ${status.version ?? '?'}, too old: FXM needs ${MIN_CONNECT_VERSION} or later`
-    case 'missing':
-      return status.lastSeenVersion === undefined
-        ? 'Not answering, though it worked here before'
-        : `Not answering, though version ${status.lastSeenVersion} worked here before`
-    case 'absent':
-      return 'Not installed'
-  }
-}
-
-/** Lite's state, in a few words. */
-export function liteSummary(lite: LiteStatus, platform: string): string {
-  switch (lite) {
-    case 'not-needed':
-      return platform === 'web'
-        ? 'Not needed: FXM Connect gives full access'
-        : 'Not needed in the app'
-    case 'unavailable':
-      return 'Not available here'
-    case 'switched-off':
-      return 'Switched off for everyone at the moment'
-    case 'checking':
-      return 'Checking…'
-    case 'passed':
-      return 'Check passed'
-    case 'failed':
-      return "Check didn't pass in this browser"
-  }
-}
-
-/** The request budget, in a sentence. */
-export function budgetSummary(budget: BudgetSnapshot | undefined, now = Date.now()): string {
-  if (budget === undefined) return 'Not started yet'
-  const used = `${budget.used} of ${budget.hourlyLimit} in the last hour`
-  if (budget.bulkPausedUntil === undefined || budget.bulkPausedUntil <= now) return used
-  const until = new Intl.DateTimeFormat(undefined, { timeStyle: 'short' }).format(
-    budget.bulkPausedUntil,
-  )
-  return `${used}. After a bot check, background work such as imports waits until ${until}; playback goes on.`
 }
 
 function DetailList({ state }: { state: ConnectionState }) {
@@ -114,44 +91,6 @@ function DetailList({ state }: { state: ConnectionState }) {
       ))}
     </dl>
   )
-}
-
-function seconds(ms: number): string {
-  return `${(ms / 1000).toFixed(1)} s`
-}
-
-const PROBE_FAILURES: Readonly<Record<ProbeFailure, string>> = {
-  'media-error': "the browser couldn't play it",
-  stalled: 'it stalled',
-  timeout: "it didn't start in time",
-  blocked: 'the browser blocked playback; allow sound for this site and try again',
-  aborted: 'stopped',
-}
-
-function failureText(result: Exclude<ProbeResult, { ok: true }>): string {
-  const text = PROBE_FAILURES[result.reason]
-  return result.detail === undefined ? text : `${text} (${result.detail})`
-}
-
-/** Why the resolution failed, from the resolver's `FxmError`. */
-export function resolveErrorText(error: unknown): string {
-  if (!isFxmError(error)) return "The song couldn't be resolved."
-  switch (error.code) {
-    case 'BotCheck':
-      return "YouTube asked to confirm you're not a bot, and refused. Try again later."
-    case 'RateLimited':
-      return 'Too many YouTube requests for now. Try again in a few minutes.'
-    case 'Network':
-      return "The request didn't get through. Check your connection and try again."
-    case 'Unavailable':
-    case 'GeoBlocked':
-    case 'NotFound':
-      return "The test song isn't available here."
-    case 'Unsupported':
-      return "FXM can't reach YouTube Music for this request here."
-    default:
-      return "The song couldn't be resolved."
-  }
 }
 
 function AttemptList({ attempts }: { attempts: readonly SelfTestAttempt[] }) {
@@ -196,13 +135,7 @@ function Report({ report }: { report: SelfTestReport }) {
         <div className="space-y-1">
           <p className="flex gap-2 font-semibold">
             <CircleX aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-danger" />
-            <span>
-              {report.stage === 'resolve'
-                ? resolveErrorText(report.error)
-                : report.stage === 'none'
-                  ? 'The resolver found no stream this browser can play.'
-                  : 'No stream played.'}
-            </span>
+            <span>{selfTestFailure(report)}</span>
           </p>
           <AttemptList attempts={report.attempts} />
         </div>
@@ -227,16 +160,89 @@ function stepText(step: SelfTestStep | undefined): string {
     : `Playing ${step.label}…`
 }
 
-/** The "resolve and play one song" self-test. */
-function SongSelfTest({ state }: { state: ConnectionState }) {
+/** The song self-test and the YouTube audio check after it: one run, stopped by one button. */
+interface DiagnosticsRun {
+  readonly running: boolean
+  readonly step: SelfTestStep | undefined
+  readonly report: SelfTestReport | undefined
+  readonly audio: AudioCheckState
+  start(): void
+  stop(): void
+}
+
+function useDiagnosticsRun(resolver: SongResolver): DiagnosticsRun {
   const [running, setRunning] = useState(false)
   const [step, setStep] = useState<SelfTestStep>()
   const [report, setReport] = useState<SelfTestReport>()
+  const [audio, setAudio] = useState<AudioCheckState>({ phase: 'idle' })
   const controller = useRef<AbortController | undefined>(undefined)
   useEffect(() => () => controller.current?.abort(), [])
 
-  // The ladder arrives with YouTube's code, which may load after this renders.
-  const resolver = useSongResolver()
+  /** Reads the stream the self-test ended on, when FXM Connect could read it here. */
+  async function checkAudio(result: SelfTestReport, signal: AbortSignal, current: () => boolean) {
+    // Without FXM Connect, or in Lite, the row says why from the connection state alone.
+    if (result.status === 'cancelled' || audioCheckSkip(useConnection.getState()) !== undefined) {
+      return
+    }
+    const url = result.status === 'skipped' ? undefined : audioCheckUrl(result.attempts)
+    if (url === undefined) {
+      setAudio({ phase: 'done', result: { kind: 'not-tested', reason: 'no-stream' } })
+      return
+    }
+    setAudio({ phase: 'checking' })
+    const checked = await runAudioCheck({ url, signal })
+    if (current()) setAudio({ phase: 'done', result: checked })
+  }
+
+  function start() {
+    const ctx = connectionContext('music')
+    if (ctx === undefined) return
+    controller.current?.abort()
+    const abort = new AbortController()
+    controller.current = abort
+    const current = () => controller.current === abort
+    const probe = createPlaybackProbe()
+    // From the click itself, so browsers that want a tap let this element play after the wait.
+    probe.prime()
+    setRunning(true)
+    setStep(undefined)
+    setReport(undefined)
+    setAudio({ phase: 'idle' })
+    void runSongSelfTest({
+      resolver,
+      probe,
+      context: () => ({ ...ctx, signal: abort.signal }),
+      signal: abort.signal,
+      onStep: setStep,
+    })
+      .finally(() => probe.dispose())
+      .then(async (result) => {
+        if (!current()) return
+        setReport(result)
+        await checkAudio(result, abort.signal, current)
+      })
+      .finally(() => {
+        if (current()) {
+          setRunning(false)
+          controller.current = undefined
+        }
+      })
+  }
+
+  return { running, step, report, audio, start, stop: () => controller.current?.abort() }
+}
+
+/** The "resolve and play one song" self-test. */
+function SongSelfTest({
+  state,
+  resolver,
+  run,
+}: {
+  state: ConnectionState
+  resolver: SongResolver
+  run: DiagnosticsRun
+}) {
+  const { running, step, report } = run
   const tier = connectionTier(state)
   const ready = state.phase === 'ready'
   // How to get YouTube Music is the Tier row's to say, for this device.
@@ -246,37 +252,6 @@ function SongSelfTest({ state }: { state: ConnectionState }) {
       : resolver === unavailableResolver
         ? "This version of FXM can't resolve YouTube songs yet, so the self-test can't run."
         : undefined
-
-  function start() {
-    const ctx = connectionContext('music')
-    if (ctx === undefined) return
-    controller.current?.abort()
-    const abort = new AbortController()
-    controller.current = abort
-    const probe = createPlaybackProbe()
-    // From the click itself, so browsers that want a tap let this element play after the wait.
-    probe.prime()
-    setRunning(true)
-    setStep(undefined)
-    setReport(undefined)
-    void runSongSelfTest({
-      resolver,
-      probe,
-      context: () => ({ ...ctx, signal: abort.signal }),
-      signal: abort.signal,
-      onStep: setStep,
-    })
-      .then((result) => {
-        if (controller.current === abort) setReport(result)
-      })
-      .finally(() => {
-        probe.dispose()
-        if (controller.current === abort) {
-          setRunning(false)
-          controller.current = undefined
-        }
-      })
-  }
 
   return (
     <Row label="Song self-test">
@@ -291,14 +266,15 @@ function SongSelfTest({ state }: { state: ConnectionState }) {
           type="button"
           className={buttonClasses({ variant: 'secondary' })}
           disabled={!running && (!ready || blocker !== undefined)}
-          onClick={running ? () => controller.current?.abort() : start}
+          onClick={running ? run.stop : run.start}
         >
           {running ? <Square aria-hidden="true" /> : <Play aria-hidden="true" />}
           {running ? 'Stop' : 'Resolve and play one song'}
         </button>
       </div>
       <div aria-live="polite" className="min-h-6">
-        {running ? (
+        {/* The report shows as soon as the self-test ends, while the audio check runs. */}
+        {running && report === undefined ? (
           <p className="flex items-center gap-2 text-sm">
             <LoaderCircle
               aria-hidden="true"
@@ -314,8 +290,142 @@ function SongSelfTest({ state }: { state: ConnectionState }) {
   )
 }
 
+/** A YouTube audio check's result, in the style of the self-test's report. */
+function AudioCheckOutcome({
+  result,
+  connectVersion,
+}: {
+  result: AudioCheckResult
+  connectVersion: string | undefined
+}) {
+  if (result.kind === 'cancelled') return <p className="text-sm text-text-muted">Stopped.</p>
+  const text = describeAudioCheck(result, connectVersion)
+  if (text.tone === 'neutral') {
+    return (
+      <p className="text-sm">
+        <span className="font-semibold">{text.title}.</span>{' '}
+        <span className="text-text-muted">{text.explanation}</span>
+      </p>
+    )
+  }
+  return (
+    <div className="space-y-1">
+      <p className="flex gap-2 font-semibold">
+        {text.tone === 'good' ? (
+          <CircleCheck aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-accent" />
+        ) : (
+          <CircleX aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-danger" />
+        )}
+        <span>{text.title}</span>
+      </p>
+      <p className="text-sm text-text-muted">{text.explanation}</p>
+      {text.advice !== undefined && <p className="text-sm">{text.advice}</p>}
+    </div>
+  )
+}
+
+/** The YouTube audio check: whether FXM Connect can read the stream the self-test found. */
+function AudioCheck({ state, audio }: { state: ConnectionState; audio: AudioCheckState }) {
+  const shown = shownAudioCheck(state, audio)
+  return (
+    <Row label="YouTube audio">
+      <p className="text-sm text-text-muted">
+        Whether FXM Connect can read YouTube audio here, which YouTube downloads and the equalizer
+        need. It runs after the song self-test and reads the first kilobyte of the stream the
+        self-test found.
+      </p>
+      <div aria-live="polite" className="min-h-6">
+        {shown === 'waiting' ? null : shown === 'checking' ? (
+          <p className="flex items-center gap-2 text-sm">
+            <LoaderCircle
+              aria-hidden="true"
+              className="size-4 animate-spin motion-reduce:animate-none"
+            />
+            Reading the first kilobyte of the song's audio…
+          </p>
+        ) : (
+          <AudioCheckOutcome result={shown} connectVersion={state.connect?.version} />
+        )}
+      </div>
+    </Row>
+  )
+}
+
+/**
+ * "Copy report": the section's results as plain text, for a bug report (`diagnostics-report.ts`).
+ * Where the browser refuses the clipboard, the report shows in a field to copy by hand.
+ */
+function CopyReport({ state, run }: { state: ConnectionState; run: DiagnosticsRun }) {
+  const [copied, setCopied] = useState(false)
+  const [blocked, setBlocked] = useState<string>()
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const fieldId = useId()
+  useEffect(() => () => clearTimeout(timer.current), [])
+
+  async function copy() {
+    const report = diagnosticsReport({
+      appVersion: APP_VERSION,
+      state,
+      navigator,
+      selfTest: { report: run.report, running: run.running },
+      audio: run.audio,
+    })
+    clearTimeout(timer.current)
+    try {
+      await navigator.clipboard.writeText(report)
+      setBlocked(undefined)
+      setCopied(true)
+      timer.current = setTimeout(() => setCopied(false), 4000)
+    } catch {
+      setCopied(false)
+      setBlocked(report)
+    }
+  }
+
+  return (
+    <Row label="Report">
+      <p className="text-sm text-text-muted">
+        Copies these results as plain text, to paste into a bug report: FXM's version, this browser
+        and system, FXM Connect and each check, with the name of YouTube's audio server. It leaves
+        out web addresses, IP addresses, tokens and cookies.
+      </p>
+      <button
+        type="button"
+        className={buttonClasses({ variant: 'secondary' })}
+        onClick={() => void copy()}
+      >
+        {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
+        Copy report
+      </button>
+      <div aria-live="polite" className="space-y-2">
+        {copied && <p className="text-sm">Report copied.</p>}
+        {blocked !== undefined && (
+          <>
+            <p className="text-sm">
+              <label htmlFor={fieldId}>
+                This browser didn't allow copying. Select the report below and copy it.
+              </label>
+            </p>
+            <textarea
+              id={fieldId}
+              readOnly
+              rows={8}
+              value={blocked}
+              onFocus={(event) => event.currentTarget.select()}
+              className="block w-full resize-y rounded-lg border border-border-strong bg-elevated p-3 font-mono text-xs text-text"
+            />
+          </>
+        )}
+      </div>
+    </Row>
+  )
+}
+
 export function DiagnosticsSection() {
   const state = useConnection()
+  // The ladder arrives with YouTube's code, which may load after this renders.
+  const resolver = useSongResolver()
+  const run = useDiagnosticsRun(resolver)
   const headingId = useId()
   const detecting = isDetecting(state)
   const tier = connectionTier(state)
@@ -365,7 +475,9 @@ export function DiagnosticsSection() {
             {state.rechecking ? 'Checking…' : 'Check again'}
           </button>
         </Row>
-        <SongSelfTest state={state} />
+        <SongSelfTest state={state} resolver={resolver} run={run} />
+        <AudioCheck state={state} audio={run.audio} />
+        <CopyReport state={state} run={run} />
       </div>
     </section>
   )

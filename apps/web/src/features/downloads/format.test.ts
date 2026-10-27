@@ -65,6 +65,28 @@ describe('status lines', () => {
     expect(statusLine(record({ status: 'removing' }), true)).toBe('Removing')
   })
 
+  it('ask an older FXM Connect to update when YouTube moved the download to another server', () => {
+    const redirected = record({
+      status: 'failed',
+      error: { code: 'redirected', message: '', at: 1 },
+    })
+    expect(statusLine(redirected, true, '0.2.0')).toBe(
+      'YouTube moved this download to another server that FXM Connect 0.2.0 can’t read. Update FXM Connect to 0.2.1',
+    )
+    // FXM Connect 0.2.1 reads such redirects: then it went to a server it doesn't cover.
+    expect(statusLine(redirected, true, '0.2.1')).toBe(
+      'YouTube moved this download to a server FXM Connect can’t read',
+    )
+    expect(statusLine(redirected, true)).toBe(ERROR_TEXT.redirected)
+    expect(
+      statusLine(
+        record({ status: 'failed', error: { code: 'unreadable', message: '', at: 1 } }),
+        true,
+        '0.2.0',
+      ),
+    ).toBe('This browser didn’t let FXM Connect read this song’s audio')
+  })
+
   it('say why the manager paused a download on its own', () => {
     expect(
       statusLine(

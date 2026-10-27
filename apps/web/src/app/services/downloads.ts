@@ -72,16 +72,17 @@ export function createAppDownloadEnvironment(
 }
 
 /**
- * The catalog pages' Download entries (2.4's `DownloadActions`): the downloads' own action,
- * which says what became of the click ("Downloading …", "… can't be downloaded here"). The bulk
- * of its code, the downloads' runtime with Dexie and the manager, loads as soon as the entries
- * are connected (`startAppDownloads`), so the click still counts as the user's when it asks the
- * browser to keep FXM's data.
+ * The catalog pages' Download entries (2.4's `DownloadActions`): the downloads' own action
+ * (`requestDownload`), which opens the Download dialog, or keeps an offline copy only and says
+ * what became of the click ("Downloading …", "… can't be downloaded here"), as Settings says. The
+ * bulk of its code, the downloads' runtime with Dexie and the manager, loads as soon as the
+ * entries are connected (`startAppDownloads`), so the click still counts as the user's when it
+ * asks the browser to keep FXM's data; the dialog asks where to save from a click of its own.
  */
 export const appDownloadActions: DownloadActions = {
-  download(tracks: readonly Track[]) {
-    void import('../../features/downloads/actions').then(({ downloadTracks }) =>
-      downloadTracks(tracks),
+  download(tracks: readonly Track[], title?: string) {
+    void import('../../features/downloads/actions').then(({ requestDownload }) =>
+      requestDownload(tracks, { title }),
     )
   },
 }

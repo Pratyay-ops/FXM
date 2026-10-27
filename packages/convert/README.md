@@ -12,7 +12,7 @@ Conversion and tagging (stage 4.2): saving a download in the format the user pic
 | `demuxMp4Audio`, `writeM4a` | MP4 audio: the AAC track of YouTube's itag 18 or of a fragmented M4A, read with mp4box.js and written as a plain M4A with iTunes tags |
 | `writeMp3Tags`, `writeFlacTags`, `writeOggTags`, `writeWavTags` | The tag writers |
 | `tagsFromTrack`, `fetchCover` | The tags of a track: metadata, lyrics, and its cover as JPEG or PNG bytes |
-| `DeviceSaver`, `createBrowserDeviceSaver` | "Save to device": the interface each platform implements, and the browser's |
+| `DeviceSaver`, `createBrowserDeviceSaver` | Saving files: the interface each platform implements, and the browser's (save picker, folder picker, downloads) |
 | `exportFileName` | "Artist - Title.ext", safe on every file system: at most 200 bytes of UTF-8 before the extension, cut between whole characters |
 
 ## Formats and labels
@@ -89,7 +89,19 @@ const target = await saver.choose({ fileName, mimeType, description }) // from t
 if (target) await target.write(blob) // after the conversion
 ```
 
-`createBrowserDeviceSaver()` uses the File System Access API's save picker where the browser has one (Chromium on desktop: the user picks the folder and the name) and otherwise downloads the file through a temporary link. Chromium creates the picked file, empty, as its picker closes, so a save that fails or is cancelled afterwards gives the target up (`discard`), which removes that file while it is still empty and never a file with content; a write that fails is aborted, leaving no half-written copy. The desktop app (stage 7.4) and the Android app (6.4) implement `DeviceSaver` themselves (a native save dialog, the device's music library) and hand it to the web app with `setDeviceSaver` (apps/web/src/features/downloads/save). Their `choose` may reject: the app then says the file couldn't be written there and converts nothing.
+`createBrowserDeviceSaver()` uses the File System Access API's save picker where the browser has one (Chromium on desktop: the user picks the folder and the name) and otherwise downloads the file through a temporary link. Chromium creates the picked file, empty, as its picker closes, so a save that fails or is cancelled afterwards gives the target up (`discard`), which removes that file while it is still empty and never a file with content; a write that fails is aborted, leaving no half-written copy. `asksWhere()` says whether `choose` shows such a picker, which only a click opens: the web app's Download dialog then asks for an original's place once its type is known, with a second click, and otherwise saves it once downloaded.
+
+Several files (an album, a playlist) go into one folder, picked once:
+
+```ts
+const folder = await saver.chooseFolder?.({ id: 'fxm-downloads' }) // from the click
+// undefined: the user cancelled; null: no folder picker here, so choose() each file
+if (folder) await folder.target({ fileName, mimeType }).write(blob) // as each file is ready
+```
+
+The browser's `chooseFolder` is the folder picker (`showDirectoryPicker`, asking for write access, starting in Music and remembered by its `id`) where the browser has one, else `null`. A folder's target creates its file only when it is written, under the first free name ("Artist - Title.flac", then "Artist - Title (2).flac"), so a file that is there is never replaced (`numberedFileName`), and removes the file again if writing fails.
+
+The desktop app (stage 7.4) and the Android app (6.4) implement `DeviceSaver` themselves (a native save dialog, the device's music library, and a folder with `chooseFolder` if they have one) and hand it to the web app with `setDeviceSaver` (apps/web/src/features/downloads/save). Until they do, the web app saves no files there. Their `choose` may reject: the app then says the file couldn't be written there and converts nothing.
 
 ## Testing
 

@@ -6,7 +6,7 @@ The Settings page and the stores behind it. Each store is a Zustand store persis
 |---|---|---|
 | `useSettingsStore` (`settings-store.ts`) | `fxm.settings.v1` | Catalog mode and theme (stage 2.1) |
 | `useAudioEffectsStore` (`features/audio-effects/effects-store.ts`) | `fxm.audio-effects.v1` | The audio effects (stage 8.1): the equalizer, loudness normalization, crossfade and speed, as `AudioEffectsSettings` from `@fxm/core`; Settings → Sound (`AudioEffectsSection`, [its README](../audio-effects/README.md)). The sleep timer lives there too but is never stored |
-| `useQualityStore` (`quality-store.ts`) | `fxm.quality.v1` | Audio quality (stage 4.3): `prefs` (`QualityPrefs` from `@fxm/core`: the tier ceilings on Wi-Fi and on mobile data, the download format and MP3 bitrate) and `streaming` (`StreamingSettings`: which connection's ceiling applies, the data saver) |
+| `useQualityStore` (`quality-store.ts`) | `fxm.quality.v1` | Audio quality (stage 4.3) and downloads: `prefs` (`QualityPrefs` from `@fxm/core`: the tier ceilings on Wi-Fi and on mobile data, the download format and MP3 bitrate), `streaming` (`StreamingSettings`: which connection's ceiling applies, the data saver) and `downloads` (`DownloadSettings`, the web app's own: whether Download also saves a file, on by default; settings stored before v0.2.1 get it on) |
 | `useMatchingStore` (`matching-store.ts`) | `fxm.matching.v1` | The Auto setting (stage 1.12): whether a match the engine is sure of plays without asking. It counts, and Settings → Playback shows its switch (`AutoMatchSetting`), only while the matching config makes the band available (`isAutoMatchAvailable()`), which it doesn't in this release; `appMatchOptions(mode)` gives the options every match runs with (`matchingOptions`) |
 
 `settings-layout.tsx` has the page's building blocks, `SettingsSection` (with an optional `headingRef`, whose heading can then take the focus, for a link that leads to the section) and `SettingRow` (with an optional `badge` beside the label), for any feature that adds a section. `setting-select.tsx` is the native select for settings with many choices, and `setting-switch.tsx` the switch for on/off settings.
@@ -21,15 +21,26 @@ The Settings page and the stores behind it. Each store is a Zustand store persis
 | Streaming on Wi-Fi | Lossless, High, Normal, Low | High |
 | Streaming on mobile data | Lossless, High, Normal, Low | Normal |
 | Quality to use | Automatic (only where the browser reports its connection), Wi-Fi quality, Mobile data quality | Automatic, which works as Wi-Fi quality where the browser can't tell |
-| Download format | Original, FLAC, ALAC, WAV, MP3, AAC and Opus (`DOWNLOAD_FORMATS`): where a downloaded song's "Save to device…" starts, since a download itself stays the original file (stage 4.2). With `RELEASED.conversions` off, only Original, the others listed as coming soon, whatever was stored | Original |
-| MP3 bitrate, for MP3 | 128, 192, 256, 320 kbps (`MP3_BITRATES`), with conversions on | 320 kbps (`DEFAULT_MP3_KBPS`) |
 
 - **The data saver comes first**, since it overrides the three rows after it. It streams at Low on every connection and puts audio-only streams before a muxed video (YouTube's itag 18); downloads ignore it. While it is on, those rows are disabled and say "Not used while Data saver is on."
 - **Tiers are ceilings.** Playback streams the best stream at or below the tier, and a song with nothing that low plays at the next quality up (`pickStream`).
 - **Which quality applies.** `use-connection.ts` reads the Network Information API's `type`, which only Chromium on Android and ChromeOS and Android's WebView (the Android app) report. Where the browser can't tell (Safari, Firefox, desktop Chromium, the desktop app), Quality to use offers the Wi-Fi or the mobile data quality instead of Automatic, and the mobile data row says it applies only once chosen there. A phone's hotspot, which looks like Wi-Fi, can be set to the mobile data quality too. The streaming row that applies now is tagged "In use", from `streamingProfile` as the stream lifecycle works it out, except while the data saver is on.
-- **Honest labels.** The help texts never call YouTube audio lossless: Lossless says YouTube songs play at High, and the download format shows `describeConversion`'s labels, e.g. "FLAC (converted from Opus, same quality as the source)".
+- **Honest labels.** The help texts never call YouTube audio lossless: Lossless says YouTube songs play at High, and the download format (below) shows `describeConversion`'s labels, e.g. "FLAC (converted from Opus, same quality as the source)".
 - **The words follow the tier and the browser.** `tierDescription` and `downloadFormatHelp` (`quality-options.ts`) take the platform's `NetworkCapabilities`, which `SettingsPage` reads from the sources registry (`useSourcesSnapshot().capabilities`, kept current by the composition root of stage 2.9). Without YouTube (Free only), the tiers are described in MP3 bitrates. Where YouTube's bytes can't be read (Lite, Free only), downloads cover Internet Archive and Jamendo, and the help says that YouTube songs download with FXM Connect, the desktop app or the Android app. `youtube-codecs.ts` asks this browser's `canPlayType` as the player's engine does, so where it can't play Opus, Normal says it plays YouTube songs at Low: YouTube has no AAC stream at Normal.
-- **Announcements.** Only help that the row's own control changes is an `aria-live` region: a streaming row's tier, the quality to use, the download format. What another setting changes (the data saver's override, the mobile data hint, the "In use" tag) is mounted in place instead, which screen readers don't announce, so one toggle never reads out several paragraphs.
+- **Announcements.** Only help that the row's own control changes is an `aria-live` region: a streaming row's tier, the quality to use, the download format, the save-file switch. What another setting changes (the data saver's override, the mobile data hint, the "In use" tag, the download format's last line, which the save-file switch changes) is mounted in place instead, which screen readers don't announce, so one toggle never reads out several paragraphs.
+
+## Downloads
+
+`DownloadsSection` (`downloads-section.tsx`) comes right after Audio quality:
+
+| Setting | Choices | Default |
+|---|---|---|
+| Save a file to this device when downloading | A switch. On, Download opens the Download dialog, which asks for the format and where to save, keeps the song in FXM to play offline and saves its file; off, Download keeps the copy in FXM only, and a downloaded song's "Save to device…" saves a file later ([features/downloads](../downloads/README.md#download-and-save-to-device)) | On |
+| Download format | Original, FLAC, ALAC, WAV, MP3, AAC and Opus (`DOWNLOAD_FORMATS`): where the Download dialog and "Save to device…" start, since a download itself keeps the original file, which plays offline (stage 4.2). With `RELEASED.conversions` off, only Original, the others listed as coming soon, whatever was stored | Original |
+| MP3 bitrate, for MP3 | 128, 192, 256, 320 kbps (`MP3_BITRATES`), with conversions on | 320 kbps (`DEFAULT_MP3_KBPS`) |
+
+- **The switch says where files go here** (`saveFileHelp`, from `useSaveDestination` in features/downloads/save/device.ts): where the user picks, in Chromium on desktop (an album or a playlist into a folder they pick); the browser's downloads elsewhere; the app's own saver once the desktop or Android app sets one. Where no file can be saved (those apps until then), the switch is off and disabled, and its help says that Download keeps each song in FXM.
+- **The format's help** says what each format gives (`downloadFormatHelp`, as above), and its last line what the format is for (`downloadFormatNote`): where Download's file and "Save to device…" start, where only "Save to device…" starts (the switch off), or that this app can't save files yet.
 
 ### Pending
 
@@ -48,4 +59,4 @@ The Settings page and the stores behind it. Each store is a Zustand store persis
 ## Who reads it
 
 - **Playback.** `lifecycleQualityOptions()` gives the stream lifecycle (`StreamLifecycle` in `@fxm/player`) both parts, read afresh for every stream: the app's composition root (`src/app/services`, stage 2.9) creates it with `new StreamLifecycle({ ...lifecycleQualityOptions(), network: createBrowserNetworkMonitor(), … })`. `streamingProfile` from `@fxm/core` combines them with the network monitor, so a change applies from the next stream on.
-- **Downloads** (stages 4.1 and 4.2) read `useQualityStore.getState().prefs.download`, and label each conversion with `describeConversion`.
+- **Downloads** (stages 4.1 and 4.2) read `useQualityStore.getState().prefs.download` and `downloads.saveFile` (`requestDownload`, the Download dialog), and label each conversion with `describeConversion`.

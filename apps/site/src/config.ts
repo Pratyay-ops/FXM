@@ -99,9 +99,10 @@ export const AVAILABLE: Readonly<Record<Feature, boolean>> = {
    */
   downloads: true,
   /**
-   * Saving a downloaded song as FLAC, ALAC, WAV, MP3, AAC or Opus, with tags, cover art and
-   * lyrics: 4.2. The download stays the original file; the app's "Save to device…" converts a
-   * copy on the device with FXM's ffmpeg core, which make dist ships at /app/ffmpeg/. On since a
+   * Saving a download as FLAC, ALAC, WAV, MP3, AAC or Opus, with tags, cover art and lyrics:
+   * 4.2. The download stays the original file; the file the app's Download (and "Save to
+   * device…") saves is converted on the device with FXM's ffmpeg core, which make dist ships at
+   * /app/ffmpeg/. On since a
    * download saved as FLAC that way in Chromium, from make dist served with its real headers, on
    * 2026-10-26 (apps/web/e2e/save.spec.ts says how to check again).
    */

@@ -18,6 +18,31 @@ import { createSafeStorage } from '../../lib/safe-storage'
 export const QUALITY_STORAGE_KEY = 'fxm.quality.v1'
 const QUALITY_VERSION = 1
 
+/** What Download does besides keeping a copy in FXM for offline playback. */
+export interface DownloadSettings {
+  /**
+   * Whether Download also saves a file to the device, in the format the Download dialog asks for
+   * (which starts at `prefs.download.format`). Off, Download keeps the copy in FXM only, and a
+   * downloaded song's "Save to device…" saves a file later. On by default.
+   */
+  saveFile: boolean
+}
+
+/** The download settings a new install starts with. */
+export const DEFAULT_DOWNLOAD_SETTINGS: Readonly<DownloadSettings> = Object.freeze({
+  saveFile: true,
+})
+
+/** Valid download settings from anything storage holds: the defaults for what isn't valid. */
+export function sanitizeDownloadSettings(value: unknown): DownloadSettings {
+  const stored: Readonly<Record<string, unknown>> =
+    typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {}
+  const saveFile = Object.hasOwn(stored, 'saveFile') ? stored.saveFile : undefined
+  return {
+    saveFile: typeof saveFile === 'boolean' ? saveFile : DEFAULT_DOWNLOAD_SETTINGS.saveFile,
+  }
+}
+
 /** The persisted quality settings, in the shapes `@fxm/core` defines and validates. */
 export interface QualitySettings {
   /**
@@ -27,6 +52,8 @@ export interface QualitySettings {
   prefs: QualityPrefs
   /** Which connection's ceiling streaming follows, and the data saver (`StreamingSettings`). */
   streaming: StreamingSettings
+  /** Whether Download also saves a file to the device (the web app's own setting). */
+  downloads: DownloadSettings
 }
 
 export interface QualityState extends QualitySettings {
@@ -40,11 +67,14 @@ export interface QualityState extends QualitySettings {
   setDownloadFormat: (format: DownloadFormat) => void
   /** Sets the bitrate of MP3 downloads. */
   setMp3Bitrate: (kbps: Mp3Bitrate) => void
+  /** Sets whether Download also saves a file to the device. */
+  setSaveFile: (saveFile: boolean) => void
 }
 
 /**
  * Valid quality settings from anything storage or a backup holds: each part goes through its
- * guard in `@fxm/core`, which keeps what is valid and uses the defaults for the rest.
+ * guard (`@fxm/core`'s for `prefs` and `streaming`), which keeps what is valid and uses the
+ * defaults for the rest. Settings stored before a part existed get its defaults.
  */
 export function sanitizeQualitySettings(value: unknown): QualitySettings {
   const stored: Readonly<Record<string, unknown>> =
@@ -54,6 +84,7 @@ export function sanitizeQualitySettings(value: unknown): QualitySettings {
   return {
     prefs: sanitizeQualityPrefs(part('prefs')),
     streaming: sanitizeStreamingSettings(part('streaming')),
+    downloads: sanitizeDownloadSettings(part('downloads')),
   }
 }
 
@@ -86,12 +117,14 @@ export function createQualityStore({ storage }: QualityStoreOptions = {}) {
           set(({ prefs }) => ({ prefs: { ...prefs, download: { ...prefs.download, format } } })),
         setMp3Bitrate: (mp3Kbps) =>
           set(({ prefs }) => ({ prefs: { ...prefs, download: { ...prefs.download, mp3Kbps } } })),
+        setSaveFile: (saveFile) =>
+          set(({ downloads }) => ({ downloads: { ...downloads, saveFile } })),
       }),
       {
         name: QUALITY_STORAGE_KEY,
         version: QUALITY_VERSION,
         storage: createSafeStorage<QualitySettings>(storage),
-        partialize: ({ prefs, streaming }) => ({ prefs, streaming }),
+        partialize: ({ prefs, streaming, downloads }) => ({ prefs, streaming, downloads }),
         // Stored data can be from another version, hand-edited or corrupt: keep what is valid.
         migrate: (persisted) => sanitizeQualitySettings(persisted),
         merge: (persisted, current) => ({ ...current, ...sanitizeQualitySettings(persisted) }),

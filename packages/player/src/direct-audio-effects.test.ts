@@ -189,6 +189,7 @@ describe('DirectAudioEngine: routing through Web Audio', () => {
     expect(routedA.hasAttribute('src')).toBe(false)
     expect(statuses.at(-1)).toEqual({
       equalizer: 'unavailable',
+      equalizerReason: 'unreadable',
       loudness: 'no-data',
       loudnessGainDb: 0,
     })
@@ -206,7 +207,11 @@ describe('DirectAudioEngine: routing through Web Audio', () => {
     expect(events).not.toContain('error')
     expect(plainA.getAttribute('src')).toBe('https://media.test/a')
     expect(plainA.paused).toBe(false)
-    expect(statuses.at(-1)?.equalizer).toBe('unavailable')
+    // It says the read failed, not that the stream can't be read here.
+    expect(statuses.at(-1)).toMatchObject({
+      equalizer: 'unavailable',
+      equalizerReason: 'read-failed',
+    })
     // The same URL plays without effects from now on.
     await engine.load(source('a'))
     expect(routedA.hasAttribute('src')).toBe(false)
@@ -283,10 +288,41 @@ describe('DirectAudioEngine: routing through Web Audio', () => {
     engine.setEffects(EQ_ON)
     await engine.load(source('a'))
     expect(plainA.getAttribute('src')).toBe('https://media.test/a')
-    expect(statuses.at(-1)?.equalizer).toBe('unavailable')
+    expect(statuses.at(-1)).toMatchObject({
+      equalizer: 'unavailable',
+      equalizerReason: 'suspended',
+    })
     context.setState('running')
     expect(routedA.getAttribute('src')).toBe('https://media.test/a')
+    expect(statuses.at(-1)).toEqual(expect.objectContaining({ equalizer: 'on' }))
+    expect(statuses.at(-1)?.equalizerReason).toBeUndefined()
+  })
+
+  it('starts the equalizer with the next user gesture where the browser held Web Audio back', async () => {
+    // A context created outside a gesture stays suspended (a browser's autoplay policy): the
+    // stream plays without effects until the user's next play or pause, which lets it run.
+    const { engine, context, plainA, routedA, statuses } = setup()
+    context.state = 'suspended'
+    engine.setEffects(EQ_ON)
+    await engine.load(source('a'))
+    await engine.play()
+    expect(statuses.at(-1)?.equalizerReason).toBe('suspended')
+    expect(plainA.paused).toBe(false)
+    engine.unlock()
+    expect(context.state).toBe('running')
+    expect(routedA.getAttribute('src')).toBe('https://media.test/a')
+    expect(routedA.paused).toBe(false)
     expect(statuses.at(-1)?.equalizer).toBe('on')
+  })
+
+  it('says when the browser has no Web Audio at all', async () => {
+    const { engine, statuses } = setup({ createAudioContext: null })
+    engine.setEffects(EQ_ON)
+    await engine.load(source('a'))
+    expect(statuses.at(-1)).toMatchObject({
+      equalizer: 'unavailable',
+      equalizerReason: 'no-web-audio',
+    })
   })
 
   it('creates the context in a user gesture, not when the settings arrive at startup', async () => {

@@ -3,6 +3,7 @@ import { useRef } from 'react'
 import { Outlet, ScrollRestoration, useLocation, useNavigation } from 'react-router'
 import { SoundDialogHost } from '../../features/audio-effects/sound-dialog-host'
 import { ConnectNotice } from '../../features/connect/connect-notice'
+import { DownloadDialogHost } from '../../features/downloads/save/download-dialog-host'
 import { PlaybackAnnouncer } from '../../features/now-playing/playback-problem'
 import { MiniPlayer, PlayerBar } from '../../features/player/player-bar'
 import { PwaShell } from '../../features/pwa/pwa-shell'
@@ -88,6 +89,8 @@ export function AppLayout() {
       <PlaybackAnnouncer />
       {/* The sleep timer, speed, equalizer and volume, opened from the bars and the menus. */}
       <SoundDialogHost />
+      {/* Download and Save to device, opened from the song menus, the lists and Now playing. */}
+      <DownloadDialogHost />
       {/* The app's one toast: confirmations of the catalog pages and of the library, also of
           actions taken in the sidebar, on every page. */}
       <FeedbackToast />

@@ -3,11 +3,23 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import { track } from '../../test/library-fixtures'
+import { useQualityStore } from '../settings/quality-store'
 import { DownloadButton } from './download-button'
+import { useDownloadDialogStore } from './save/download-dialog-store'
 import { fakeMediaUrl, setupDownloads } from './testing'
 
 describe('the download button', { timeout: 30_000 }, () => {
+  it('opens the Download dialog for the song', async () => {
+    await setupDownloads()
+    const user = userEvent.setup()
+    render(<DownloadButton track={track(1)} />)
+    await user.click(await screen.findByRole('button', { name: 'Download Song 1' }))
+    expect(useDownloadDialogStore.getState().request).toMatchObject({ tracks: [track(1)] })
+  })
+
   it('downloads a song, shows its progress, and removes the download after asking', async () => {
+    // An offline copy only, as before Download saved files (Settings → Downloads).
+    useQualityStore.getState().setSaveFile(false)
     const { downloads, server } = await setupDownloads()
     server.rule(fakeMediaUrl(track(1), 1), { holdAt: 1500 })
     const user = userEvent.setup()

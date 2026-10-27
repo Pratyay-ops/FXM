@@ -6,6 +6,7 @@
 
 import { CODEC_LABELS } from '@fxm/core'
 import type { DownloadErrorCode, DownloadFileFormat, DownloadRecord } from '@fxm/downloads'
+import { CONNECT_REDIRECT_FIX_VERSION, needsRedirectFix } from '@fxm/platform'
 import { connectOrApps } from '../connect/explain'
 
 const UNITS = ['bytes', 'KB', 'MB', 'GB', 'TB'] as const
@@ -45,6 +46,8 @@ export const ERROR_TEXT: Readonly<Record<DownloadErrorCode, string>> = {
   unavailable: "This song can't be played right now",
   'needs-review': "FXM isn't sure it found the right version. Check the match, then try again",
   unverified: "Couldn't get the whole file. Try again later",
+  redirected: 'YouTube moved this download to a server FXM Connect can’t read',
+  unreadable: 'This browser didn’t let FXM Connect read this song’s audio',
   network: 'The connection kept dropping',
   server: 'The server kept refusing. Try again later',
   'storage-full': 'There is no room left for downloads',
@@ -55,8 +58,28 @@ export const ERROR_TEXT: Readonly<Record<DownloadErrorCode, string>> = {
   unknown: 'Something went wrong',
 }
 
-/** One line about a download that is on its way: "Waiting", "Paused · 1.2 MB of 4.3 MB", … */
-export function statusLine(record: DownloadRecord, online: boolean): string {
+/**
+ * What an error says, knowing the version of FXM Connect the page found: an FXM Connect older than
+ * {@link CONNECT_REDIRECT_FIX_VERSION} can't read a download googlevideo moved to another server,
+ * so it is asked to update.
+ */
+export function errorText(code: DownloadErrorCode, connectVersion?: string): string {
+  if (code === 'redirected' && connectVersion !== undefined && needsRedirectFix(connectVersion)) {
+    return `YouTube moved this download to another server that FXM Connect ${connectVersion} can’t read. Update FXM Connect to ${CONNECT_REDIRECT_FIX_VERSION}`
+  }
+  return ERROR_TEXT[code]
+}
+
+/**
+ * One line about a download that is on its way: "Waiting", "Paused · 1.2 MB of 4.3 MB", … A
+ * failure says why, with `connectVersion`, the version of FXM Connect the page found, when an
+ * update would help ({@link errorText}).
+ */
+export function statusLine(
+  record: DownloadRecord,
+  online: boolean,
+  connectVersion?: string,
+): string {
   switch (record.status) {
     case 'queued':
       return online ? 'Waiting' : 'Waiting for a connection'
@@ -65,10 +88,12 @@ export function statusLine(record: DownloadRecord, online: boolean): string {
       return record.bytesDone === 0 ? 'Starting' : bytesLabel(record)
     case 'paused':
       // Paused on the manager's own account: say why (no room, a bot check).
-      if (record.error !== undefined) return `Paused · ${ERROR_TEXT[record.error.code]}`
+      if (record.error !== undefined) {
+        return `Paused · ${errorText(record.error.code, connectVersion)}`
+      }
       return record.bytesDone === 0 ? 'Paused' : `Paused · ${bytesLabel(record)}`
     case 'failed':
-      return ERROR_TEXT[record.error?.code ?? 'unknown']
+      return errorText(record.error?.code ?? 'unknown', connectVersion)
     case 'completed':
       return record.bytesTotal === undefined ? 'Downloaded' : formatBytes(record.bytesTotal)
     case 'removing':

@@ -50,6 +50,27 @@ export function saysSpotifyLoginUnused(version: string | undefined): boolean {
   return comparison !== undefined && comparison < 0
 }
 
+/**
+ * The first FXM Connect whose googlevideo answers stay readable after googlevideo redirects a
+ * request to another host (`cms_redirect=yes`): it answers FXM's media requests with
+ * `Access-Control-Allow-Origin: *`, which matches the `Origin: null` the browser sends after such a
+ * redirect (apps/extension, rule `googlevideo-media`). With an older one, songs still play through
+ * a plain `<audio src>`, but downloads and the equalizer can't read a redirected stream, and the
+ * app asks the user to update ({@link needsRedirectFix}).
+ */
+export const CONNECT_REDIRECT_FIX_VERSION = '0.2.1'
+
+/**
+ * Whether FXM Connect `version` can't read googlevideo's answers after a redirect to another host:
+ * a version older than {@link CONNECT_REDIRECT_FIX_VERSION}. `false` for a version that can't be
+ * read, which says nothing either way.
+ */
+export function needsRedirectFix(version: string | undefined): boolean {
+  if (version === undefined) return false
+  const comparison = compareVersions(version, CONNECT_REDIRECT_FIX_VERSION)
+  return comparison !== undefined && comparison < 0
+}
+
 /** The attribute FXM Connect's content script sets on `<html>`, holding its version. */
 export const CONNECT_MARKER_ATTRIBUTE = 'data-fxm-connect'
 

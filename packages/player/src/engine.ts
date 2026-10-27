@@ -90,6 +90,19 @@ export interface AudioEffectsStatus {
    */
   readonly equalizer: 'off' | 'on' | 'unavailable'
   /**
+   * Why the equalizer is `unavailable`, where the engine knows (absent otherwise):
+   *
+   * - `unreadable`: the page may not read this source's bytes here (no FXM Connect for YouTube
+   *   audio, a host without CORS, the desktop app's YouTube audio)
+   * - `read-failed`: reading them was tried and the browser refused, although they should be
+   *   readable: on googlevideo a redirect to another host with an FXM Connect older than 0.2.1,
+   *   or FXM Connect's rules not applying to the answer
+   * - `suspended`: the browser hasn't let Web Audio start yet; it starts with the user's next tap
+   *   or click in FXM (a play, a pause)
+   * - `no-web-audio`: the browser has no Web Audio, or refused to connect the source to it
+   */
+  readonly equalizerReason?: 'unreadable' | 'read-failed' | 'suspended' | 'no-web-audio'
+  /**
    * Loudness normalization:
    *
    * - `off`: switched off

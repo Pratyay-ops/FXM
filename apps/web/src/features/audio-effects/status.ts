@@ -6,6 +6,7 @@
  */
 
 import type { NetworkCapabilities, Platform } from '@fxm/core'
+import { CONNECT_REDIRECT_FIX_VERSION, needsRedirectFix } from '@fxm/platform'
 import type { AudioEffectsStatus } from '@fxm/player'
 import { freeSources } from '../../lib/free-sources'
 
@@ -13,6 +14,8 @@ import { freeSources } from '../../lib/free-sources'
 export interface StatusContext {
   readonly platform: Platform
   readonly capabilities: Pick<NetworkCapabilities, 'youtube' | 'mediaBytes'>
+  /** The version of FXM Connect the page found, if any. */
+  readonly connectVersion?: string
 }
 
 /**
@@ -26,15 +29,8 @@ function readableSources(): string {
     : `local files, downloads and ${free.and}`
 }
 
-/**
- * Why the equalizer can't process the track that plays, or `undefined` when it can (or is off,
- * or nothing plays).
- */
-export function equalizerNote(
-  status: AudioEffectsStatus,
-  context: StatusContext,
-): string | undefined {
-  if (status.equalizer !== 'unavailable') return undefined
+/** Why the equalizer can't read the track's audio where FXM runs (`unreadable`). */
+function unreadableNote(context: StatusContext): string {
   if (context.platform === 'desktop') {
     return `Not available for this track: the desktop app can’t read YouTube audio for the equalizer yet. It works on ${readableSources()}.`
   }
@@ -42,12 +38,49 @@ export function equalizerNote(
     return `Not available for this track: the Android app can’t read YouTube audio for the equalizer yet. It works on ${readableSources()}.`
   }
   if (context.platform === 'web' && context.capabilities.mediaBytes) {
-    return 'Not available for this track: its audio couldn’t be read (the stream moved to another server, or the browser blocked Web Audio). The equalizer applies again from the next track.'
+    return `Not available for this track: FXM can’t read audio from its source. It works on YouTube, ${readableSources()}.`
   }
   if (context.platform === 'web') {
     return `Not available for this track: without FXM Connect, FXM can’t read YouTube audio. It works on ${readableSources()}.`
   }
   return 'Not available for this track here.'
+}
+
+/**
+ * Why reading the track's audio failed, although it should have worked (`read-failed`): in a
+ * browser with FXM Connect, an FXM Connect older than {@link CONNECT_REDIRECT_FIX_VERSION} can't
+ * read YouTube audio that googlevideo moved to another server; otherwise the browser didn't let it.
+ */
+function readFailedNote(context: StatusContext): string {
+  if (context.platform !== 'web' || !context.capabilities.mediaBytes) {
+    return 'Not available for this track: its audio couldn’t be read.'
+  }
+  const version = context.connectVersion
+  if (version !== undefined && needsRedirectFix(version)) {
+    return `Not available for this track: FXM Connect ${version} couldn’t read its audio, which happens when YouTube moves a song to another server. Update FXM Connect to ${CONNECT_REDIRECT_FIX_VERSION}.`
+  }
+  return `Not available for this track: this browser didn’t let FXM Connect read its audio. It works on ${readableSources()}.`
+}
+
+/**
+ * Why the equalizer can't process the track that plays, or `undefined` when it can (or is off,
+ * or nothing plays): by the engine's reason (`equalizerReason`) and where FXM runs.
+ */
+export function equalizerNote(
+  status: AudioEffectsStatus,
+  context: StatusContext,
+): string | undefined {
+  if (status.equalizer !== 'unavailable') return undefined
+  switch (status.equalizerReason) {
+    case 'suspended':
+      return 'The equalizer starts with your next tap or click in FXM, such as Play or Pause: until then the browser holds sound effects back.'
+    case 'no-web-audio':
+      return 'Not available here: this browser doesn’t let FXM process sound.'
+    case 'read-failed':
+      return readFailedNote(context)
+    default:
+      return unreadableNote(context)
+  }
 }
 
 /** A gain in dB as people read it: "3.9 dB quieter", "2 dB louder". */

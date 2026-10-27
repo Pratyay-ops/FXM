@@ -33,7 +33,9 @@ describe('equalizerNote', () => {
       platform: 'web',
       capabilities: { youtube: 'full', mediaBytes: true },
     } as const
-    expect(equalizerNote(UNAVAILABLE, connect)).toMatch(/moved to another server/)
+    expect(equalizerNote(UNAVAILABLE, connect)).toBe(
+      'Not available for this track: FXM can’t read audio from its source. It works on YouTube, local files, downloads and Internet Archive.',
+    )
     const desktop = {
       platform: 'desktop',
       capabilities: { youtube: 'full', mediaBytes: true },
@@ -44,6 +46,45 @@ describe('equalizerNote', () => {
       capabilities: { youtube: 'full', mediaBytes: true },
     } as const
     expect(equalizerNote(UNAVAILABLE, android)).toMatch(/Android app can’t read YouTube audio/)
+  })
+
+  it('tells an older FXM Connect to update when the read failed, as after a googlevideo redirect', () => {
+    const failed: AudioEffectsStatus = { ...UNAVAILABLE, equalizerReason: 'read-failed' }
+    const connect = {
+      platform: 'web',
+      capabilities: { youtube: 'full', mediaBytes: true },
+    } as const
+    expect(equalizerNote(failed, { ...connect, connectVersion: '0.2.0' })).toBe(
+      'Not available for this track: FXM Connect 0.2.0 couldn’t read its audio, which happens when YouTube moves a song to another server. Update FXM Connect to 0.2.1.',
+    )
+    // From 0.2.1 on (or a version that can't be read), the browser itself refused.
+    for (const connectVersion of ['0.2.1', undefined]) {
+      expect(
+        equalizerNote(failed, {
+          ...connect,
+          ...(connectVersion === undefined ? {} : { connectVersion }),
+        }),
+      ).toBe(
+        'Not available for this track: this browser didn’t let FXM Connect read its audio. It works on local files, downloads and Internet Archive.',
+      )
+    }
+    const desktop = { ...connect, platform: 'desktop' } as const
+    expect(equalizerNote(failed, desktop)).toBe(
+      'Not available for this track: its audio couldn’t be read.',
+    )
+  })
+
+  it('says the equalizer starts with the next tap where the browser holds Web Audio back', () => {
+    const connect = {
+      platform: 'web',
+      capabilities: { youtube: 'full', mediaBytes: true },
+    } as const
+    expect(equalizerNote({ ...UNAVAILABLE, equalizerReason: 'suspended' }, connect)).toBe(
+      'The equalizer starts with your next tap or click in FXM, such as Play or Pause: until then the browser holds sound effects back.',
+    )
+    expect(equalizerNote({ ...UNAVAILABLE, equalizerReason: 'no-web-audio' }, connect)).toBe(
+      'Not available here: this browser doesn’t let FXM process sound.',
+    )
   })
 
   it('names the free sources this build offers, Jamendo only with its client_id', () => {
