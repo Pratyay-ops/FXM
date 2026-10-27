@@ -79,6 +79,7 @@ export {
   CONNECT_PING_TIMEOUT_MS,
   CONNECT_REDIRECT_FIX_VERSION,
   ConnectBridgeError,
+  compareVersions,
   createConnectClient,
   hasConnectFeature,
   MIN_CONNECT_VERSION,
