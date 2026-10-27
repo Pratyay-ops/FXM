@@ -1,3 +1,5 @@
+import type { SaveRequest } from '@fxm/convert'
+import { createInProcessConverter } from '@fxm/convert/testing'
 import { FxmError, formatId, type Track } from '@fxm/core'
 import { createMemoryDownloadStorage, downloadId, newDownloadRecord } from '@fxm/downloads'
 import { screen, waitFor, within } from '@testing-library/react'
@@ -7,9 +9,12 @@ import { track } from '../../test/library-fixtures'
 import { renderApp } from '../../test/render'
 import { asBrowser, USER_AGENTS } from '../connect/testing'
 import { playlistPath } from '../library/paths'
+import { setLyricsProvider } from '../lyrics/lyrics-source'
+import { useQualityStore } from '../settings/quality-store'
 import { createPendingEnvironment } from './environment'
 import { ERROR_TEXT } from './format'
 import { getDownloads, resetDownloads } from './runtime'
+import { setConverter, setDeviceSaver } from './save/save'
 import { fakeMediaUrl, setupDownloads } from './testing'
 
 const main = () => within(screen.getByRole('main'))
@@ -240,14 +245,51 @@ describe('the Downloads tab', { timeout: 30_000 }, () => {
 })
 
 describe('downloading from the library', { timeout: 30_000 }, () => {
-  it('downloads a song from its menu in Liked songs', async () => {
+  it('downloads a song from its menu in Liked songs, and saves its file', async () => {
     const { downloads } = await setupDownloads()
+    const requests: SaveRequest[] = []
+    const written: Blob[] = []
+    setDeviceSaver({
+      choose: async (request) => {
+        requests.push(request)
+        return {
+          fileName: request.fileName,
+          write: async (blob) => void written.push(blob),
+          discard: async () => {},
+        }
+      },
+    })
+    setConverter(createInProcessConverter())
+    setLyricsProvider({ id: 'fake', getLyrics: async () => null })
+    useQualityStore.getState().setDownloadFormat('mp3')
+    await getLibrary().like(track(2))
+    const { user } = renderApp('/library?tab=liked')
+    await main().findByRole('list', { name: 'Songs in Liked songs' })
+    const menu = await openRowMenu(user, 'Song 2')
+    await user.click(await within(menu).findByRole('menuitem', { name: 'Download' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Download' })
+    await user.click(await within(dialog).findByRole('button', { name: 'Download' }))
+    expect(await screen.findByText('Saved “Song 2” as Artist 2 - Song 2.mp3')).toBeInTheDocument()
+    expect(requests.map((request) => request.fileName)).toEqual(['Artist 2 - Song 2.mp3'])
+    expect(written).toHaveLength(1)
+    expect((await downloads.manager.get(track(2)))?.status).toBe('completed')
+    const again = await openRowMenu(user, 'Song 2')
+    expect(
+      await within(again).findByRole('menuitem', { name: 'Remove download' }),
+    ).toBeInTheDocument()
+    expect(within(again).getByRole('menuitem', { name: 'Save to device…' })).toBeInTheDocument()
+  })
+
+  it('keeps an offline copy only, with saving a file switched off', async () => {
+    const { downloads } = await setupDownloads()
+    useQualityStore.getState().setSaveFile(false)
     await getLibrary().like(track(2))
     const { user } = renderApp('/library?tab=liked')
     await main().findByRole('list', { name: 'Songs in Liked songs' })
     const menu = await openRowMenu(user, 'Song 2')
     await user.click(await within(menu).findByRole('menuitem', { name: 'Download' }))
     expect(await screen.findByText('Downloading “Song 2”')).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).toBeNull()
     await waitFor(async () =>
       expect((await downloads.manager.get(track(2)))?.status).toBe('completed'),
     )
@@ -257,8 +299,24 @@ describe('downloading from the library', { timeout: 30_000 }, () => {
     ).toBeInTheDocument()
   })
 
-  it('downloads a selection, and a whole playlist', async () => {
+  it('asks once for a whole playlist in the Download dialog', async () => {
+    await setupDownloads()
+    const id = await getLibrary().createPlaylist({
+      name: 'Road trip',
+      tracks: [track(1), track(2), track(3)],
+    })
+    const { user } = renderApp(playlistPath(id))
+    await main().findByRole('list', { name: 'Songs in Road trip' })
+    await user.click(main().getByRole('button', { name: 'More options for Road trip' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'Download all' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Download' })
+    expect(dialog).toHaveAccessibleDescription('“Road trip” · 3 songs')
+    expect(await within(dialog).findByRole('group', { name: 'Format' })).toBeInTheDocument()
+  })
+
+  it('downloads a selection, and a whole playlist, with saving a file switched off', async () => {
     const { downloads } = await setupDownloads()
+    useQualityStore.getState().setSaveFile(false)
     const id = await getLibrary().createPlaylist({
       name: 'Road trip',
       tracks: [track(1), track(2), track(3)],

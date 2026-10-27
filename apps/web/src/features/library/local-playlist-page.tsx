@@ -21,7 +21,7 @@ import { Skeleton } from '../../components/ui/skeleton'
 import { usePlaylistView } from '../../db/hooks'
 import type { PlaylistView } from '../../db/repo'
 import type { PlaylistRecord } from '../../db/types'
-import { downloadTracks } from '../downloads/actions'
+import { requestDownload } from '../downloads/actions'
 import { useCanDownload } from '../downloads/hooks'
 import { PlayPauseButton } from '../player/controls'
 import { CoverArt } from './cover-art'
@@ -181,7 +181,7 @@ export function LocalPlaylistPage({ id }: { id: EntityId<'playlist'> }) {
       id: 'download-all',
       label: 'Download all',
       icon: ArrowDownToLine,
-      onSelect: () => void downloadTracks(downloadable),
+      onSelect: () => requestDownload(downloadable, { title: playlist.name }),
     })
   }
   if (!playlist.system) {

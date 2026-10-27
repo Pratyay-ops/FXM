@@ -11,6 +11,7 @@ import { useAutoplayActivity } from '../features/autoplay/autoplay-activity'
 import { useAutoplayMarks } from '../features/autoplay/autoplay-marks'
 import { useAutoplayStore } from '../features/autoplay/autoplay-store'
 import { resetDownloads } from '../features/downloads/runtime'
+import { useDownloadDialogStore } from '../features/downloads/save/download-dialog-store'
 import { setConverter, setDeviceSaver } from '../features/downloads/save/save'
 import { useLibraryViewStore } from '../features/library/view-store'
 import { setLyricsProvider } from '../features/lyrics/lyrics-source'
@@ -72,6 +73,7 @@ afterEach(async () => {
   usePwaStore.setState(usePwaStore.getInitialState(), true)
   useAudioEffectsStore.setState(useAudioEffectsStore.getInitialState(), true)
   useSoundDialogStore.setState(useSoundDialogStore.getInitialState(), true)
+  useDownloadDialogStore.setState(useDownloadDialogStore.getInitialState(), true)
   useAutoplayStore.setState(useAutoplayStore.getInitialState(), true)
   useAutoplayMarks.setState(useAutoplayMarks.getInitialState(), true)
   useAutoplayActivity.setState(useAutoplayActivity.getInitialState(), true)
