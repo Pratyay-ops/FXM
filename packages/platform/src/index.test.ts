@@ -61,6 +61,7 @@ describe('@fxm/platform', () => {
       'canImportModules',
       'classifyUrl',
       'codeArtifact',
+      'compareVersions',
       'connectSessionSource',
       'corsUnsafeRequestHeaderNames',
       'createAndroidHttp',

@@ -78,6 +78,7 @@ export {
   CONNECT_MARKER_ATTRIBUTE,
   CONNECT_PING_TIMEOUT_MS,
   ConnectBridgeError,
+  compareVersions,
   createConnectClient,
   hasConnectFeature,
   MIN_CONNECT_VERSION,
