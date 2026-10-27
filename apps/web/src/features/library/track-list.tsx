@@ -26,10 +26,9 @@ import { moveKeys } from '../../db/ordering'
 import type { TrackRow } from '../../db/repo'
 import type { OrderUndo } from '../../db/types'
 import { cn } from '../../lib/cn'
-import { downloadTracks, removeDownloads } from '../downloads/actions'
+import { removeDownloads, requestDownload } from '../downloads/actions'
 import { useCanDownload } from '../downloads/hooks'
 import { useDownloadMenuItem, useSaveMenuItem } from '../downloads/menu'
-import { SaveToDeviceDialog } from '../downloads/save/save-dialog'
 import { useNowPlayingStatus } from '../now-playing/current-track'
 import { getPlayer } from '../now-playing/playback'
 import { CoverArt } from './cover-art'
@@ -317,7 +316,6 @@ export function TrackList({ listId, rows, undo, kind, name, empty }: TrackListPr
   const [selecting, setSelecting] = useState(false)
   const selection = useSelection(ids)
   const [adding, setAdding] = useState<Track[] | null>(null)
-  const [saving, setSaving] = useState<Track | null>(null)
   const [menu, setMenu] = useState<{ id: string; anchor: HTMLElement } | null>(null)
   const listRef = useRef<HTMLOListElement>(null)
   const emptyRef = useRef<HTMLDivElement>(null)
@@ -325,7 +323,7 @@ export function TrackList({ listId, rows, undo, kind, name, empty }: TrackListPr
   const sortId = useId()
   const plural = 'songs'
   const downloadMenuItem = useDownloadMenuItem()
-  const saveMenuItem = useSaveMenuItem(setSaving)
+  const saveMenuItem = useSaveMenuItem()
   const canDownload = useCanDownload()
 
   const titleOf = useCallback(
@@ -547,7 +545,7 @@ export function TrackList({ listId, rows, undo, kind, name, empty }: TrackListPr
             </span>
           </SelectionAction>
           {kind !== 'downloads' && selectedTracks.some(canDownload) && (
-            <SelectionAction onClick={() => void downloadTracks(selectedTracks)}>
+            <SelectionAction onClick={() => requestDownload(selectedTracks)}>
               <ArrowDownToLine aria-hidden="true" />
               Download
             </SelectionAction>
@@ -632,7 +630,6 @@ export function TrackList({ listId, rows, undo, kind, name, empty }: TrackListPr
         />
       )}
       <AddToPlaylistDialog tracks={adding} onClose={() => setAdding(null)} />
-      <SaveToDeviceDialog track={saving} onClose={() => setSaving(null)} />
     </div>
   )
 }

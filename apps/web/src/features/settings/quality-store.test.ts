@@ -34,10 +34,11 @@ const saved = (state: unknown, version = 1) => ({
 const DEFAULTS = {
   prefs: { streaming: { wifi: 'high', cellular: 'normal' }, download: { format: 'original' } },
   streaming: { connection: 'auto', dataSaver: false },
+  downloads: { saveFile: true },
 }
 
 describe('quality store', () => {
-  it('starts with core’s defaults: High on Wi-Fi, Normal on mobile data, original downloads', () => {
+  it('starts with core’s defaults and Download saving a file: High on Wi-Fi, Normal on mobile data, original downloads', () => {
     const store = createQualityStore({ storage: () => memoryStorage() })
     expect(store.getState()).toMatchObject(DEFAULTS)
     expect(store.getState().prefs).toEqual(DEFAULT_QUALITY_PREFS)
@@ -55,6 +56,7 @@ describe('quality store', () => {
     actions.setDataSaver(true)
     actions.setDownloadFormat('mp3')
     actions.setMp3Bitrate(192)
+    actions.setSaveFile(false)
 
     const expected = {
       prefs: {
@@ -62,6 +64,7 @@ describe('quality store', () => {
         download: { format: 'mp3', mp3Kbps: 192 },
       },
       streaming: { connection: 'cellular', dataSaver: true },
+      downloads: { saveFile: false },
     }
     expect(JSON.parse(storage.getItem('fxm.quality.v1') ?? 'null')).toEqual({
       state: expected,
@@ -94,6 +97,7 @@ describe('quality store', () => {
         state: {
           prefs: { streaming: { wifi: 'ultra' }, download: { format: 'wma' } },
           streaming: { connection: 'ethernet', dataSaver: 'yes' },
+          downloads: { saveFile: 'no' },
         },
         version: 1,
       }),
@@ -132,6 +136,17 @@ describe('quality store', () => {
   it('never reads inherited fields', () => {
     const inherited = Object.create({ streaming: { dataSaver: true } }) as object
     expect(sanitizeQualitySettings(inherited)).toEqual(DEFAULTS)
+    const downloads = Object.create({ saveFile: false }) as object
+    expect(sanitizeQualitySettings({ downloads }).downloads).toEqual({ saveFile: true })
+  })
+
+  it('saves a file on Download for settings stored before the setting existed', () => {
+    const storage = memoryStorage(
+      saved({ prefs: { download: { format: 'flac' } }, streaming: { dataSaver: true } }),
+    )
+    const store = createQualityStore({ storage: () => storage })
+    expect(store.getState().downloads).toEqual({ saveFile: true })
+    expect(store.getState().prefs.download.format).toBe('flac')
   })
 
   it('keeps working when storage is missing, blocked or full', () => {

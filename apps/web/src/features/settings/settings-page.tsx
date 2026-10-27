@@ -22,6 +22,7 @@ import { SponsorBlockCredit, SponsorBlockSetting } from '../sponsorblock/sponsor
 import { SpotifyAccountSettings } from '../spotify-account/spotify-account-settings'
 import { SyncSettings } from '../sync/sync-settings'
 import { CatalogModeControl } from './catalog-mode-control'
+import { DownloadsSection } from './downloads-section'
 import { AutoMatchSetting } from './matching-setting'
 import { CATALOG_MODE_DESCRIPTIONS, THEME_OPTIONS } from './options'
 import { QualitySection } from './quality-section'
@@ -113,6 +114,8 @@ export function SettingsPage() {
       <PluginsSettings />
 
       <QualitySection capabilities={capabilities} />
+
+      <DownloadsSection capabilities={capabilities} />
 
       <SettingsSection title="Appearance">
         <SettingRow

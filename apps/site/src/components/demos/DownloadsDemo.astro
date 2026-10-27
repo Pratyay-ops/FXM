@@ -4,18 +4,18 @@ import Icon from '../Icon.astro'
 
 const formats = ['Original', 'FLAC', 'ALAC', 'WAV', 'MP3', 'AAC', 'Opus']
 
-// Downloads keep the source's own file. With conversions (stage 4.2), a downloaded song is saved
-// to the device in the format chosen; without them, Original is the only choice, and the other
+// Downloads keep the source's own file. With conversions (stage 4.2), Download saves a file to
+// the device in the format chosen; without them, Original is the only choice, and the other
 // formats are shown as coming soon.
 const conversions = AVAILABLE.conversions
 const chosen = conversions ? 'FLAC' : 'Original'
 const label = conversions
-  ? 'Save to device options for downloaded songs: Original, FLAC, ALAC, WAV, MP3, AAC and Opus. A FLAC from Internet Archive is labelled lossless. A FLAC made from a lossy YouTube Music stream is labelled converted from lossy.'
+  ? 'Download options, for the file saved to your device: Original, FLAC, ALAC, WAV, MP3, AAC and Opus. A FLAC from Internet Archive is labelled lossless. A FLAC made from a lossy YouTube Music stream is labelled converted from lossy.'
   : 'Download options: Original, as the file comes from its source; FLAC, ALAC, WAV, MP3, AAC and Opus are coming soon. A song from Internet Archive downloads as lossless FLAC, one from YouTube Music as Opus, each as the original file.'
 ---
 
 <div class="demo" role="img" aria-label={label}>
-  <div class="label">{conversions ? 'Save to device as' : 'Download as'}</div>
+  <div class="label">Download as</div>
   <div class="formats">
     {formats.map((format) => (
       <span

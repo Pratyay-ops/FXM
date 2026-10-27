@@ -1,7 +1,7 @@
 /**
  * Download entries for the menus of track lists: "Download", "Cancel download" and "Remove
  * download", depending on where the track's download stands and whether it can be downloaded
- * here.
+ * here; and "Save to device…" for a downloaded song.
  *
  * @module
  */
@@ -11,8 +11,10 @@ import { downloadId } from '@fxm/downloads'
 import { ArrowDownToLine, CircleMinus, CircleX, HardDriveDownload } from 'lucide-react'
 import { useCallback } from 'react'
 import type { MenuItem } from '../library/ui/menu'
-import { downloadTracks, removeDownloads } from './actions'
+import { removeDownloads, requestDownload } from './actions'
 import { useCanDownload, useDownloadStatuses } from './hooks'
+import { useSaveDestination } from './save/device'
+import { openSaveDialog } from './save/download-dialog-store'
 
 /** A row a download entry is for: its track ID, and its track when the cache has it. */
 export interface DownloadMenuRow {
@@ -64,7 +66,8 @@ export function useDownloadMenuItem(): DownloadMenuItem {
         id: 'download',
         label: 'Download',
         icon: ArrowDownToLine,
-        onSelect: () => void downloadTracks([track]),
+        // The Download dialog, or an offline copy only (Settings → Downloads).
+        onSelect: () => requestDownload([track]),
       }
     },
     [statuses, canDownload],
@@ -73,16 +76,20 @@ export function useDownloadMenuItem(): DownloadMenuItem {
 
 /**
  * The "Save to device…" entry of a row's menu: only for a song downloaded on this device, whose
- * file can be saved in another format (stage 4.2). `onSave` opens the save dialog.
+ * file can be saved, in any format (stage 4.2), and only where this device can save files (not
+ * the desktop or Android app before they set a saver of their own). `onSave` opens the save
+ * dialog; by default the app's (`openSaveDialog`).
  */
 export function useSaveMenuItem(
-  onSave: (track: Track) => void,
+  onSave: (track: Track) => void = openSaveDialog,
 ): (row: DownloadMenuRow) => MenuItem | undefined {
   const statuses = useDownloadStatuses()
+  const available = useSaveDestination() !== 'none'
   return useCallback(
     (row) => {
       const { track } = row
-      if (track === undefined || statuses?.get(downloadId(row)) !== 'completed') return undefined
+      if (!available || track === undefined) return undefined
+      if (statuses?.get(downloadId(row)) !== 'completed') return undefined
       return {
         id: 'save-to-device',
         label: 'Save to device…',
@@ -90,6 +97,6 @@ export function useSaveMenuItem(
         onSelect: () => onSave(track),
       }
     },
-    [statuses, onSave],
+    [statuses, onSave, available],
   )
 }

@@ -20,7 +20,13 @@ import {
 } from '../../../components/ui/now-playing-marker'
 import { cn } from '../../../lib/cn'
 import { useConnection } from '../../connect/connection'
-import { type DownloadMenuItem, useDownloadMenuItem } from '../../downloads/menu'
+import {
+  type DownloadMenuItem,
+  type DownloadMenuRow,
+  useDownloadMenuItem,
+  useSaveMenuItem,
+} from '../../downloads/menu'
+import type { MenuItem } from '../../library/ui/menu'
 import { type RowCopy, rowCopies, useNowPlayingStatus } from '../../now-playing/current-track'
 import { useMediaActions } from '../actions'
 import { showFeedback } from '../feedback'
@@ -85,43 +91,53 @@ export function useTracksMenu(tracks: readonly Track[], title: string): MenuActi
       key: 'download',
       label: 'Download',
       icon: Download,
-      // The downloads say what became of it: queued, there already, or not here.
-      onSelect: () => downloads.download(tracks),
+      // The Download dialog, or an offline copy that says what became of it (Settings).
+      onSelect: () => downloads.download(tracks, tracks.length === 1 ? undefined : title),
     })
   }
   return items
+}
+
+/** The "Save to device…" entries of a list's rows (`useSaveMenuItem`), read once per list. */
+export type SaveMenuItem = (row: DownloadMenuRow) => MenuItem | undefined
+
+/** A library menu entry as a catalog menu's, when it is an action. */
+function asAction(entry: MenuItem | undefined): MenuAction | undefined {
+  if (entry === undefined || (entry.kind !== undefined && entry.kind !== 'action')) return undefined
+  return {
+    key: entry.id,
+    label: entry.label,
+    icon: entry.icon ?? Download,
+    onSelect: entry.onSelect,
+  }
 }
 
 /**
  * The menu of one track: the list actions, its album and artist, and the equalizer. With
  * `downloadEntry` (the list's `useDownloadMenuItem`, stage 4.1), a track whose download exists
  * already gets "Cancel download" or "Remove download" in place of "Download", as in the
- * library's menus, once downloads are wired in (2.4's `downloads`).
+ * library's menus, once downloads are wired in (2.4's `downloads`); with `saveEntry` (the
+ * list's `useSaveMenuItem`), a downloaded track also gets "Save to device…".
  */
-function useTrackMenu(track: Track, downloadEntry?: DownloadMenuItem): MenuAction[] {
+function useTrackMenu(
+  track: Track,
+  downloadEntry?: DownloadMenuItem,
+  saveEntry?: SaveMenuItem,
+): MenuAction[] {
   const listed = useTracksMenu([track], track.title)
   const { equalizer, downloads } = useMediaActions()
   const { capabilities } = useSourcesSnapshot()
   const platform = useConnection((state) => state.platform)
-  const entry = downloads === undefined ? undefined : downloadEntry?.({ id: track.id, track })
-  const existing =
-    entry !== undefined &&
-    (entry.kind === undefined || entry.kind === 'action') &&
-    entry.id !== 'download'
-      ? entry
-      : undefined
+  const entry = asAction(
+    downloads === undefined ? undefined : downloadEntry?.({ id: track.id, track }),
+  )
+  const existing = entry?.key === 'download' ? undefined : entry
+  const save = asAction(downloads === undefined ? undefined : saveEntry?.({ id: track.id, track }))
   const items: MenuAction[] =
     existing === undefined
       ? listed
-      : [
-          ...listed.filter((item) => item.key !== 'download'),
-          {
-            key: existing.id,
-            label: existing.label,
-            icon: existing.icon ?? Download,
-            onSelect: existing.onSelect,
-          },
-        ]
+      : [...listed.filter((item) => item.key !== 'download'), existing]
+  if (save !== undefined) items.push(save)
   const links: MenuAction[] = []
   if (track.album?.id) {
     links.push({ key: 'album', label: 'Go to album', icon: Disc3, to: albumPath(track.album.id) })
@@ -215,6 +231,8 @@ export interface TrackRowProps {
    * list: the menu's entry then follows where the track's download stands.
    */
   downloadEntry?: DownloadMenuItem | undefined
+  /** The list's "Save to device…" entries (`useSaveMenuItem`), for a downloaded track. */
+  saveEntry?: SaveMenuItem | undefined
   /** Whether the track is the player's current one, and how it stands: the row is marked. */
   nowPlaying?: NowPlayingStatus | undefined
 }
@@ -235,9 +253,10 @@ export function TrackRow({
   showAlbum = false,
   onPlay,
   downloadEntry,
+  saveEntry,
   nowPlaying,
 }: TrackRowProps) {
-  const menu = useTrackMenu(track, downloadEntry)
+  const menu = useTrackMenu(track, downloadEntry, saveEntry)
   const artists = artistNames(track.artists)
   const duration = formatDuration(track.durationMs)
   const video = isVideoKind(track.kind)
@@ -380,6 +399,7 @@ export function TrackList({
   const copies = useMemo(() => rowCopies(tracks.map((track) => track.id)), [tracks])
   // One read of the downloads for the whole list, not one per row.
   const downloadEntry = useDownloadMenuItem()
+  const saveEntry = useSaveMenuItem()
   return (
     <ul aria-label={label} className={cn('space-y-0.5', className)}>
       {tracks.map((track, index) => (
@@ -391,6 +411,7 @@ export function TrackList({
           showAlbum={showAlbum}
           onPlay={onPlay ? () => onPlay(index) : undefined}
           downloadEntry={downloadEntry}
+          saveEntry={saveEntry}
         />
       ))}
     </ul>

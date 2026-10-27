@@ -1,16 +1,15 @@
 import { readFileSync } from 'node:fs'
-import { expect, type Page, test } from '@playwright/test'
-import {
-  createFakeNetwork,
-  type FakeNetworkFixtures,
-} from '../src/app/services/testing/fake-network'
-import { FIXTURES, stubNetwork } from './fake-services'
+import { expect, test } from '@playwright/test'
+import { createFakeNetwork } from '../src/app/services/testing/fake-network'
+import { FIXTURES, mp3Only, silentMp3, storedDownloads, stubNetwork } from './fake-services'
 
-// Save to device (stage 4.2) through the app's real composition (src/app/services), in a real
-// browser: a song downloads from Internet Archive into the Origin Private File System, and its
-// menu saves it as FLAC, which the conversion worker makes with FXM's ffmpeg core, served at the
-// app's ffmpeg/ folder. Only the network is fake (fake-services.ts): the song is a few silent MP3
-// frames the test makes, never a recording, and nothing reaches the internet.
+// Download and Save to device (stage 4.2) through the app's real composition (src/app/services),
+// in a real browser: Download on a song from Internet Archive asks for the format (FLAC), then
+// downloads it into the Origin Private File System and saves it as FLAC, which the conversion
+// worker makes with FXM's ffmpeg core, served at the app's ffmpeg/ folder; then the downloaded
+// song's "Save to device…" saves it again as WAV, from its copy. Only the network is fake
+// (fake-services.ts): the song is a few silent MP3 frames the test makes, never a recording, and
+// nothing reaches the internet.
 //
 // It needs a built core: `vite preview` serves the one `make ffmpeg-wasm` built
 // (tools/ffmpeg-wasm/dev-server.ts), and without one the test is skipped. The check behind the
@@ -21,58 +20,6 @@ import { FIXTURES, stubNetwork } from './fake-services'
 //   FXM_PREVIEW_PORT=5800 scripts/run.sh pnpm --filter @fxm/deploy preview   # in another terminal
 //   FXM_E2E_BASE_URL=http://127.0.0.1:5800/app/ \
 //     scripts/run.sh pnpm --filter @fxm/web exec playwright test save
-
-/** The Internet Archive item without its FLAC and Ogg files: the download is then an MP3. */
-function mp3Only(fixtures: FakeNetworkFixtures): FakeNetworkFixtures {
-  const item = structuredClone(fixtures.archiveItems.nineinchnails_ghosts_I_IV) as {
-    files?: { name?: string }[]
-  }
-  item.files = (item.files ?? []).filter((file) => !/\.(?:flac|ogg|zip)$/u.test(file.name ?? ''))
-  return { ...fixtures, archiveItems: { nineinchnails_ghosts_I_IV: item } }
-}
-
-/**
- * Silent MPEG-1 Layer III frames (128 kbps, 44.1 kHz, stereo): zero side information decodes as
- * silence in any decoder, so the core really decodes and encodes them.
- */
-function silentMp3(frames = 40): Uint8Array {
-  const FRAME_BYTES = 417
-  const bytes = new Uint8Array(frames * FRAME_BYTES)
-  for (let frame = 0; frame < frames; frame++) {
-    bytes.set([0xff, 0xfb, 0x90, 0x00], frame * FRAME_BYTES)
-  }
-  return bytes
-}
-
-/** Where each download stands, from the `fxm-downloads` database: its song and status. */
-function downloads(page: Page): Promise<{ title: string; status: string }[]> {
-  return page.evaluate(
-    () =>
-      new Promise((resolve, reject) => {
-        const open = indexedDB.open('fxm-downloads')
-        open.onerror = () => reject(open.error)
-        open.onsuccess = () => {
-          const db = open.result
-          if (!db.objectStoreNames.contains('downloads')) {
-            db.close()
-            resolve([])
-            return
-          }
-          const read = db.transaction('downloads', 'readonly').objectStore('downloads').getAll()
-          read.onerror = () => reject(read.error)
-          read.onsuccess = () => {
-            db.close()
-            resolve(
-              (read.result as Record<string, unknown>[]).map((record) => ({
-                title: String((record.track as { title?: unknown } | undefined)?.title),
-                status: String(record.status),
-              })),
-            )
-          }
-        }
-      }),
-  )
-}
 
 /** A FLAC file's STREAMINFO: its sample rate and how many samples it holds. */
 function streamInfo(bytes: Uint8Array): { sampleRate: number; samples: number } {
@@ -88,7 +35,7 @@ function streamInfo(bytes: Uint8Array): { sampleRate: number; samples: number } 
   return { sampleRate, samples }
 }
 
-test('saves a downloaded song as FLAC, converted on the device by the ffmpeg core', async ({
+test('downloads a song and saves it as FLAC, converted on the device by the ffmpeg core', async ({
   page,
 }) => {
   test.setTimeout(120_000)
@@ -109,7 +56,7 @@ test('saves a downloaded song as FLAC, converted on the device by the ffmpeg cor
     if (/\/ffmpeg\/ffmpeg-core\./u.test(request.url())) coreRequests.push(request.url())
   })
 
-  // Download the song from Internet Archive.
+  // Download the song from Internet Archive, as FLAC.
   await page.goto('search?q=nine%20inch%20nails%20ghosts')
   await page.getByRole('button', { name: 'Search Internet Archive instead' }).click()
   const more = page
@@ -120,33 +67,22 @@ test('saves a downloaded song as FLAC, converted on the device by the ffmpeg cor
   const title = ((await more.getAttribute('aria-label')) ?? '').replace('More options for ', '')
   await more.click()
   await page.getByRole('menuitem', { name: 'Download' }).click()
-  await expect
-    .poll(() => downloads(page), { timeout: 30_000 })
-    .toEqual([{ title, status: 'completed' }])
-  // Downloading needs no core.
-  expect(coreRequests).toEqual([])
-
-  // Save it as FLAC from the Downloads playlist.
-  await page.goto('library?tab=downloads')
-  const list = page.getByRole('list', { name: 'Songs in Downloads' })
-  await list.getByRole('button', { name: `More options for ${title}` }).click()
-  await page.getByRole('menuitem', { name: 'Save to device…' }).click()
-  const dialog = page.getByRole('dialog', { name: 'Save to device' })
-  const escaped = title.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
-  await expect(dialog).toHaveAccessibleDescription(
-    new RegExp(`^“${escaped}” · downloaded as MP3`, 'u'),
+  const dialog = page.getByRole('dialog', { name: 'Download' })
+  await dialog.getByRole('radio', { name: 'FLAC .flac' }).check()
+  await expect(dialog).toContainText(
+    'An MP3 from Internet Archive: FLAC (converted from MP3, same quality as the source).',
   )
-  const flac = dialog.getByRole('radio', {
-    name: 'FLAC (converted from MP3, same quality as the source) .flac',
-  })
-  await flac.check()
-  await expect(dialog).toContainText('FXM converts it on this device, which takes a little while.')
+  await expect(dialog).toContainText(
+    'Lossy audio never becomes lossless: converting it gives a bigger file, not a better one.',
+  )
   await expect(dialog).toContainText('Save to device converts with code of FFmpeg')
   const saved = page.waitForEvent('download', { timeout: 60_000 })
-  await dialog.getByRole('button', { name: 'Save' }).click()
+  await dialog.getByRole('button', { name: 'Download' }).click()
   const download = await saved
   await expect(page.getByText(`Saved “${title}” as ${download.suggestedFilename()}`)).toBeVisible()
   expect(download.suggestedFilename()).toMatch(/\.flac$/u)
+  // The song is downloaded in FXM too, to play offline.
+  expect(await storedDownloads(page)).toEqual([{ title, status: 'completed' }])
 
   // A FLAC file that the core encoded from the decoded MP3, with FXM's tags.
   const bytes = new Uint8Array(readFileSync(await download.path()))
@@ -157,4 +93,32 @@ test('saves a downloaded song as FLAC, converted on the device by the ffmpeg cor
   expect(new TextDecoder().decode(bytes)).toContain(`TITLE=${title}`)
   // The worker loaded the core: its manifest, script and WebAssembly.
   expect(coreRequests.some((url) => /ffmpeg-core\.wasm\?v=/u.test(url))).toBe(true)
+
+  // Save it again, as WAV, from the Downloads playlist: from its copy, without the network.
+  const archiveRequests: string[] = []
+  page.on('request', (request) => {
+    if (new URL(request.url()).hostname.endsWith('archive.org')) archiveRequests.push(request.url())
+  })
+  await page.goto('library?tab=downloads')
+  const list = page.getByRole('list', { name: 'Songs in Downloads' })
+  await list.getByRole('button', { name: `More options for ${title}` }).click()
+  await page.getByRole('menuitem', { name: 'Save to device…' }).click()
+  const again = page.getByRole('dialog', { name: 'Save to device' })
+  const escaped = title.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
+  await expect(again).toHaveAccessibleDescription(
+    new RegExp(`^“${escaped}” · downloaded as MP3`, 'u'),
+  )
+  await again
+    .getByRole('radio', { name: 'WAV (converted from MP3, same quality as the source) .wav' })
+    .check()
+  await expect(again).toContainText('FXM converts it on this device, which takes a little while.')
+  const savedAgain = page.waitForEvent('download', { timeout: 60_000 })
+  await again.getByRole('button', { name: 'Save' }).click()
+  const wav = await savedAgain
+  expect(wav.suggestedFilename()).toMatch(/\.wav$/u)
+  const riff = new Uint8Array(readFileSync(await wav.path()))
+  expect(new TextDecoder().decode(riff.subarray(0, 4))).toBe('RIFF')
+  expect(new TextDecoder().decode(riff.subarray(8, 12))).toBe('WAVE')
+  // Its audio wasn't downloaded again: only the cover was fetched, for the file's tags.
+  expect(archiveRequests.filter((url) => /\.(?:mp3|flac|ogg)(?:$|\?)/u.test(url))).toEqual([])
 })

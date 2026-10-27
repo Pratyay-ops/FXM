@@ -6,7 +6,8 @@
  *
  * Saving takes two steps, because converting takes time. `choose` runs straight from the click,
  * while the browser still lets a page open its file picker, and only after the conversion does
- * the file go to the place chosen (`write`).
+ * the file go to the place chosen (`write`). Several files (an album) go into one folder the
+ * user picks once (`chooseFolder`), where the platform has a folder picker.
  *
  * @module
  */
@@ -33,6 +34,30 @@ export interface SaveTarget {
   discard(): Promise<void>
 }
 
+/** What a folder for several files is asked for with. */
+export interface FolderRequest {
+  /**
+   * Which folder the picker starts in, and remembers apart from other pickers: an ID of up to 32
+   * letters, digits, `-` and `_`.
+   */
+  readonly id?: string
+}
+
+/**
+ * A folder the user picked for several files (an album, a playlist): each file gets a target of
+ * its own there, under its own name.
+ */
+export interface SaveFolder {
+  /** The folder's name, for messages: "Music". */
+  readonly name: string
+  /**
+   * A target for one file in the folder. The file is created only when it is written, under the
+   * name asked for or, when the folder has a file of that name already, "Name (2).ext" and so
+   * on: a file that is there is never replaced. Its `fileName` is the name it got once written.
+   */
+  target(request: SaveRequest): SaveTarget
+}
+
 /** Saves files on this device. */
 export interface DeviceSaver {
   /**
@@ -42,6 +67,19 @@ export interface DeviceSaver {
    * written there, and nothing is converted.
    */
   choose(request: SaveRequest): Promise<SaveTarget | undefined>
+  /**
+   * Whether {@link choose} shows a picker that the browser opens only straight from a click (the
+   * File System Access API's). Where it doesn't (the browser's downloads, a native dialog),
+   * `choose` may run at any time, e.g. once a download has finished. Default: `false`.
+   */
+  asksWhere?(): boolean
+  /**
+   * Asks for a folder to save several files in, where the platform has a folder picker (Chromium
+   * on desktop). Call it straight from the click. Resolves with the folder, `undefined` when the
+   * user cancelled, or `null` where there is no folder to pick: save each file with
+   * {@link choose} then (the browser's downloads).
+   */
+  chooseFolder?(request?: FolderRequest): Promise<SaveFolder | null | undefined>
 }
 
 /** What FXM uses of a `FileSystemWritableFileStream`. */
@@ -70,9 +108,27 @@ interface SavePickerWindow {
   }) => Promise<PickedFile>
 }
 
+/** What FXM uses of the `FileSystemDirectoryHandle` a folder picker returns. */
+interface PickedFolder {
+  readonly name: string
+  /** The file `name` in the folder; with `create`, created empty when it isn't there. */
+  getFileHandle(name: string, options?: { create?: boolean }): Promise<PickedFile>
+  /** Removes the entry `name` from the folder. */
+  removeEntry?(name: string): Promise<void>
+}
+
+/** The File System Access API's folder picker, where the browser has it (Chromium on desktop). */
+interface FolderPickerWindow {
+  showDirectoryPicker?: (options: {
+    id?: string
+    mode?: 'read' | 'readwrite'
+    startIn?: string
+  }) => Promise<PickedFolder>
+}
+
 /** What {@link createBrowserDeviceSaver} uses; tests pass fakes. */
 export interface BrowserSaverEnvironment {
-  readonly window?: SavePickerWindow
+  readonly window?: SavePickerWindow & FolderPickerWindow
   readonly document?: Pick<Document, 'createElement' | 'body'>
   readonly createObjectURL?: (blob: Blob) => string
   readonly revokeObjectURL?: (url: string) => void
@@ -139,22 +195,112 @@ function isCancel(error: unknown): boolean {
   return error instanceof Error && error.name === 'AbortError'
 }
 
+/** Whether `error` says a file isn't there. */
+function isNotFound(error: unknown): boolean {
+  return error instanceof Error && error.name === 'NotFoundError'
+}
+
+/** "Name (2).ext" for the second file called "Name.ext", and so on. */
+export function numberedFileName(fileName: string, n: number): string {
+  if (n <= 1) return fileName
+  const dot = fileName.lastIndexOf('.')
+  const stem = dot > 0 ? fileName.slice(0, dot) : fileName
+  const extension = dot > 0 ? fileName.slice(dot) : ''
+  return `${stem} (${n})${extension}`
+}
+
+/** How many numbered names a folder target tries before it gives up. */
+const MAX_NUMBERED_NAMES = 1000
+
+/**
+ * A target for a new file in a picked folder. The file is created when it is written, under the
+ * first name the folder has no file of, so a file that is there is never replaced; a write that
+ * fails removes the file it created while that is still empty.
+ */
+function folderFileTarget(folder: PickedFolder, request: SaveRequest): SaveTarget {
+  let fileName = request.fileName
+  let created: PickedFile | undefined
+  const discard = async () => {
+    const file = created
+    created = undefined
+    if (file === undefined) return
+    try {
+      if (file.getFile !== undefined && (await file.getFile()).size !== 0) return
+      if (folder.removeEntry !== undefined) await folder.removeEntry(fileName)
+      else await file.remove?.()
+    } catch {
+      // Gone already, or the browser refuses: nothing more to do.
+    }
+  }
+  return {
+    get fileName() {
+      return fileName
+    },
+    async write(blob) {
+      for (let n = 1; created === undefined; n++) {
+        if (n > MAX_NUMBERED_NAMES) throw new Error(`No free name for ${request.fileName}`)
+        const candidate = numberedFileName(request.fileName, n)
+        try {
+          await folder.getFileHandle(candidate)
+          continue // Taken: try the next number.
+        } catch (error) {
+          if (!isNotFound(error)) throw error
+        }
+        created = await folder.getFileHandle(candidate, { create: true })
+        fileName = candidate
+      }
+      await pickedFileTarget(created)
+        .write(blob)
+        .catch(async (error: unknown) => {
+          await discard()
+          throw error
+        })
+      created = undefined
+    },
+    discard,
+  }
+}
+
 /**
  * The browser's way of saving: the save picker where the browser has one (the user picks the
  * folder and the name), otherwise a download, which lands in the browser's downloads folder or
- * asks, as the user set it up.
+ * asks, as the user set it up. For several files, the folder picker where the browser has one
+ * (the user picks a folder once and grants FXM write access to it), otherwise a download each.
  */
 export function createBrowserDeviceSaver(environment: BrowserSaverEnvironment = {}): DeviceSaver {
+  const host = () => environment.window ?? (globalThis as SavePickerWindow & FolderPickerWindow)
   return {
+    asksWhere: () => typeof host().showSaveFilePicker === 'function',
+    async chooseFolder(request = {}) {
+      const browser = host()
+      if (typeof browser.showDirectoryPicker !== 'function') return null
+      try {
+        // Called on its window, as the save picker. Write access is asked for as the folder is
+        // picked, in the same prompt.
+        const folder = await browser.showDirectoryPicker({
+          ...(request.id === undefined ? {} : { id: request.id }),
+          mode: 'readwrite',
+          startIn: 'music',
+        })
+        return {
+          name: folder.name,
+          target: (file) => folderFileTarget(folder, file),
+        }
+      } catch (error) {
+        if (isCancel(error)) return undefined
+        // No user activation left, or a folder picker the browser refuses here.
+        return null
+      }
+    },
     async choose(request) {
-      const host = environment.window ?? (globalThis as SavePickerWindow)
-      if (typeof host.showSaveFilePicker !== 'function') {
+      const browser = host()
+      if (typeof browser.showSaveFilePicker !== 'function') {
         return linkTarget(request.fileName, environment)
       }
       const extension = /\.[A-Za-z0-9]+$/.exec(request.fileName)?.[0]
       try {
         // Called on its window: a detached call throws "Illegal invocation".
-        const handle = await host.showSaveFilePicker({
+        const handle = await browser.showSaveFilePicker({
           suggestedName: request.fileName,
           ...(extension === undefined
             ? {}

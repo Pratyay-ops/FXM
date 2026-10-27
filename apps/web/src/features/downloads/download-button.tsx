@@ -5,7 +5,7 @@ import { useState } from 'react'
 import { buttonClasses } from '../../components/ui/button'
 import { IconButton, type IconButtonSize } from '../../components/ui/icon-button'
 import { Dialog, DialogActions } from '../library/ui/dialog'
-import { downloadTracks, pauseDownload, removeDownloads, resumeDownload } from './actions'
+import { pauseDownload, removeDownloads, requestDownload, resumeDownload } from './actions'
 import { progressOf } from './format'
 import { useDownload, useDownloadAvailability } from './hooks'
 import { ProgressRing } from './progress'
@@ -53,8 +53,9 @@ function stateOf(track: Track, record: DownloadRecord) {
 }
 
 /**
- * Downloads a track, and then shows how its download goes: waiting, a ring that fills, paused,
- * failed or downloaded. A click pauses, resumes or retries it; on a downloaded track it offers
+ * Downloads a track (through the Download dialog, which also saves a file, unless Settings says
+ * to keep an offline copy only), and then shows how its download goes: waiting, a ring that
+ * fills, paused, failed or downloaded. A click pauses, resumes or retries it; on a downloaded track it offers
  * to remove the download. It renders nothing where the track can't be downloaded (YouTube audio
  * without FXM Connect, the desktop app or the Android app, the Lite tier included) unless the
  * track is downloaded already, so that download can still be removed.
@@ -74,7 +75,7 @@ export function DownloadButton({ track, size = 'sm', className }: DownloadButton
         icon={<ArrowDownToLine />}
         size={size}
         className={className}
-        onClick={() => void downloadTracks([track])}
+        onClick={() => requestDownload([track])}
       />
     )
   }

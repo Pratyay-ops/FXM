@@ -134,7 +134,7 @@ export const TIER_FEATURES: readonly TierFeature[] = [
   },
   {
     id: 'free-downloads',
-    // A download stays the original file; Save to device converts a copy (stage 4.2).
+    // A download stays the original file; the file Download saves is converted (stage 4.2).
     label: RELEASED.conversions
       ? 'Downloads of free music for offline listening, to save in the format you want'
       : 'Downloads of free music for offline listening, in their original format',
