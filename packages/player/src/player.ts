@@ -1516,6 +1516,7 @@ export class Player {
     const { effects } = this.#state
     if (
       effects.equalizer === status.equalizer &&
+      effects.equalizerReason === status.equalizerReason &&
       effects.loudness === status.loudness &&
       effects.loudnessGainDb === status.loudnessGainDb
     ) {
