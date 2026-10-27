@@ -452,7 +452,7 @@ exports[`CORS rules for the production origin > matches the reviewed rules.json 
         {
           "header": "access-control-allow-origin",
           "operation": "set",
-          "value": "https://fxmusic.pages.dev",
+          "value": "*",
         },
         {
           "header": "access-control-expose-headers",

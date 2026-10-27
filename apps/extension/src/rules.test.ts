@@ -68,11 +68,31 @@ describe('CORS rules for the production origin', () => {
     }
   })
 
-  it('sets Access-Control-Allow-Origin to the exact FXM origin, never a wildcard', () => {
+  it('sets Access-Control-Allow-Origin to the exact FXM origin, but * on googlevideo media', () => {
+    const media = ruleNamed('googlevideo-media')
     for (const rule of rules) {
-      expect(setValue(rule.action.responseHeaders, 'access-control-allow-origin')).toBe(FXM)
+      expect(setValue(rule.action.responseHeaders, 'access-control-allow-origin')).toBe(
+        rule === media ? '*' : FXM,
+      )
     }
-    expect(JSON.stringify(rules)).not.toContain('"*"')
+    // The wildcard nowhere else, and never with credentials (see the next test).
+    expect(JSON.stringify(rules.filter((rule) => rule !== media))).not.toContain('"*"')
+  })
+
+  it('keeps googlevideo media readable after a redirect, for FXM pages only', () => {
+    // After a 302 to another host the browser sends Origin: null, which only * matches. The
+    // rule still matches only requests an FXM page started, and strips every credential.
+    const media = ruleNamed('googlevideo-media')
+    expect(media.condition.initiatorDomains).toEqual(['fxmusic.pages.dev'])
+    expect(setValue(media.action.responseHeaders, 'access-control-allow-origin')).toBe('*')
+    expect(find(media.action.requestHeaders, 'cookie')?.operation).toBe('remove')
+    expect(find(media.action.responseHeaders, 'access-control-allow-credentials')?.operation).toBe(
+      'remove',
+    )
+    expect(find(media.action.responseHeaders, 'set-cookie')?.operation).toBe('remove')
+    // Preflights never follow redirects: they keep the exact origin.
+    const preflight = ruleNamed('googlevideo-preflight')
+    expect(setValue(preflight.action.responseHeaders, 'access-control-allow-origin')).toBe(FXM)
   })
 
   it('never sets credentials and strips cookies, Set-Cookie and upstream credential grants', () => {
@@ -298,10 +318,13 @@ describe('rulesets', () => {
       { id: 'localhost_5173', path: 'rules-localhost_5173.json', enabled: true },
       { id: 'localhost_4173', path: 'rules-localhost_4173.json', enabled: false },
     ])
+    const media = CORS_RULE_SPECS.findIndex((spec) => spec.name === 'googlevideo-media')
     for (const [index, origin] of DEVELOPMENT_ORIGINS.entries()) {
-      for (const rule of rulesets[index + 1]?.rules ?? []) {
+      for (const [ruleIndex, rule] of (rulesets[index + 1]?.rules ?? []).entries()) {
         expect(rule.condition.initiatorDomains).toEqual(['localhost'])
-        expect(setValue(rule.action.responseHeaders, 'access-control-allow-origin')).toBe(origin)
+        expect(setValue(rule.action.responseHeaders, 'access-control-allow-origin')).toBe(
+          ruleIndex === media ? '*' : origin,
+        )
       }
     }
   })
