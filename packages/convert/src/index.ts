@@ -70,6 +70,9 @@ export {
   type BrowserSaverEnvironment,
   createBrowserDeviceSaver,
   type DeviceSaver,
+  type FolderRequest,
+  numberedFileName,
+  type SaveFolder,
   type SaveRequest,
   type SaveTarget,
 } from './save'
