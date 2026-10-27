@@ -1,23 +1,35 @@
 /**
  * Settings → Diagnostics: the current tier and why, the details behind it (FXM Connect, the Lite
  * self-test, what YouTube and Spotify allow, the request budget), a re-check, the "resolve and
- * play one song" self-test (docs/ARCHITECTURE.md §10) and, after it, the YouTube audio check
- * (`audio-check.ts`).
+ * play one song" self-test (docs/ARCHITECTURE.md §10), after it the YouTube audio check
+ * (`audio-check.ts`), and a button that copies it all as a redacted plain-text report
+ * (`diagnostics-report.ts`).
  *
  * @module
  */
 
-import { CircleCheck, CircleX, LoaderCircle, Play, RefreshCw, Square } from 'lucide-react'
+import { APP_VERSION } from '@fxm/core'
+import {
+  Check,
+  CircleCheck,
+  CircleX,
+  Copy,
+  LoaderCircle,
+  Play,
+  RefreshCw,
+  Square,
+} from 'lucide-react'
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import { buttonClasses } from '../../components/ui/button'
 import {
   type AudioCheckResult,
-  audioCheckPending,
+  type AudioCheckState,
   audioCheckSkip,
   audioCheckUrl,
   describeAudioCheck,
   runAudioCheck,
+  shownAudioCheck,
 } from './audio-check'
 import {
   type ConnectionState,
@@ -25,13 +37,14 @@ import {
   recheckConnection,
   useConnection,
 } from './connection'
+import { diagnosticsReport } from './diagnostics-report'
 import {
   budgetSummary,
   connectSummary,
   failureText,
   liteSummary,
-  resolveErrorText,
   seconds,
+  selfTestFailure,
 } from './diagnostics-text'
 import {
   connectionTier,
@@ -122,13 +135,7 @@ function Report({ report }: { report: SelfTestReport }) {
         <div className="space-y-1">
           <p className="flex gap-2 font-semibold">
             <CircleX aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-danger" />
-            <span>
-              {report.stage === 'resolve'
-                ? resolveErrorText(report.error)
-                : report.stage === 'none'
-                  ? 'The resolver found no stream this browser can play.'
-                  : 'No stream played.'}
-            </span>
+            <span>{selfTestFailure(report)}</span>
           </p>
           <AttemptList attempts={report.attempts} />
         </div>
@@ -152,12 +159,6 @@ function stepText(step: SelfTestStep | undefined): string {
       : 'Resolving the song…'
     : `Playing ${step.label}…`
 }
-
-/** Where the YouTube audio check stands. */
-type AudioCheckState =
-  | { readonly phase: 'idle' }
-  | { readonly phase: 'checking' }
-  | { readonly phase: 'done'; readonly result: AudioCheckResult }
 
 /** The song self-test and the YouTube audio check after it: one run, stopped by one button. */
 interface DiagnosticsRun {
@@ -325,8 +326,7 @@ function AudioCheckOutcome({
 
 /** The YouTube audio check: whether FXM Connect can read the stream the self-test found. */
 function AudioCheck({ state, audio }: { state: ConnectionState; audio: AudioCheckState }) {
-  const skip = audioCheckSkip(state)
-  const connectVersion = state.connect?.version
+  const shown = shownAudioCheck(state, audio)
   return (
     <Row label="YouTube audio">
       <p className="text-sm text-text-muted">
@@ -335,12 +335,7 @@ function AudioCheck({ state, audio }: { state: ConnectionState; audio: AudioChec
         self-test found.
       </p>
       <div aria-live="polite" className="min-h-6">
-        {skip !== undefined ? (
-          <AudioCheckOutcome
-            result={{ kind: 'not-tested', reason: skip }}
-            connectVersion={connectVersion}
-          />
-        ) : audioCheckPending(state) ? null : audio.phase === 'checking' ? (
+        {shown === 'waiting' ? null : shown === 'checking' ? (
           <p className="flex items-center gap-2 text-sm">
             <LoaderCircle
               aria-hidden="true"
@@ -349,9 +344,77 @@ function AudioCheck({ state, audio }: { state: ConnectionState; audio: AudioChec
             Reading the first kilobyte of the song's audio…
           </p>
         ) : (
-          audio.phase === 'done' && (
-            <AudioCheckOutcome result={audio.result} connectVersion={connectVersion} />
-          )
+          <AudioCheckOutcome result={shown} connectVersion={state.connect?.version} />
+        )}
+      </div>
+    </Row>
+  )
+}
+
+/**
+ * "Copy report": the section's results as plain text, for a bug report (`diagnostics-report.ts`).
+ * Where the browser refuses the clipboard, the report shows in a field to copy by hand.
+ */
+function CopyReport({ state, run }: { state: ConnectionState; run: DiagnosticsRun }) {
+  const [copied, setCopied] = useState(false)
+  const [blocked, setBlocked] = useState<string>()
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const fieldId = useId()
+  useEffect(() => () => clearTimeout(timer.current), [])
+
+  async function copy() {
+    const report = diagnosticsReport({
+      appVersion: APP_VERSION,
+      state,
+      navigator,
+      selfTest: { report: run.report, running: run.running },
+      audio: run.audio,
+    })
+    clearTimeout(timer.current)
+    try {
+      await navigator.clipboard.writeText(report)
+      setBlocked(undefined)
+      setCopied(true)
+      timer.current = setTimeout(() => setCopied(false), 4000)
+    } catch {
+      setCopied(false)
+      setBlocked(report)
+    }
+  }
+
+  return (
+    <Row label="Report">
+      <p className="text-sm text-text-muted">
+        Copies these results as plain text, to paste into a bug report: FXM's version, this browser
+        and system, FXM Connect and each check, with the name of YouTube's audio server. It leaves
+        out web addresses, IP addresses, tokens and cookies.
+      </p>
+      <button
+        type="button"
+        className={buttonClasses({ variant: 'secondary' })}
+        onClick={() => void copy()}
+      >
+        {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
+        Copy report
+      </button>
+      <div aria-live="polite" className="space-y-2">
+        {copied && <p className="text-sm">Report copied.</p>}
+        {blocked !== undefined && (
+          <>
+            <p className="text-sm">
+              <label htmlFor={fieldId}>
+                This browser didn't allow copying. Select the report below and copy it.
+              </label>
+            </p>
+            <textarea
+              id={fieldId}
+              readOnly
+              rows={8}
+              value={blocked}
+              onFocus={(event) => event.currentTarget.select()}
+              className="block w-full resize-y rounded-lg border border-border-strong bg-elevated p-3 font-mono text-xs text-text"
+            />
+          </>
         )}
       </div>
     </Row>
@@ -414,6 +477,7 @@ export function DiagnosticsSection() {
         </Row>
         <SongSelfTest state={state} resolver={resolver} run={run} />
         <AudioCheck state={state} audio={run.audio} />
+        <CopyReport state={state} run={run} />
       </div>
     </section>
   )

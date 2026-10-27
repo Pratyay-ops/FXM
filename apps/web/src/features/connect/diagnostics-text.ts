@@ -1,6 +1,6 @@
 /**
  * The sentences of Settings → Diagnostics that the page and its copied report share: FXM
- * Connect's and Lite's state, the request budget, and why the song self-test failed.
+ * Connect's and Lite's state, the request budget, and the song self-test's result.
  *
  * @module
  */
@@ -9,6 +9,7 @@ import { isFxmError } from '@fxm/core'
 import { type BudgetSnapshot, type ConnectStatus, MIN_CONNECT_VERSION } from '@fxm/platform'
 import type { LiteStatus } from './connection'
 import type { ProbeFailure, ProbeResult } from './playback-probe'
+import type { SelfTestReport } from './self-test'
 
 /** FXM Connect's state, in a few words. */
 export function connectSummary(status: ConnectStatus | undefined, platform: string): string {
@@ -98,4 +99,31 @@ export function resolveErrorText(error: unknown): string {
     default:
       return "The song couldn't be resolved."
   }
+}
+
+/** The headline of a failed self-test. */
+export function selfTestFailure(report: Extract<SelfTestReport, { status: 'failed' }>): string {
+  if (report.stage === 'resolve') return resolveErrorText(report.error)
+  return report.stage === 'none'
+    ? 'The resolver found no stream this browser can play.'
+    : 'No stream played.'
+}
+
+/** The self-test's result in plain text, for the copied report. */
+export function selfTestSummary(report: SelfTestReport | undefined, running: boolean): string {
+  if (report === undefined) return running ? 'Running' : 'Not run'
+  if (report.status === 'skipped') {
+    return "This device can't reach YouTube Music, so there is nothing to test."
+  }
+  if (report.status === 'cancelled') return 'Stopped.'
+  const failures = report.attempts.flatMap((attempt) =>
+    attempt.result.ok ? [] : [`${attempt.label}: ${failureText(attempt.result)}.`],
+  )
+  if (report.status === 'failed') return [selfTestFailure(report), ...failures].join(' ')
+  const { result, label } = report.played
+  return [
+    `Played ${seconds(result.ok ? result.playedMs : 0)} of ${label}.`,
+    `Resolving took ${seconds(report.resolveMs)}, and playback started ${seconds(result.ok ? result.startedAfterMs : 0)} later.`,
+    ...(failures.length > 0 ? ['Before that:', ...failures] : []),
+  ].join(' ')
 }

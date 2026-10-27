@@ -1,3 +1,4 @@
+import { APP_VERSION } from '@fxm/core'
 import { screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { renderApp } from '../../test/render'
@@ -87,8 +88,12 @@ beforeEach(() => {
   })
 })
 
+const clipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
+
 afterEach(async () => {
   vi.unstubAllGlobals()
+  if (clipboard) Object.defineProperty(navigator, 'clipboard', clipboard)
+  else Reflect.deleteProperty(navigator, 'clipboard')
   resetConnection()
   setSongResolver(unavailableResolver)
   await closeTestPages()
@@ -219,5 +224,63 @@ describe('Settings → Diagnostics → YouTube audio', { timeout: 30_000 }, () =
         "Without FXM Connect, this browser can't read YouTube audio, so YouTube downloads and the equalizer aren't available here.",
       ),
     ).toBeInTheDocument()
+  })
+})
+
+describe('Settings → Diagnostics → Copy report', { timeout: 30_000 }, () => {
+  /** Replaces the clipboard (after user-event, which installs a clipboard of its own). */
+  function mockClipboard(writeText: (text: string) => Promise<void>) {
+    const mock = vi.fn(writeText)
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      get: () => ({ writeText: mock }),
+    })
+    return mock
+  }
+
+  it('copies the results as plain text, without the stream URL', async () => {
+    const { section, row, user } = await runSelfTest(['network-error', 'opaque'])
+    expect(await row.findByText('Refused (CORS)')).toBeVisible()
+    const writeText = mockClipboard(async () => {})
+
+    await user.click(section.getByRole('button', { name: 'Copy report' }))
+
+    expect(await section.findByText('Report copied.')).toBeVisible()
+    expect(writeText).toHaveBeenCalledTimes(1)
+    const report = writeText.mock.calls[0]?.[0] ?? ''
+    expect(report).toContain(`App version: ${APP_VERSION}\n`)
+    expect(report).toContain('Platform: Web app, in a browser\n')
+    expect(report).toMatch(/^Browser: .+$/m)
+    expect(report).toContain('Tier: Full\n')
+    expect(report).toContain('FXM Connect: Version 0.2.0, on\n')
+    expect(report).toMatch(/^FXM Connect features: youtube, googlevideo/m)
+    expect(report).toMatch(/^Song self-test: Played 3\.0 s of /m)
+    expect(report).toContain(
+      "YouTube audio: Refused (CORS). YouTube's audio server answered, but the browser wouldn't let FXM Connect read the audio, so YouTube downloads and the equalizer don't work. Update FXM Connect to the latest version.\n",
+    )
+    expect(report).toContain(`YouTube audio server: ${HOST}\n`)
+    for (const secret of [GOOD_URL, 'https:', 'videoplayback', '?', '&', 'sig', '203.0.113.7']) {
+      expect(report).not.toContain(secret)
+    }
+  })
+
+  it('shows the report to copy by hand when the browser refuses the clipboard', async () => {
+    setSongResolver(createFakeResolver('plays'))
+    await openTestPlatform({ lite: false })
+    const { section, user } = await openDiagnostics()
+    await waitFor(() => expect(section.getByText('Free only')).toBeInTheDocument())
+    mockClipboard(() => Promise.reject(new DOMException('Denied', 'NotAllowedError')))
+
+    await user.click(section.getByRole('button', { name: 'Copy report' }))
+
+    const field = await section.findByLabelText(
+      "This browser didn't allow copying. Select the report below and copy it.",
+    )
+    expect((field as HTMLTextAreaElement).value).toMatch(/^FXM diagnostics\nApp version: /)
+    expect((field as HTMLTextAreaElement).value).toContain('Tier: Free only\n')
+    expect((field as HTMLTextAreaElement).value).toContain(
+      "YouTube audio: Not tested. Without FXM Connect, this browser can't read YouTube audio",
+    )
+    expect(section.queryByText('Report copied.')).toBeNull()
   })
 })

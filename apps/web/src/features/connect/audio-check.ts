@@ -271,6 +271,26 @@ export async function runAudioCheck(options: AudioCheckOptions): Promise<AudioCh
   }
 }
 
+/** Where the check stands on the page: not run yet, running, or done. */
+export type AudioCheckState =
+  | { readonly phase: 'idle' }
+  | { readonly phase: 'checking' }
+  | { readonly phase: 'done'; readonly result: AudioCheckResult }
+
+/**
+ * What the page shows for the check: why it can't run here (`not-tested`), `waiting` (detection
+ * still runs, or the self-test hasn't run yet), `checking`, or the result.
+ */
+export function shownAudioCheck(
+  state: Pick<ConnectionState, 'phase' | 'platform' | 'capabilities' | 'connect'>,
+  audio: AudioCheckState,
+): AudioCheckResult | 'waiting' | 'checking' {
+  const skip = audioCheckSkip(state)
+  if (skip !== undefined) return { kind: 'not-tested', reason: skip }
+  if (audioCheckPending(state) || audio.phase === 'idle') return 'waiting'
+  return audio.phase === 'checking' ? 'checking' : audio.result
+}
+
 /** The stream a finished self-test ended on, whose URL the check reads. */
 export function audioCheckUrl(
   attempts: readonly { readonly option: { readonly url: string } }[],
