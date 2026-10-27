@@ -2,6 +2,41 @@
 
 All notable changes to FXM, newest release first. `make release-pr` generates this file from the Conventional Commits with [git-cliff](https://git-cliff.org) when it prepares a release, so don't edit it by hand: the configuration is in `cliff.toml`.
 
+## [0.2.1](https://github.com/Pratyay-ops/FXM/compare/v0.2.0...v0.2.1) - 2026-10-27
+
+### Features
+
+- **platform:** Export compareVersions for FXM Connect version checks ([350fc24](https://github.com/Pratyay-ops/FXM/commit/350fc245b022c2618a5fad0dd5becd611aeb4794))
+- **web:** Check whether FXM Connect can read YouTube audio ([1f659d4](https://github.com/Pratyay-ops/FXM/commit/1f659d416629c21b309674903905d3638b71c71d))
+- **web:** Show the YouTube audio check in Diagnostics ([f01449c](https://github.com/Pratyay-ops/FXM/commit/f01449c22c3f6fcf9a3c84ad881249eab6811dbf))
+- **web:** Copy a redacted diagnostics report from Settings ([362672e](https://github.com/Pratyay-ops/FXM/commit/362672e69e0177feb91db6e743b78fea92fec52d))
+- **convert:** Save several files into one folder the user picks ([aeb091d](https://github.com/Pratyay-ops/FXM/commit/aeb091d961604617d4d16804d42de154f10caba9))
+- **downloads:** Tell whether this device can save files at all ([3786ca9](https://github.com/Pratyay-ops/FXM/commit/3786ca9d2283458b6a982504922a7c6377e4cf39))
+- **settings:** Store whether Download also saves a file ([2f0f790](https://github.com/Pratyay-ops/FXM/commit/2f0f790fcd3270a4820eadbe7eb69a8def73b81d))
+- **downloads:** Save a file from Download through a format dialog ([d26437b](https://github.com/Pratyay-ops/FXM/commit/d26437b3ddfe2a818bf3297e333a26353933a958))
+- **settings:** Add a Downloads section with the save-file switch ([fe4cd34](https://github.com/Pratyay-ops/FXM/commit/fe4cd347e31819994ec198f4d8cf6c7b3a8125b1))
+
+### Bug fixes
+
+- **extension:** Keep googlevideo media readable after a redirect ([df2f549](https://github.com/Pratyay-ops/FXM/commit/df2f549f19b1aea8ada12dbe2157e58bd2c80239))
+- **downloads:** Fail fast when YouTube audio can't be read, and say why ([28fe4db](https://github.com/Pratyay-ops/FXM/commit/28fe4dbcbc20d0f42640224cbbcbbc0f29b194a7))
+- **player:** Say why the equalizer can't process a track ([88de53a](https://github.com/Pratyay-ops/FXM/commit/88de53a8d411f81e3109407b943b6c68db2aae44))
+- **web:** Close the queue when its player bar button is pressed again ([0244239](https://github.com/Pratyay-ops/FXM/commit/0244239742c1bea8d3aca94cefb768976265b220))
+
+### Refactoring
+
+- **web:** Move the diagnostics summaries into their own module ([f4b9bdd](https://github.com/Pratyay-ops/FXM/commit/f4b9bdd9f720229e8eec964eba7194b4801e6435))
+
+### Documentation
+
+- **web:** Describe the YouTube audio check and the copied report ([10b8d87](https://github.com/Pratyay-ops/FXM/commit/10b8d8791f1a3f37bd62b48263e5ba6e5f9cf983))
+- Describe Download saving a file in the READMEs and on the site ([e6d3f6a](https://github.com/Pratyay-ops/FXM/commit/e6d3f6ad5fe4088da9c66c80c810e47f4973c326))
+- **release:** Write the summary of v0.2.1 ([410a083](https://github.com/Pratyay-ops/FXM/commit/410a083d71e7f7fb59cb276103b8d0c54c83fa43))
+
+### Tests
+
+- **web:** Go through the Download dialog in the downloads e2e specs ([75e318b](https://github.com/Pratyay-ops/FXM/commit/75e318b8a35c2c8c7f60bfc3a9d6bf551889c3c9))
+
 ## [0.2.0](https://github.com/Pratyay-ops/FXM/compare/v0.1.0...v0.2.0) - 2026-10-26
 
 ### Features
