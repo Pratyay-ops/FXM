@@ -1,6 +1,7 @@
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it } from 'vitest'
+import { setupTestPlayback } from '../features/now-playing/testing'
 import { App } from './app'
 import { createAppRouter } from './router'
 
@@ -27,6 +28,11 @@ function renderAtUrl(url: string, basename = '/app/') {
 const sidebar = () => within(screen.getAllByRole('navigation', { name: 'Main' })[0] as HTMLElement)
 const backButton = () => screen.getByRole('button', { name: 'Go back' })
 const forwardButton = () => screen.getByRole('button', { name: 'Go forward' })
+/** The player bar's Queue button (the player bar comes before the mini player). */
+const queueButton = () =>
+  within(screen.getAllByRole('region', { name: 'Player' })[0] as HTMLElement).getByRole('button', {
+    name: 'Queue',
+  })
 
 describe('browser router', () => {
   it('keeps the trailing slash of the /app/ base on links to Home', async () => {
@@ -106,5 +112,36 @@ describe('browser router', () => {
     await screen.findByRole('heading', { level: 1, name: /^Good/ })
     await user.click(forwardButton())
     expect(await screen.findByRole('heading', { level: 1, name: 'Search' })).toBeInTheDocument()
+  })
+
+  it('closes the queue with its button by going back to the page it opened on', async () => {
+    setupTestPlayback()
+    const { user } = renderAtUrl('/app/library')
+    await screen.findByRole('heading', { level: 1, name: 'Your library' })
+
+    await user.click(queueButton())
+    await screen.findByRole('heading', { name: 'Your queue is empty' })
+    expect(window.location.pathname + window.location.search).toBe('/app/now-playing?tab=queue')
+
+    await user.click(queueButton())
+    await screen.findByRole('heading', { level: 1, name: 'Your library' })
+    expect(window.location.pathname).toBe('/app/library')
+    expect(window.history.state).toMatchObject({ idx: 0 })
+    // The queue is ahead, as after the browser's Back.
+    expect(forwardButton()).toBeEnabled()
+  })
+
+  it('closes a queue opened straight from a link to Home, without going back out of FXM', async () => {
+    setupTestPlayback()
+    const { user } = renderAtUrl('/app/now-playing?tab=queue')
+    await screen.findByRole('heading', { name: 'Your queue is empty' })
+
+    await user.click(queueButton())
+
+    await screen.findByRole('heading', { level: 1, name: /^Good/ })
+    expect(window.location.pathname + window.location.search).toBe('/app/')
+    // Nothing of FXM's came before: Home took the queue's place instead of going back out.
+    expect(window.history.state).toMatchObject({ idx: 0 })
+    expect(backButton()).toBeDisabled()
   })
 })
