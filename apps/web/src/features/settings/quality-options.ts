@@ -17,12 +17,14 @@ import {
   MP3_BITRATES,
   type Mp3Bitrate,
   type NetworkCapabilities,
+  type Platform,
   QUALITY_TIERS,
   type QualityTier,
 } from '@fxm/core'
 import { freeSources } from '../../lib/free-sources'
 import { RELEASED } from '../connect/config'
 import { connectOrApps } from '../connect/explain'
+import type { SaveDestination } from '../downloads/save/device'
 import type { SelectOption } from './setting-select'
 import type { ConnectionStatus } from './use-connection'
 import type { YouTubeCodec } from './youtube-codecs'
@@ -203,8 +205,9 @@ export function offeredDownloadFormats(
 }
 
 /**
- * The format a downloaded song's "Save to device…" starts at: the setting, with conversions on
- * (stage 4.2), else Original. A download itself always stays the original file.
+ * The format the Download dialog and a downloaded song's "Save to device…" start at: the
+ * setting, with conversions on (stage 4.2), else Original. A download itself always keeps the
+ * original file, for offline playback.
  */
 export function effectiveDownloadFormat(
   format: DownloadFormat,
@@ -221,19 +224,36 @@ export const CONVERSIONS_COMING =
 const youtubeDownloads = () => `YouTube songs can be downloaded with ${connectOrApps()}.`
 
 /**
- * What the format is for since stage 4.2: a download stays the original file, which plays
- * offline as it is, and the format is where a downloaded song's "Save to device…" starts.
+ * What the download format is for:
+ *
+ * - `download`: Download saves a file too (Settings → Downloads, on by default), so the format
+ *   is where its dialog starts, and "Save to device…"'s;
+ * - `save-later`: Download keeps the copy in FXM only, and the format is where a downloaded
+ *   song's "Save to device…" starts;
+ * - `none`: this app can't save files yet (the desktop and Android apps until they have a saver
+ *   of their own).
  */
-export const SAVE_TO_DEVICE_NOTE =
-  'Downloads keep the original file, which plays offline as it is. A downloaded song’s “Save to device…” starts at this format.'
+export type DownloadFormatUse = 'download' | 'save-later' | 'none'
+
+/** The last line of the download format's help: what the format is for ({@link DownloadFormatUse}). */
+export function downloadFormatNote(use: DownloadFormatUse): string {
+  switch (use) {
+    case 'download':
+      return 'FXM keeps the original file to play offline. The file Download saves, and “Save to device…”, start at this format; you can pick another each time.'
+    case 'save-later':
+      return 'Downloads keep the original file, which plays offline as it is. A downloaded song’s “Save to device…” starts at this format.'
+    case 'none':
+      return 'Downloads keep the original file, which plays offline as it is. This app can’t save files yet, so the format waits until it can.'
+  }
+}
 
 /**
  * What a download in `format` will be, in the conversion labels downloads show
  * (`describeConversion`), for a lossy and a lossless source. Where the platform can read
  * YouTube's bytes (`mediaBytes`), the lossy one is a YouTube song in Opus. Elsewhere downloads
  * cover the free sources only (Internet Archive, Jamendo), so it is an MP3 from one of them, and
- * the text says where YouTube songs can be downloaded. The last line says that downloads stay
- * the original and the format is where "Save to device…" starts ({@link SAVE_TO_DEVICE_NOTE}).
+ * the text says where YouTube songs can be downloaded. What the format is for comes apart
+ * ({@link downloadFormatNote}), since another setting changes it.
  */
 export function downloadFormatHelp(
   format: DownloadFormat,
@@ -244,12 +264,10 @@ export function downloadFormatHelp(
     return youTube
       ? [
           'Saves each file as its source has it, with no conversion and no quality loss: Opus or AAC for YouTube songs, FLAC where a source is lossless.',
-          SAVE_TO_DEVICE_NOTE,
         ]
       : [
           `Saves each file as its source has it, with no conversion and no quality loss: FLAC, MP3 or Ogg Vorbis from ${freeSources().and}.`,
           youtubeDownloads(),
-          SAVE_TO_DEVICE_NOTE,
         ]
   }
   const lines = [
@@ -266,8 +284,43 @@ export function downloadFormatHelp(
     )
   }
   if (!youTube) lines.push(youtubeDownloads())
-  lines.push(SAVE_TO_DEVICE_NOTE)
   return lines
+}
+
+/** The name of the setting that makes Download save a file too. */
+export const SAVE_FILE_LABEL = 'Save a file to this device when downloading'
+
+/** The apps that can't save files until they have a saver of their own. */
+const APP_NAMES: Readonly<Record<Platform, string>> = {
+  web: 'This browser',
+  desktop: 'The desktop app',
+  android: 'The Android app',
+}
+
+/**
+ * What "Save a file to this device when downloading" does, `on` or off, where saved files go
+ * here (`saveDestination`: the browser's picker, its downloads, the app's own saver, or nowhere
+ * yet). Where no file can be saved, it says so: Download keeps the copy in FXM only.
+ */
+export function saveFileHelp(
+  on: boolean,
+  destination: SaveDestination,
+  platform: Platform,
+): string {
+  if (destination === 'none') {
+    return `${APP_NAMES[platform]} can’t save files yet, so Download keeps each song in FXM, where it plays offline.`
+  }
+  if (!on) {
+    return 'Download keeps the song in FXM only, where it plays offline. To get a file, use “Save to device…” in a downloaded song’s menu.'
+  }
+  switch (destination) {
+    case 'picker':
+      return 'Download asks for the format and where to save, then keeps the song in FXM to play offline and saves its file there. An album or a playlist goes into a folder you pick.'
+    case 'downloads':
+      return 'Download asks for the format, then keeps the song in FXM to play offline and saves its file to your browser’s downloads.'
+    case 'app':
+      return 'Download asks for the format, then keeps the song in FXM to play offline and saves its file on this device.'
+  }
 }
 
 /** An MP3 bitrate as the select holds it. */

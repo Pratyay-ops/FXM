@@ -2,7 +2,6 @@ import type { NetworkCapabilities } from '@fxm/core'
 import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { RELEASED } from '../connect/config'
 import { TIER_CAPABILITIES, type Tier } from '../search/sources'
 import { renderCatalog, resetCatalogState } from '../search/testing'
 import { FakeConnection, installConnection, removeConnection } from './fake-connection'
@@ -39,18 +38,10 @@ async function renderQuality(tier: Tier = 'full') {
   return { ...rendered, section, ...controls(section) }
 }
 
-const FULL: NetworkCapabilities = TIER_CAPABILITIES.full
-
-/**
- * Renders only the section, for a platform that reaches `capabilities`, with conversions
- * (stage 4.2) as released unless `conversions` says otherwise.
- */
-function renderSection(
-  capabilities: NetworkCapabilities,
-  { conversions = RELEASED.conversions }: { conversions?: boolean } = {},
-) {
+/** Renders only the section, for a platform that reaches `capabilities`. */
+function renderSection(capabilities: NetworkCapabilities) {
   const user = userEvent.setup()
-  render(<QualitySection capabilities={capabilities} conversions={conversions} />)
+  render(<QualitySection capabilities={capabilities} />)
   const section = screen.getByRole('region', { name: 'Audio quality' })
   return { user, section, ...controls(section) }
 }
@@ -90,7 +81,7 @@ function watchLiveRegions(root: HTMLElement): () => Element[] {
 }
 
 describe('Audio quality settings', () => {
-  it('start with the data saver off, High on Wi-Fi, Normal on mobile data, original downloads', async () => {
+  it('start with the data saver off, High on Wi-Fi, Normal on mobile data', async () => {
     const { section, select, dataSaver } = await renderQuality()
     expect(dataSaver()).not.toBeChecked()
     expect(select('Streaming on Wi-Fi')).toHaveValue('high')
@@ -101,54 +92,8 @@ describe('Audio quality settings', () => {
       'Normal',
       'Low',
     ])
-    expect(select('Download format')).toHaveValue('original')
-    // Conversions are out (stage 4.2): every format can be chosen, as where a downloaded song's
-    // Save to device starts, and the download itself stays the original file.
-    expect(optionLabels(select('Download format'))).toEqual([
-      'Original',
-      'FLAC',
-      'ALAC',
-      'WAV',
-      'MP3',
-      'AAC',
-      'Opus',
-    ])
-    const options = within(select('Download format')).getAllByRole('option')
-    expect(options.filter((option) => (option as HTMLOptionElement).disabled)).toEqual([])
-    expect(select('Download format')).toHaveAccessibleDescription(
-      /“Save to device…” starts at this format\.$/,
-    )
-    expect(select('Download format')).not.toHaveAccessibleDescription(/coming soon/)
-    expect(within(section).queryByRole('combobox', { name: 'MP3 bitrate' })).toBeNull()
-  })
-
-  it('keep a format chosen before, with its MP3 bitrate', async () => {
-    useQualityStore.getState().setDownloadFormat('mp3')
-    const { section, select } = await renderQuality()
-
-    expect(select('Download format')).toHaveValue('mp3')
-    expect(within(section).getByRole('combobox', { name: 'MP3 bitrate' })).toHaveValue('320')
-  })
-
-  it('offer only Original, the rest as coming soon, while conversions are off', () => {
-    useQualityStore.getState().setDownloadFormat('mp3')
-    const { section, select } = renderSection(FULL, { conversions: false })
-
-    // Whatever was chosen before, Save to device starts at the original then.
-    expect(select('Download format')).toHaveValue('original')
-    expect(optionLabels(select('Download format'))).toEqual([
-      'Original',
-      'FLAC (coming soon)',
-      'ALAC (coming soon)',
-      'WAV (coming soon)',
-      'MP3 (coming soon)',
-      'AAC (coming soon)',
-      'Opus (coming soon)',
-    ])
-    const options = within(select('Download format')).getAllByRole('option')
-    expect(options.filter((option) => (option as HTMLOptionElement).disabled)).toHaveLength(6)
-    expect(select('Download format')).toHaveAccessibleDescription(/is coming soon\.$/)
-    expect(within(section).queryByRole('combobox', { name: 'MP3 bitrate' })).toBeNull()
+    // The download format has moved to the Downloads section.
+    expect(within(section).queryByRole('combobox', { name: 'Download format' })).toBeNull()
   })
 
   it('put the data saver first, before the rows it overrides', async () => {
@@ -157,12 +102,7 @@ describe('Audio quality settings', () => {
       .getAllByRole('combobox')
       .map((control) => control.getAttribute('aria-labelledby'))
       .map((id) => (id ? document.getElementById(id)?.textContent : undefined))
-    expect(names).toEqual([
-      'Streaming on Wi-Fi',
-      'Streaming on mobile data',
-      'Quality to use',
-      'Download format',
-    ])
+    expect(names).toEqual(['Streaming on Wi-Fi', 'Streaming on mobile data', 'Quality to use'])
     const first = within(section).getAllByRole('combobox')[0] as HTMLElement
     expect(dataSaver().compareDocumentPosition(first) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
@@ -265,7 +205,6 @@ describe('Audio quality settings', () => {
       expect(select(name)).toHaveAccessibleDescription('Not used while Data saver is on.')
     }
     expect(within(section).queryByText('In use')).toBeNull()
-    expect(select('Download format')).toBeEnabled()
 
     dataSaver().focus()
     await user.keyboard(' ')
@@ -298,56 +237,6 @@ describe('Audio quality settings', () => {
     expect(new Set(regions)).toEqual(new Set([own]))
   })
 
-  it('label conversions honestly: YouTube audio never becomes lossless', async () => {
-    const { user, select } = renderSection(FULL)
-    expect(select('Download format')).toHaveAccessibleDescription(
-      /no conversion and no quality loss: Opus or AAC for YouTube songs/,
-    )
-    // Since stage 4.2 a download stays the original: the format is where Save to device starts.
-    expect(select('Download format')).toHaveAccessibleDescription(
-      /Downloads keep the original file, which plays offline as it is\. A downloaded song’s “Save to device…” starts at this format\./,
-    )
-
-    await user.selectOptions(select('Download format'), 'flac')
-
-    expect(useQualityStore.getState().prefs.download.format).toBe('flac')
-    const description = select('Download format')
-    expect(description).toHaveAccessibleDescription(
-      /A YouTube song in Opus: FLAC \(converted from Opus, same quality as the source\)\./,
-    )
-    expect(description).toHaveAccessibleDescription(
-      /A lossless source in FLAC: FLAC \(no conversion\)\./,
-    )
-    expect(description).toHaveAccessibleDescription(/YouTube audio is never lossless/)
-
-    await user.selectOptions(select('Download format'), 'opus')
-    expect(select('Download format')).toHaveAccessibleDescription(
-      /A YouTube song in Opus: Opus \(no conversion\)\. A lossless source in FLAC: Opus \(converted from FLAC, some quality loss\)\./,
-    )
-    expect(select('Download format')).not.toHaveAccessibleDescription(/never lossless/)
-  })
-
-  it('offer the MP3 bitrates for MP3, 320 kbps by default', async () => {
-    const { user, section, select } = renderSection(FULL)
-
-    await user.selectOptions(select('Download format'), 'mp3')
-
-    const bitrate = select('MP3 bitrate')
-    expect(bitrate).toHaveValue('320')
-    expect(optionLabels(bitrate)).toEqual(['128 kbps', '192 kbps', '256 kbps', '320 kbps'])
-    expect(bitrate).toHaveAccessibleDescription(/No bitrate adds quality the source doesn't have/)
-
-    await user.selectOptions(bitrate, '192')
-
-    expect(useQualityStore.getState().prefs.download).toEqual({ format: 'mp3', mp3Kbps: 192 })
-    expect(storedQuality()).toMatchObject({
-      state: { prefs: { download: { format: 'mp3', mp3Kbps: 192 } } },
-    })
-
-    await user.selectOptions(select('Download format'), 'original')
-    expect(within(section).queryByRole('combobox', { name: 'MP3 bitrate' })).toBeNull()
-  })
-
   it('follow a change saved in another tab', async () => {
     const { select } = await renderQuality()
     const saved = {
@@ -376,15 +265,6 @@ describe('Audio quality settings on other tiers and browsers', () => {
     // FXM Connect answered: the Full tier.
     act(() => platform.setCapabilities(TIER_CAPABILITIES.full))
 
-    expect(select('Streaming on Wi-Fi')).toHaveAccessibleDescription(/the best YouTube audio/)
-  })
-
-  it('say in Lite that downloads cover the free sources, and where YouTube songs download', () => {
-    const { select } = renderSection(LITE)
-    expect(select('Download format')).toHaveAccessibleDescription(
-      'Saves each file as its source has it, with no conversion and no quality loss: FLAC, MP3 or Ogg Vorbis from Internet Archive. YouTube songs can be downloaded with FXM Connect. Downloads keep the original file, which plays offline as it is. A downloaded song’s “Save to device…” starts at this format.',
-    )
-    // Lite still streams YouTube.
     expect(select('Streaming on Wi-Fi')).toHaveAccessibleDescription(/the best YouTube audio/)
   })
 
