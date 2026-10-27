@@ -1,7 +1,8 @@
 /**
  * Settings → Diagnostics: the current tier and why, the details behind it (FXM Connect, the Lite
- * self-test, what YouTube and Spotify allow, the request budget), a re-check, and the "resolve
- * and play one song" self-test (docs/ARCHITECTURE.md §10).
+ * self-test, what YouTube and Spotify allow, the request budget), a re-check, the "resolve and
+ * play one song" self-test (docs/ARCHITECTURE.md §10) and, after it, the YouTube audio check
+ * (`audio-check.ts`).
  *
  * @module
  */
@@ -10,6 +11,14 @@ import { CircleCheck, CircleX, LoaderCircle, Play, RefreshCw, Square } from 'luc
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import { buttonClasses } from '../../components/ui/button'
+import {
+  type AudioCheckResult,
+  audioCheckPending,
+  audioCheckSkip,
+  audioCheckUrl,
+  describeAudioCheck,
+  runAudioCheck,
+} from './audio-check'
 import {
   type ConnectionState,
   connectionContext,
@@ -32,7 +41,7 @@ import {
   isDetecting,
 } from './explain'
 import { createPlaybackProbe, type ProbeResult } from './playback-probe'
-import { SELF_TEST_SONG, unavailableResolver, useSongResolver } from './resolver'
+import { SELF_TEST_SONG, type SongResolver, unavailableResolver, useSongResolver } from './resolver'
 import {
   runSongSelfTest,
   type SelfTestAttempt,
@@ -144,16 +153,95 @@ function stepText(step: SelfTestStep | undefined): string {
     : `Playing ${step.label}…`
 }
 
-/** The "resolve and play one song" self-test. */
-function SongSelfTest({ state }: { state: ConnectionState }) {
+/** Where the YouTube audio check stands. */
+type AudioCheckState =
+  | { readonly phase: 'idle' }
+  | { readonly phase: 'checking' }
+  | { readonly phase: 'done'; readonly result: AudioCheckResult }
+
+/** The song self-test and the YouTube audio check after it: one run, stopped by one button. */
+interface DiagnosticsRun {
+  readonly running: boolean
+  readonly step: SelfTestStep | undefined
+  readonly report: SelfTestReport | undefined
+  readonly audio: AudioCheckState
+  start(): void
+  stop(): void
+}
+
+function useDiagnosticsRun(resolver: SongResolver): DiagnosticsRun {
   const [running, setRunning] = useState(false)
   const [step, setStep] = useState<SelfTestStep>()
   const [report, setReport] = useState<SelfTestReport>()
+  const [audio, setAudio] = useState<AudioCheckState>({ phase: 'idle' })
   const controller = useRef<AbortController | undefined>(undefined)
   useEffect(() => () => controller.current?.abort(), [])
 
-  // The ladder arrives with YouTube's code, which may load after this renders.
-  const resolver = useSongResolver()
+  /** Reads the stream the self-test ended on, when FXM Connect could read it here. */
+  async function checkAudio(result: SelfTestReport, signal: AbortSignal, current: () => boolean) {
+    // Without FXM Connect, or in Lite, the row says why from the connection state alone.
+    if (result.status === 'cancelled' || audioCheckSkip(useConnection.getState()) !== undefined) {
+      return
+    }
+    const url = result.status === 'skipped' ? undefined : audioCheckUrl(result.attempts)
+    if (url === undefined) {
+      setAudio({ phase: 'done', result: { kind: 'not-tested', reason: 'no-stream' } })
+      return
+    }
+    setAudio({ phase: 'checking' })
+    const checked = await runAudioCheck({ url, signal })
+    if (current()) setAudio({ phase: 'done', result: checked })
+  }
+
+  function start() {
+    const ctx = connectionContext('music')
+    if (ctx === undefined) return
+    controller.current?.abort()
+    const abort = new AbortController()
+    controller.current = abort
+    const current = () => controller.current === abort
+    const probe = createPlaybackProbe()
+    // From the click itself, so browsers that want a tap let this element play after the wait.
+    probe.prime()
+    setRunning(true)
+    setStep(undefined)
+    setReport(undefined)
+    setAudio({ phase: 'idle' })
+    void runSongSelfTest({
+      resolver,
+      probe,
+      context: () => ({ ...ctx, signal: abort.signal }),
+      signal: abort.signal,
+      onStep: setStep,
+    })
+      .finally(() => probe.dispose())
+      .then(async (result) => {
+        if (!current()) return
+        setReport(result)
+        await checkAudio(result, abort.signal, current)
+      })
+      .finally(() => {
+        if (current()) {
+          setRunning(false)
+          controller.current = undefined
+        }
+      })
+  }
+
+  return { running, step, report, audio, start, stop: () => controller.current?.abort() }
+}
+
+/** The "resolve and play one song" self-test. */
+function SongSelfTest({
+  state,
+  resolver,
+  run,
+}: {
+  state: ConnectionState
+  resolver: SongResolver
+  run: DiagnosticsRun
+}) {
+  const { running, step, report } = run
   const tier = connectionTier(state)
   const ready = state.phase === 'ready'
   // How to get YouTube Music is the Tier row's to say, for this device.
@@ -163,37 +251,6 @@ function SongSelfTest({ state }: { state: ConnectionState }) {
       : resolver === unavailableResolver
         ? "This version of FXM can't resolve YouTube songs yet, so the self-test can't run."
         : undefined
-
-  function start() {
-    const ctx = connectionContext('music')
-    if (ctx === undefined) return
-    controller.current?.abort()
-    const abort = new AbortController()
-    controller.current = abort
-    const probe = createPlaybackProbe()
-    // From the click itself, so browsers that want a tap let this element play after the wait.
-    probe.prime()
-    setRunning(true)
-    setStep(undefined)
-    setReport(undefined)
-    void runSongSelfTest({
-      resolver,
-      probe,
-      context: () => ({ ...ctx, signal: abort.signal }),
-      signal: abort.signal,
-      onStep: setStep,
-    })
-      .then((result) => {
-        if (controller.current === abort) setReport(result)
-      })
-      .finally(() => {
-        probe.dispose()
-        if (controller.current === abort) {
-          setRunning(false)
-          controller.current = undefined
-        }
-      })
-  }
 
   return (
     <Row label="Song self-test">
@@ -208,14 +265,15 @@ function SongSelfTest({ state }: { state: ConnectionState }) {
           type="button"
           className={buttonClasses({ variant: 'secondary' })}
           disabled={!running && (!ready || blocker !== undefined)}
-          onClick={running ? () => controller.current?.abort() : start}
+          onClick={running ? run.stop : run.start}
         >
           {running ? <Square aria-hidden="true" /> : <Play aria-hidden="true" />}
           {running ? 'Stop' : 'Resolve and play one song'}
         </button>
       </div>
       <div aria-live="polite" className="min-h-6">
-        {running ? (
+        {/* The report shows as soon as the self-test ends, while the audio check runs. */}
+        {running && report === undefined ? (
           <p className="flex items-center gap-2 text-sm">
             <LoaderCircle
               aria-hidden="true"
@@ -231,8 +289,80 @@ function SongSelfTest({ state }: { state: ConnectionState }) {
   )
 }
 
+/** A YouTube audio check's result, in the style of the self-test's report. */
+function AudioCheckOutcome({
+  result,
+  connectVersion,
+}: {
+  result: AudioCheckResult
+  connectVersion: string | undefined
+}) {
+  if (result.kind === 'cancelled') return <p className="text-sm text-text-muted">Stopped.</p>
+  const text = describeAudioCheck(result, connectVersion)
+  if (text.tone === 'neutral') {
+    return (
+      <p className="text-sm">
+        <span className="font-semibold">{text.title}.</span>{' '}
+        <span className="text-text-muted">{text.explanation}</span>
+      </p>
+    )
+  }
+  return (
+    <div className="space-y-1">
+      <p className="flex gap-2 font-semibold">
+        {text.tone === 'good' ? (
+          <CircleCheck aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-accent" />
+        ) : (
+          <CircleX aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-danger" />
+        )}
+        <span>{text.title}</span>
+      </p>
+      <p className="text-sm text-text-muted">{text.explanation}</p>
+      {text.advice !== undefined && <p className="text-sm">{text.advice}</p>}
+    </div>
+  )
+}
+
+/** The YouTube audio check: whether FXM Connect can read the stream the self-test found. */
+function AudioCheck({ state, audio }: { state: ConnectionState; audio: AudioCheckState }) {
+  const skip = audioCheckSkip(state)
+  const connectVersion = state.connect?.version
+  return (
+    <Row label="YouTube audio">
+      <p className="text-sm text-text-muted">
+        Whether FXM Connect can read YouTube audio here, which YouTube downloads and the equalizer
+        need. It runs after the song self-test and reads the first kilobyte of the stream the
+        self-test found.
+      </p>
+      <div aria-live="polite" className="min-h-6">
+        {skip !== undefined ? (
+          <AudioCheckOutcome
+            result={{ kind: 'not-tested', reason: skip }}
+            connectVersion={connectVersion}
+          />
+        ) : audioCheckPending(state) ? null : audio.phase === 'checking' ? (
+          <p className="flex items-center gap-2 text-sm">
+            <LoaderCircle
+              aria-hidden="true"
+              className="size-4 animate-spin motion-reduce:animate-none"
+            />
+            Reading the first kilobyte of the song's audio…
+          </p>
+        ) : (
+          audio.phase === 'done' && (
+            <AudioCheckOutcome result={audio.result} connectVersion={connectVersion} />
+          )
+        )}
+      </div>
+    </Row>
+  )
+}
+
 export function DiagnosticsSection() {
   const state = useConnection()
+  // The ladder arrives with YouTube's code, which may load after this renders.
+  const resolver = useSongResolver()
+  const run = useDiagnosticsRun(resolver)
   const headingId = useId()
   const detecting = isDetecting(state)
   const tier = connectionTier(state)
@@ -282,7 +412,8 @@ export function DiagnosticsSection() {
             {state.rechecking ? 'Checking…' : 'Check again'}
           </button>
         </Row>
-        <SongSelfTest state={state} />
+        <SongSelfTest state={state} resolver={resolver} run={run} />
+        <AudioCheck state={state} audio={run.audio} />
       </div>
     </section>
   )
