@@ -243,7 +243,9 @@ export function createBridge(options: BridgeOptions): Bridge {
     if (isLocalhost(sender.origin)) return 'login-disabled'
     if (sender.privateTab) return 'private-tab'
     if (options.consent && !(await options.consent.granted())) return 'login-disabled'
-    if (!(await options.permissions?.contains({ permissions: ['cookies'] }))) return 'login-disabled'
+    if (!(await options.permissions?.contains({ permissions: ['cookies'] }))) {
+      return 'login-disabled'
+    }
     if (options.cookies === undefined) return 'login-disabled'
     return null
   }
@@ -272,7 +274,10 @@ export function createBridge(options: BridgeOptions): Bridge {
     return Array.from(digest.slice(0, 12), (byte) => byte.toString(16).padStart(2, '0')).join('')
   }
 
-  async function readYouTubeMusic(request: Extract<BridgeRequest, { type: typeof MESSAGE.youtubeMusicLibrary }>, sender: SenderContext): Promise<BridgeReply> {
+  async function readYouTubeMusic(
+    request: Extract<BridgeRequest, { type: typeof MESSAGE.youtubeMusicLibrary }>,
+    sender: SenderContext,
+  ): Promise<BridgeReply> {
     const refusal = await youtubeMusicRefusal(sender)
     if (refusal !== null) return errorReply(request.id, refusal)
     if (!(await acquire())) return errorReply(request.id, 'rate-limited')
@@ -339,10 +344,10 @@ export function createBridge(options: BridgeOptions): Bridge {
     handle(message, {
       origin,
       privateTab: isPrivateTab(sender.tab),
-      ...(sender.tab?.cookieStoreId === undefined ? {} : { cookieStoreId: sender.tab.cookieStoreId }),
-    }).then(sendResponse, () =>
-      sendResponse(errorReply(null, 'internal')),
-    )
+      ...(sender.tab?.cookieStoreId === undefined
+        ? {}
+        : { cookieStoreId: sender.tab.cookieStoreId }),
+    }).then(sendResponse, () => sendResponse(errorReply(null, 'internal')))
     return true
   }
 
