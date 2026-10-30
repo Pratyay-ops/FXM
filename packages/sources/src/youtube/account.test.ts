@@ -99,29 +99,31 @@ describe('readYouTubeMusicAccount', () => {
   })
 
   it('fails closed when the library response has no readable account shape', async () => {
-    await expect(readYouTubeMusicAccount('cookie=value-that-is-long-enough', {
-      createClient: async () => ({
-        music: {
-          getLibrary: async () => ({
-            filters: [],
-            contents: [],
-            has_continuation: false,
-            async applyFilter() {
-              return this
-            },
-            async getContinuation() {
-              return this
-            },
-          }),
-          getPlaylist: async () => ({
-          items: [],
-          has_continuation: false,
-          async getContinuation() {
-            return this
+    await expect(
+      readYouTubeMusicAccount('cookie=value-that-is-long-enough', {
+        createClient: async () => ({
+          music: {
+            getLibrary: async () => ({
+              filters: [],
+              contents: [],
+              has_continuation: false,
+              async applyFilter() {
+                return this
+              },
+              async getContinuation() {
+                return this
+              },
+            }),
+            getPlaylist: async () => ({
+              items: [],
+              has_continuation: false,
+              async getContinuation() {
+                return this
+              },
+            }),
           },
         }),
-        },
       }),
-    })).rejects.toThrow('did not return a readable account library')
+    ).rejects.toThrow('did not return a readable account library')
   })
 })
