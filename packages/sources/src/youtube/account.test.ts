@@ -10,7 +10,13 @@ function libraryPage(items: unknown[] = []) {
       return pages[filter] ?? libraryPage()
     },
     async getContinuation() {
-      return { contents: { contents: [] }, has_continuation: false, async getContinuation() { return this } }
+      return {
+        contents: { contents: [] },
+        has_continuation: false,
+        async getContinuation() {
+          return this
+        },
+      }
     },
   }
 }
@@ -27,23 +33,29 @@ const track = {
 }
 const pages: Record<string, ReturnType<typeof libraryPage>> = {
   Songs: libraryPage([track]),
-  Playlists: libraryPage([{
-    item_type: 'playlist',
-    id: 'VLPLabc123',
-    title: 'Road trip',
-    item_count: '12 songs',
-  }]),
-  Albums: libraryPage([{
-    item_type: 'album',
-    id: 'MPREb_album',
-    title: 'Pablo Honey',
-    artists: [{ name: 'Radiohead', channel_id: artistId }],
-  }]),
-  Artists: libraryPage([{
-    item_type: 'artist',
-    id: artistId,
-    title: 'Radiohead',
-  }]),
+  Playlists: libraryPage([
+    {
+      item_type: 'playlist',
+      id: 'VLPLabc123',
+      title: 'Road trip',
+      item_count: '12 songs',
+    },
+  ]),
+  Albums: libraryPage([
+    {
+      item_type: 'album',
+      id: 'MPREb_album',
+      title: 'Pablo Honey',
+      artists: [{ name: 'Radiohead', channel_id: artistId }],
+    },
+  ]),
+  Artists: libraryPage([
+    {
+      item_type: 'artist',
+      id: artistId,
+      title: 'Radiohead',
+    },
+  ]),
 }
 
 describe('readYouTubeMusicAccount', () => {
