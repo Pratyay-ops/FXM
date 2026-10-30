@@ -84,8 +84,12 @@ export interface LibraryActions {
 
 /** Downloads: the download manager of stage 4.1. */
 export interface DownloadActions {
-  /** Queues `tracks` for download. */
-  download(tracks: readonly Track[]): void
+  /**
+   * Downloads `tracks`: the Download dialog, which also saves a file, or an offline copy only,
+   * as Settings says. Call it straight from the click. `title` names a collection (an album, a
+   * playlist) in the dialog.
+   */
+  download(tracks: readonly Track[], title?: string): void
 }
 
 /** The equalizer: the audio effects of stage 8.1. */

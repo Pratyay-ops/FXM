@@ -35,9 +35,12 @@ import {
 import type { DownloadRecord } from '@fxm/downloads'
 import { mimeTypeOf } from '@fxm/player'
 import { appShowsImage } from '../../../lib/images'
+import { nativeDeviceSaver } from './device'
+
+export { setDeviceSaver } from './device'
 
 let converter: Converter | undefined
-let saver: DeviceSaver | undefined
+let browserSaver: DeviceSaver | undefined
 
 /** Where the app serves the ffmpeg core: its `ffmpeg/` folder (make dist puts it there). */
 export function coreBaseUrl(): string {
@@ -59,18 +62,17 @@ export function setConverter(next: Converter | undefined): void {
   converter = next
 }
 
-/** How saved files reach the device: the browser's picker or downloads by default. */
-export function getDeviceSaver(): DeviceSaver {
-  saver ??= createBrowserDeviceSaver()
-  return saver
-}
-
 /**
- * Replaces the device saver: the desktop and Android apps save their own way (stages 7.4 and
- * 6.4); tests pass fakes. `undefined` goes back to the browser's.
+ * How saved files reach the device: the desktop or Android app's own saver once it set one
+ * (`setDeviceSaver`), else the browser's picker or downloads. Whether there is anywhere to save
+ * at all is `fileSavingAvailable()` (`./device`): the native apps have nowhere until they set
+ * theirs.
  */
-export function setDeviceSaver(next: DeviceSaver | undefined): void {
-  saver = next
+export function getDeviceSaver(): DeviceSaver {
+  const native = nativeDeviceSaver()
+  if (native !== undefined) return native
+  browserSaver ??= createBrowserDeviceSaver()
+  return browserSaver
 }
 
 /** A completed download whose file is there: with its file and what the file holds. */

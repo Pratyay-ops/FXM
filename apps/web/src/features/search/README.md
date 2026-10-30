@@ -49,7 +49,7 @@ Every touch-point with a stage built in parallel goes through one interface here
 | 1.3 YouTube Music, 1.5 Spotify (and 1.6) | `MetadataProvider` from `@fxm/core` | No providers | `appSources.register(provider)` for each |
 | 2.2 player facade (merged), playing once 2.3 resolves streams | `PlaybackActions` (`play`, `playNext`, `addToQueue`); `playbackFromPlayer(player)` maps the facade onto it | No play or queue buttons | `appActions.set({ ...appActions.get(), playback: playbackFromPlayer(player) })` with the app's `Player` |
 | 2.6 library | `LibraryActions` (`playlists`, `addToPlaylist`, `createPlaylist`) | No "Add to playlist" | `appActions.set({ ...appActions.get(), library })` |
-| 4.1 downloads | `DownloadActions` | No "Download" | Wired (2.9b): the downloads' own action, which says what became of the click; a track whose download exists has "Cancel download" or "Remove download" in its menu instead (`useDownloadMenuItem`, read once per list) |
+| 4.1 downloads | `DownloadActions` | No "Download" | Wired (2.9b): the downloads' own action (`requestDownload`), which opens the Download dialog (an album's or playlist's name as `title`), or keeps an offline copy and says what became of the click; a track whose download exists has "Cancel download" or "Remove download" in its menu instead (`useDownloadMenuItem`, read once per list), and a downloaded one "Save to device…" (`useSaveMenuItem`) |
 | 8.1 audio effects | `EqualizerActions` | No "Equalizer" | Wired (8.1): `wireEqualizerActions()` in `main.tsx`, before the first render, since it needs no platform: "Equalizer" opens the Sound dialog (`features/audio-effects/`) |
 | 2.7 onboarding | `ONBOARDING_URL` in `onboarding.tsx` | — | Wired (2.9b): `/connect`, the in-app onboarding, opened in the app |
 

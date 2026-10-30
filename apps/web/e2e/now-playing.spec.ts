@@ -158,6 +158,44 @@ test.describe('with a saved queue', () => {
     await expect(page.getByRole('heading', { name: 'Now playing', level: 3 })).toBeFocused()
   })
 
+  test.describe('the player bar’s Queue button', () => {
+    const queueButton = (page: Page) =>
+      page.getByRole('region', { name: 'Player' }).getByRole('button', { name: 'Queue' })
+
+    test('opens the queue, and pressed again closes it back to the page it opened on', async ({
+      page,
+    }) => {
+      await page.goto('library')
+      await expect(page.getByRole('heading', { level: 1, name: 'Your library' })).toBeVisible()
+      const queue = queueButton(page)
+      await expect(queue).toHaveAttribute('aria-pressed', 'false')
+
+      await queue.click()
+      await expect(page).toHaveURL(/\/now-playing\?tab=queue$/)
+      await expect.poll(() => upNext(page)).toEqual(SEEDED_ORDER)
+      await expect(queue).toHaveAttribute('aria-pressed', 'true')
+
+      // From the keyboard too, and the focus stays on the button.
+      await queue.press('Space')
+      await expect(page).toHaveURL(/\/library$/)
+      await expect(page.getByRole('heading', { level: 1, name: 'Your library' })).toBeVisible()
+      await expect(queue).toHaveAttribute('aria-pressed', 'false')
+      await expect(queue).toBeFocused()
+    })
+
+    test('closes a queue opened straight from a link to Home, inside FXM', async ({ page }) => {
+      await page.goto('now-playing?tab=queue')
+      const queue = queueButton(page)
+      await expect(queue).toHaveAttribute('aria-pressed', 'true')
+
+      await queue.click()
+
+      await expect(page).toHaveURL(/\/app\/$/)
+      await expect(page.getByRole('heading', { level: 1, name: /^Good/ })).toBeVisible()
+      await expect(queue).toHaveAttribute('aria-pressed', 'false')
+    })
+  })
+
   test.describe('on a laptop window', () => {
     for (const viewport of [
       { width: 1280, height: 720 },

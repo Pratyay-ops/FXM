@@ -138,10 +138,15 @@ interface FetchInit {
   body?: string
   bodyBytes?: number[]
   credentials?: RequestCredentials
+  redirect?: RequestRedirect
 }
 
 interface FetchResult {
   ok: boolean
+  /** The response's type: `cors`, or `opaqueredirect` for a redirect fetched with `manual`. */
+  type?: ResponseType
+  /** Whether the response came after a redirect. */
+  redirected?: boolean
   status?: number
   json?: unknown
   bytes?: number
@@ -169,6 +174,8 @@ function pageFetch(page: Page, url: string, init: FetchInit = {}): Promise<Fetch
         }
         return {
           ok: true,
+          type: response.type,
+          redirected: response.redirected,
           status: response.status,
           json,
           bytes: buffer.byteLength,
@@ -411,30 +418,48 @@ test.describe('with FXM Connect loaded', () => {
     ])
   })
 
-  test('cannot make googlevideo media readable after a redirect to another host', async () => {
+  test('keeps googlevideo media readable after a redirect to another host', async () => {
     await page.goto(`${FXM}/`)
-    // A redirect within the host keeps the page's Origin, so the rule's exact ACAO matches.
+    // A redirect within the host keeps the page's Origin.
     expect(await pageFetch(page, `${MEDIA_URL}&redirect=same`)).toMatchObject({
       ok: true,
       status: 200,
       bytes: MEDIA.length,
     })
     mock.clearLog()
-    // After a redirect to another host the browser sends Origin: null and wants
-    // Access-Control-Allow-Origin: null, which no rule can give without breaking the requests
-    // above. The web app treats this failure as retryable (README).
-    expect(await pageFetch(page, `${MEDIA_URL}&redirect=cross`)).toMatchObject({ ok: false })
+    // googlevideo's cms_redirect: a 302 to another host. The browser sends the next request with
+    // Origin: null (a tainted origin), which only Access-Control-Allow-Origin: * (or null)
+    // satisfies. The rule answers * to FXM's requests, so fetch() (downloads and probes) reads
+    // the bytes, with a single-range Range header as the app sends it: no preflight.
+    expect(
+      await pageFetch(page, `${MEDIA_URL}&redirect=cross`, { headers: { range: 'bytes=0-1023' } }),
+    ).toMatchObject({
+      ok: true,
+      type: 'cors',
+      redirected: true,
+      status: 206,
+      bytes: 1024,
+      contentRange: `bytes 0-1023/${MEDIA.length}`,
+    })
     expect(
       mock.log.map(({ host, method, origin, status }) => [host, method, origin, status]),
     ).toEqual([
       [GOOGLEVIDEO_HOST, 'GET', FXM, 302],
-      [GOOGLEVIDEO_OTHER_HOST, 'GET', 'null', 200],
+      [GOOGLEVIDEO_OTHER_HOST, 'GET', 'null', 206],
     ])
-    // Without CORS, a plain <audio src> follows the redirect and plays; CORS mode fails too.
+    // The 302 itself gets the header too: with redirect: 'manual' its CORS check passes and the
+    // page sees an opaque redirect rather than a network error.
+    expect(
+      await pageFetch(page, `${MEDIA_URL}&redirect=cross&n=manual`, { redirect: 'manual' }),
+    ).toMatchObject({ ok: true, type: 'opaqueredirect' })
+    // <audio crossorigin> follows the redirect and loads, so Web Audio (the equalizer) can use
+    // it; a plain <audio src> plays as before.
+    expect(await loadAudio(page, `${MEDIA_URL}&redirect=cross&n=cors`, 'anonymous')).toBe(
+      'loadedmetadata',
+    )
     expect(await loadAudio(page, `${MEDIA_URL}&redirect=cross&n=plain`, null)).toBe(
       'loadedmetadata',
     )
-    expect(await loadAudio(page, `${MEDIA_URL}&redirect=cross&n=cors`, 'anonymous')).toBe('error')
   })
 
   test('lets <audio crossorigin> load googlevideo media, so Web Audio can use it', async () => {
@@ -543,6 +568,11 @@ test.describe('with FXM Connect loaded', () => {
       expect(await pageFetch(other, MEDIA_URL, { headers: { range: 'bytes=0-15' } })).toMatchObject(
         { ok: false },
       )
+      // Nor after a redirect: googlevideo media's Access-Control-Allow-Origin: * is FXM's only.
+      expect(await pageFetch(other, `${MEDIA_URL}&redirect=cross`)).toMatchObject({ ok: false })
+      expect(await loadAudio(other, `${MEDIA_URL}&redirect=cross&n=other`, 'anonymous')).toBe(
+        'error',
+      )
       // No rule touched the requests: InnerTube saw the real Origin and refused it.
       expect(mock.requests('www.youtube.com')).toEqual([
         expect.objectContaining({ method: 'POST', origin: `https://${OTHER_HOST}`, status: 403 }),
@@ -576,6 +606,11 @@ test.describe('with FXM Connect loaded', () => {
           status: 403,
         }),
       ])
+      // googlevideo media's Access-Control-Allow-Origin: * doesn't reach them either.
+      expect(
+        await pageFetch(preview, MEDIA_URL, { headers: { range: 'bytes=0-15' } }),
+      ).toMatchObject({ ok: false })
+      expect(await pageFetch(preview, `${MEDIA_URL}&redirect=cross`)).toMatchObject({ ok: false })
     } finally {
       await preview.close()
     }

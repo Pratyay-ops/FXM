@@ -447,7 +447,7 @@ The UI adapts to what each platform can do:
 | Last.fm stations | — | — | ✅ | ✅ | ✅ |
 | Downloads | Free sources only | Free sources only | ✅ every track | ✅ every track, to disk | ✅ every track |
 | Background playback | ✅ tab or PWA window | ✅ | ✅ | ✅ tray, hidden window | ✅ foreground service |
-| Equalizer | Free sources | Free sources | ✅ (bytes readable through Connect, unless the stream was redirected) | Free sources and local files; YouTube later (7.6: MediaSource or a local stream) | ✅ ExoPlayer effects (a Media3 audio processor) |
+| Equalizer | Free sources | Free sources | ✅ (bytes readable through Connect; after a googlevideo redirect only from Connect 0.2.1) | Free sources and local files; YouTube later (7.6: MediaSource or a local stream) | ✅ ExoPlayer effects (a Media3 audio processor) |
 | Local music files | ✅ (folder access in Chromium, file picker elsewhere) | ✅ | ✅ | ✅ | ✅ MediaStore |
 
 ### Services, CORS and keys (measured 2026-10-25)
@@ -482,7 +482,7 @@ The site's privacy page names every service the apps contact, and the web app's 
 ## 9. FXM Connect (companion extension)
 
 - **Manifest V3, Chromium (120+) and Firefox (140+).** Permissions are `declarativeNetRequest` and `storage`. Host permissions cover only the FXM origin (exactly, so preview sub-domains are excluded), YouTube's API hosts, `*.googlevideo.com`, the Spotify hosts (`open.spotify.com`, `api-partner`, `spclient.wg`) and `www.last.fm`. clienttoken, which FXM doesn't use, has neither a permission nor a rule. There is no `<all_urls>`, `cookies`, `tabs`, `scripting` or `webRequest` permission.
-- **Static declarativeNetRequest rules.** Every rule is scoped to the FXM origin (`initiatorDomains`) and sets `Access-Control-Allow-Origin` to that exact origin. None sets `*` or `Allow-Credentials`, and every rule strips `Cookie`, `Set-Cookie` and `Access-Control-Allow-Credentials`.
+- **Static declarativeNetRequest rules.** Every rule is scoped to the FXM origin (`initiatorDomains`) and sets `Access-Control-Allow-Origin` to that exact origin, except googlevideo's media answers, which get `*` (from FXM Connect 0.2.1, see the next point). None sets `Allow-Credentials`, so a wildcard answer is never readable by a request with credentials, and every rule strips `Cookie`, `Set-Cookie` and `Access-Control-Allow-Credentials`.
 
   | Rule | Hosts | Request change | Response change |
   |---|---|---|---|
@@ -492,7 +492,7 @@ The site's privacy page names every service the apps contact, and the web app's 
   | Spotify API | pathfinder, spclient | None | ACAO, allowed methods and Spotify headers |
   | Last.fm | Station JSON | None | ACAO |
 
-- **googlevideo redirects stay unreadable.** After a 302 to another googlevideo host, the browser sends `Origin: null` and accepts only `Access-Control-Allow-Origin: null`, which no static rule can send without breaking the requests that weren't redirected. `fetch`, MediaSource, download and `crossorigin` reads of such a URL fail. FXM then re-resolves, or falls back to a plain `<audio src>`, which follows redirects without CORS.
+- **googlevideo redirects stay readable from FXM Connect 0.2.1.** googlevideo may answer with a 302 to another googlevideo host (`cms_redirect=yes`, common behind a company proxy). The browser then sends the next request with `Origin: null` (a tainted origin), which the exact FXM origin doesn't match but `*` does. So FXM Connect 0.2.1 answers FXM's googlevideo media requests, the 302 included, with `*`. With 0.2.0 and older, `fetch`, MediaSource, download and `crossorigin` reads of such a URL fail while a plain `<audio src>` still plays, and the web app says that FXM Connect needs an update.
 - **Presence handshake.** A content script marks the page (`data-fxm-connect`) and answers a ping with its version and features.
 - **Spotify session bridge (opt-in in the extension's options, off by default).** The background script fetches `/api/token` with the user's own `open.spotify.com` cookies, using a strict parameter allow-list. It returns only the status and the token JSON, and never reads or stores cookies. It also relays `/api/server-time` without credentials, serves about ten requests a minute, and refuses private windows and Firefox container tabs. The toggle lives in the extension's own IndexedDB, out of content scripts' reach.
 - **No protocol logic and no remote code.** All YouTube and Spotify protocol logic lives in the web app; FXM Connect has only its fixed header rules and the Spotify server-time and login bridge, so a YouTube breakage is fixed by redeploying the static site. A strict extension CSP lets the extension's own pages connect only to `open.spotify.com`.
@@ -541,7 +541,7 @@ ANDROID_VR and IOS stay in the config but are off, because their URLs are capped
 - **Bot checks.** On `LOGIN_REQUIRED`, refresh visitorData once, then move down the ladder, and report it to the request budget, which pauses bulk work.
 - **Wrong video.** Reject any response whose `videoId` differs from the requested one.
 - **Probe before playing, where bytes are readable** (FXM Connect, desktop, Android): fetch the last 64 KB of the file with a ranged GET. This replaces revision 2's probe past 1 MiB, because the cut-off varies between about 0.4 and 2 MiB. Recovery keyed on HTTP 401, 403 and 410 applies only on these platforms.
-- **In Lite, the first media request is the probe.** Neither the page nor the sandbox can read a googlevideo response, and `<audio src>` reports only a media error or a stall, never a status code. So Lite plays the VISIONOS URL directly. A media error, or a stall before the first `playing` event, counts as a failed probe; capped URLs failed within about 70–300 ms. The player then tries itag 18, then re-resolves. The same fallback covers a Connect probe that fails CORS after a googlevideo redirect.
+- **In Lite, the first media request is the probe.** Neither the page nor the sandbox can read a googlevideo response, and `<audio src>` reports only a media error or a stall, never a status code. So Lite plays the VISIONOS URL directly. A media error, or a stall before the first `playing` event, counts as a failed probe; capped URLs failed within about 70–300 ms. The player then tries itag 18, then re-resolves. The same fallback covers a Connect probe that fails CORS after a googlevideo redirect (FXM Connect 0.2.0 and older).
 - **Unavailable states, not silent failures.** Each gets a labelled state:
   - age-restricted videos, which generally need a signed-in client;
   - "made for kids" videos, which VISIONOS can't play (whether itag 18 can is untested, and 1.4 tests it before FXM relies on it);
@@ -802,7 +802,7 @@ Cover Art Archive and iTunes Search fill artwork gaps (3.2).
 YouTube downloads are on by default (Decision 2, option A, 2026-10-25). Every streamable track can be downloaded wherever its bytes are readable: the web app with FXM Connect, desktop and Android (the Full tier). Downloads are never offered in Lite, where the bytes are unreadable. Free sources can be downloaded everywhere.
 
 - Only URLs that passed the end-of-file probe are downloaded. Byte fetches are single-range GETs, so they trigger no preflight.
-- On the web, a googlevideo redirect makes the bytes unreadable; the download then retries with a fresh resolution.
+- On the web, a googlevideo redirect to another host makes the bytes unreadable with an FXM Connect older than 0.2.1. A readability check (`checkMediaRead`) tells that apart from a passing failure: the download then fails at once as `redirected` (the row asks to update FXM Connect), or as `unreadable` when the browser refuses the read itself, instead of resolving afresh in vain.
 
 | Output | Lossless? | Notes |
 |---|---|---|
@@ -820,7 +820,7 @@ YouTube audio is never labelled lossless.
 2. Convert with ffmpeg.wasm in a worker, using FXM's own LGPL, audio-only build under 25 MiB, hosted with the site (FLAC, ALAC, WAV, MP3 via LAME, AAC and Opus encoders; no GPL-only libraries). The stock `@ffmpeg/core` is GPL-2.0-or-later and 30.7 MiB, over Cloudflare Pages' 25 MiB file limit, and loading it from a CDN would break the no-third-party-scripts rule. FXM's build (FFmpeg 9.0.2, about 2.4 MiB, [tools/ffmpeg-wasm](../tools/ffmpeg-wasm/README.md)) has no `ffmpeg` command-line tool: it needs threads since FFmpeg 7, and WebAssembly threads need a cross-origin isolated page, which would block the covers and media FXM loads from other sites. A small C converter calls FFmpeg's libraries instead. CI builds it, checks the size and the licence, and the deploy ships it at `/app/ffmpeg/`; the app's policy allows `'wasm-unsafe-eval'`, never `'unsafe-eval'`. Its source, the release tarballs of FFmpeg, LAME and Opus and FXM's recipe, ships with it, as the LGPL asks: at `/source/ffmpeg-core/` on the same site (outside `/app/`, so the service worker never answers for it), in each release's web zip, and as `fxm-ffmpeg-core-source-<version>.zip` on every GitHub Release. The third-party notices say where, with the parts' licences and the notices of the files linked into the core.
 3. Write tags (title, artists, album, track and disc number, date, ISRC, lyrics) and cover art, with FXM's own writers for ID3v2.3, FLAC, Ogg, MP4 and RIFF ([packages/convert](../packages/convert/README.md)); WebM's Matroska tags come from the core's muxer.
 4. Store the file:
-   - **Browser:** OPFS keeps the original for offline playback; "Save to device" converts a copy in the format the user picks and saves it through the browser's file picker or downloads.
+   - **Browser:** OPFS keeps the original for offline playback; Download also saves a file in the format the user picks (on by default; "Save to device" saves one later), converted on the device, through the browser's file picker (a folder picker for an album or playlist) or its downloads.
    - **Desktop:** the filesystem (7.4 implements "Save to device" natively).
    - **Android:** the app's own storage, plus MediaStore export (6.4).
 

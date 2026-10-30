@@ -6,6 +6,8 @@ export interface SettingSwitchProps {
   describedBy?: string | undefined
   checked: boolean
   onChange: (checked: boolean) => void
+  /** Can't be changed here; the help says why. */
+  disabled?: boolean | undefined
   className?: string | undefined
 }
 
@@ -20,6 +22,7 @@ export function SettingSwitch({
   describedBy,
   checked,
   onChange,
+  disabled = false,
   className,
 }: SettingSwitchProps) {
   return (
@@ -29,11 +32,12 @@ export function SettingSwitch({
       aria-checked={checked}
       aria-labelledby={labelledBy}
       aria-describedby={describedBy}
+      disabled={disabled}
       onClick={() => onChange(!checked)}
       className={cn(
         // The ::after extends the hit area to 64 × 44 px without changing the look or the
         // layout, so the track lines up with the row's label and the other controls.
-        'relative block h-7 w-12 shrink-0 cursor-pointer rounded-full transition-colors duration-200 after:absolute after:-inset-x-2 after:-inset-y-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus forced-colors:border forced-colors:border-[CanvasText]',
+        'relative block h-7 w-12 shrink-0 cursor-pointer rounded-full transition-colors duration-200 after:absolute after:-inset-x-2 after:-inset-y-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:cursor-default disabled:opacity-50 forced-colors:border forced-colors:border-[CanvasText]',
         checked ? 'bg-accent' : 'bg-border-strong',
         className,
       )}

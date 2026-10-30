@@ -20,6 +20,7 @@ import type { TrackRow } from '../../db/repo'
 import { DOWNLOADS_PLAYLIST_ID } from '../../db/types'
 import { cn } from '../../lib/cn'
 import { freeSources } from '../../lib/free-sources'
+import { useConnection } from '../connect/connection'
 import { canAddConnect, currentDevice } from '../connect/device'
 import { connectOrApps, howToGetMore } from '../connect/explain'
 import { CoverArt } from '../library/cover-art'
@@ -192,7 +193,9 @@ function ActiveRow({ record, online }: { record: DownloadRecord; online: boolean
   const { track, status } = record
   const title = track.title
   const value = progressOf(record)
-  const line = statusLine(record, online)
+  // A failure may ask an older FXM Connect to update.
+  const connectVersion = useConnection((state) => state.connect?.version)
+  const line = statusLine(record, online, connectVersion)
   const failed = status === 'failed'
   const stopped = status === 'paused' || failed
   return (

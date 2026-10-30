@@ -46,9 +46,14 @@ export function useEffectsNotes() {
   const loaded = usePlayerState((state) => state.stream !== undefined)
   const platform = useConnection((state) => state.platform)
   const capabilities = useConnection((state) => state.capabilities)
+  const connectVersion = useConnection((state) => state.connect?.version)
   if (!loaded) return { equalizer: undefined, loudness: undefined }
   return {
-    equalizer: equalizerNote(status, { platform, capabilities }),
+    equalizer: equalizerNote(status, {
+      platform,
+      capabilities,
+      ...(connectVersion === undefined ? {} : { connectVersion }),
+    }),
     loudness: loudnessNote(status),
   }
 }

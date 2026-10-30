@@ -73,7 +73,7 @@ describe('app layout', () => {
     )
   })
 
-  it('shows the playing track in the player bar and the mini player', async () => {
+  it('shows the playing track in the player bar, mini player and browser tab', async () => {
     const { player } = setupTestPlayback()
     await player.setQueue([testTrack('Creep', { artists: [{ name: 'Radiohead' }] })])
     const { user } = renderApp('/')
@@ -85,6 +85,7 @@ describe('app layout', () => {
       ).toBeInTheDocument()
       expect(bar.getByRole('button', { name: 'Pause' })).toBeEnabled()
     }
+    expect(document.title).toBe('Creep — Radiohead · FXM')
     const bar = within(screen.getAllByRole('region', { name: 'Player' })[0] as HTMLElement)
     expect(bar.getByRole('slider', { name: 'Seek' })).toHaveAttribute(
       'aria-valuetext',
@@ -95,6 +96,40 @@ describe('app layout', () => {
 
     expect(player.getState().status).toBe('paused')
     expect(bar.getByRole('button', { name: 'Play' })).toBeEnabled()
+  })
+
+  it('updates the tab title on track and route changes, then restores the route title', async () => {
+    const { player } = setupTestPlayback()
+    await player.setQueue([testTrack('Creep', { artists: [{ name: 'Radiohead' }] })])
+    const { router } = renderApp('/settings')
+    await screen.findByRole('heading', { level: 1, name: 'Settings' })
+    expect(document.title).toBe('Creep — Radiohead · FXM')
+
+    await act(() => router.navigate('/library'))
+    await screen.findByRole('heading', { level: 1, name: 'Your library' })
+    expect(document.title).toBe('Creep — Radiohead · FXM')
+
+    await act(async () => {
+      await player.setQueue(
+        [
+          testTrack('Paranoid Android', {
+            artists: [{ name: 'Radiohead' }, { name: 'Jane Doe' }],
+          }),
+        ],
+        { autoplay: false },
+      )
+    })
+    expect(document.title).toBe('Paranoid Android — Radiohead, Jane Doe · FXM')
+
+    await act(async () => {
+      await player.setQueue([testTrack('Instrumental', { artists: [] })], { autoplay: false })
+    })
+    expect(document.title).toBe('Instrumental · FXM')
+
+    await act(async () => {
+      await player.setQueue([], { autoplay: false })
+    })
+    expect(document.title).toBe('Library · FXM')
   })
 
   it('shows Now Playing full screen on phones: no mini player, no tab bar', async () => {

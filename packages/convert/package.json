@@ -1,6 +1,6 @@
 {
   "name": "@fxm/convert",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "description": "FXM conversion and tagging: download formats with honest labels, the ffmpeg core worker, itag 18 extraction with mp4box.js, tags, cover art and lyrics, and Save to device",
   "license": "Apache-2.0",

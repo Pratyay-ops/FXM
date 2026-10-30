@@ -1,6 +1,6 @@
 {
   "name": "@fxm/web",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "description": "FXM web player, installable web applet and embeddable mini-player",
   "license": "Apache-2.0",
@@ -58,7 +58,7 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
     "fake-indexeddb": "^6.2.5",
-    "happy-dom": "^20.14.6",
+    "happy-dom": "^21.0.1",
     "tailwindcss": "^4.3.3",
     "vite": "^8.3.4",
     "vite-plugin-pwa": "^2.0.0",

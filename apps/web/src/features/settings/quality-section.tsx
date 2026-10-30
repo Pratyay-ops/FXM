@@ -1,61 +1,25 @@
-import {
-  type ConnectionKind,
-  DEFAULT_MP3_KBPS,
-  isMp3Bitrate,
-  type Mp3Bitrate,
-  type NetworkCapabilities,
-  streamingProfile,
-} from '@fxm/core'
-import { type ReactNode, useId, useMemo } from 'react'
-import { RELEASED } from '../connect/config'
+import { type ConnectionKind, type NetworkCapabilities, streamingProfile } from '@fxm/core'
+import { useId, useMemo } from 'react'
 import {
   type AudioReach,
-  CONVERSIONS_COMING,
   connectionHelp,
   connectionOptions,
   DATA_SAVER_HELP,
   DATA_SAVER_OVERRIDES,
-  downloadFormatHelp,
-  effectiveDownloadFormat,
   IN_USE,
   MOBILE_DATA_HINT,
-  MP3_BITRATE_HELP,
-  MP3_BITRATE_OPTIONS,
-  type Mp3BitrateValue,
-  offeredDownloadFormats,
   QUALITY_TO_USE,
   shownConnection,
   TIER_OPTIONS,
   tierDescription,
 } from './quality-options'
 import { useQualityStore } from './quality-store'
+import { Help, LiveHelp } from './setting-help'
 import { SettingSelect } from './setting-select'
 import { SettingSwitch } from './setting-switch'
 import { SettingRow, SettingsSection } from './settings-layout'
 import { useConnection } from './use-connection'
 import { browserYouTubeCodecs } from './youtube-codecs'
-
-/**
- * A help text that only the row's own control changes, announced when it does. Help that other
- * settings change is a plain {@link Help} instead, mounted in its place, which screen readers
- * don't announce: one toggle never reads out several paragraphs.
- */
-function LiveHelp({ id, children }: { id: string; children: ReactNode }) {
-  return (
-    <div id={id} aria-live="polite" className="space-y-1 text-sm text-text-muted">
-      {children}
-    </div>
-  )
-}
-
-/** A help text that isn't announced when it changes. */
-function Help({ id, children }: { id?: string; children: ReactNode }) {
-  return (
-    <p id={id} className="text-sm text-text-muted">
-      {children}
-    </p>
-  )
-}
 
 /** The ids of the elements that describe a control, without those not shown. */
 function describedBy(...ids: (string | false)[]): string {
@@ -185,89 +149,14 @@ function DataSaverRow() {
   )
 }
 
-function DownloadFormatRow({
-  capabilities,
-  conversions,
-}: {
-  capabilities: NetworkCapabilities
-  conversions: boolean
-}) {
-  const stored = useQualityStore((state) => state.prefs.download.format)
-  const format = effectiveDownloadFormat(stored, conversions)
-  const setDownloadFormat = useQualityStore((state) => state.setDownloadFormat)
-  const labelId = useId()
-  const helpId = useId()
-  return (
-    <SettingRow
-      label="Download format"
-      labelId={labelId}
-      help={
-        <LiveHelp id={helpId}>
-          {downloadFormatHelp(format, capabilities).map((line) => (
-            <p key={line}>{line}</p>
-          ))}
-          {!conversions && <p>{CONVERSIONS_COMING}</p>}
-        </LiveHelp>
-      }
-    >
-      <SettingSelect
-        labelledBy={labelId}
-        describedBy={helpId}
-        value={format}
-        options={offeredDownloadFormats(conversions)}
-        onChange={setDownloadFormat}
-        className="w-full md:w-auto"
-      />
-    </SettingRow>
-  )
-}
-
-function Mp3BitrateRow() {
-  const kbps: Mp3Bitrate = useQualityStore(
-    (state) => state.prefs.download.mp3Kbps ?? DEFAULT_MP3_KBPS,
-  )
-  const setMp3Bitrate = useQualityStore((state) => state.setMp3Bitrate)
-  const labelId = useId()
-  const helpId = useId()
-  return (
-    <SettingRow
-      label="MP3 bitrate"
-      labelId={labelId}
-      help={<Help id={helpId}>{MP3_BITRATE_HELP}</Help>}
-    >
-      <SettingSelect<Mp3BitrateValue>
-        labelledBy={labelId}
-        describedBy={helpId}
-        value={`${kbps}`}
-        options={MP3_BITRATE_OPTIONS}
-        onChange={(value) => {
-          const next = Number(value)
-          if (isMp3Bitrate(next)) setMp3Bitrate(next)
-        }}
-        className="w-full md:w-auto"
-      />
-    </SettingRow>
-  )
-}
-
 /**
- * The audio quality settings: the data saver first, since it overrides the rows after it; the
- * highest quality to stream at on Wi-Fi and on mobile data, and which of the two applies; then
- * the format and MP3 bitrate a downloaded song's "Save to device…" starts at (a download itself
- * stays the original file). The help follows `capabilities` (what the platform reaches) and the
- * YouTube codecs this browser plays. The stream lifecycle and Save to device read the settings
- * from `useQualityStore`.
+ * The audio quality settings: the data saver first, since it overrides the rows after it; then
+ * the highest quality to stream at on Wi-Fi and on mobile data, and which of the two applies.
+ * The help follows `capabilities` (what the platform reaches) and the YouTube codecs this
+ * browser plays. The stream lifecycle reads the settings from `useQualityStore`. The download
+ * format is in the Downloads section (`DownloadsSection`).
  */
-export function QualitySection({
-  capabilities,
-  conversions = RELEASED.conversions,
-}: {
-  capabilities: NetworkCapabilities
-  /** Whether Save to device converts (stage 4.2). Default: `RELEASED.conversions`. */
-  conversions?: boolean
-}) {
-  const stored = useQualityStore((state) => state.prefs.download.format)
-  const format = effectiveDownloadFormat(stored, conversions)
+export function QualitySection({ capabilities }: { capabilities: NetworkCapabilities }) {
   // The browser's formats never change while the page is open: ask once per mount.
   const codecs = useMemo(() => browserYouTubeCodecs(), [])
   const reach = useMemo<AudioReach>(() => ({ capabilities, codecs }), [capabilities, codecs])
@@ -277,8 +166,6 @@ export function QualitySection({
       <StreamingTierRow connection="wifi" label="Streaming on Wi-Fi" reach={reach} />
       <StreamingTierRow connection="cellular" label="Streaming on mobile data" reach={reach} />
       <QualityToUseRow />
-      <DownloadFormatRow capabilities={capabilities} conversions={conversions} />
-      {format === 'mp3' && <Mp3BitrateRow />}
     </SettingsSection>
   )
 }

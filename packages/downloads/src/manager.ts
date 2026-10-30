@@ -32,10 +32,11 @@ import {
   type DownloadResolver,
   NoDownloadableStreamError,
   type ResolvedDownload,
+  unreadableStream,
 } from './resolver'
 import { type DownloadStorage, type DownloadWriter, isSafeFileName } from './storage'
 import type { DownloadStore, RecordChange } from './store'
-import { type TransferFacts, transfer } from './transfer'
+import { DownloadNetworkError, type TransferFacts, transfer } from './transfer'
 import {
   type DownloadError,
   type DownloadErrorCode,
@@ -1024,8 +1025,21 @@ export class DownloadManager {
           await done.close()
           await this.#complete(job, result.total, result.validator)
           return
-        } catch (error) {
-          if (signal.aborted) throw error
+        } catch (caught) {
+          if (signal.aborted) throw caught
+          let error = caught
+          if (
+            caught instanceof DownloadNetworkError &&
+            caught.phase === 'request' &&
+            resolved?.stream.ipBound === true &&
+            this.#network.online
+          ) {
+            // On the web, a request to a signed URL that got no answer may be bytes the browser
+            // won't let the page read (a googlevideo redirect with an older FXM Connect): a quick
+            // check tells, so the download fails at once with the reason instead of resolving
+            // afresh again and again in vain.
+            error = (await unreadableStream(resolved.stream.url, ctx, signal)) ?? caught
+          }
           const failure = classifyDownloadFailure(error, {
             online: this.#network.online,
             ipBound: resolved?.stream.ipBound ?? false,

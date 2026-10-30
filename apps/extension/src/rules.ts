@@ -16,10 +16,11 @@
  * - googlevideo serves media to any Origin but only sends Access-Control-Allow-Origin to YouTube
  *   origins. It answers a preflight from a YouTube Origin with 204 and from any other Origin
  *   with 400, so the Origin is rewritten on OPTIONS requests only. A media URL may redirect
- *   (302) to another googlevideo host. After such a cross-origin redirect the browser sends
- *   `Origin: null` and expects `Access-Control-Allow-Origin: null`, which no rule can give
- *   without also breaking requests that were not redirected: fetch(), MediaSource and downloads
- *   fail there, while a plain <audio src> still plays (see the README).
+ *   (302, `cms_redirect=yes`) to another googlevideo host. After such a cross-origin redirect
+ *   the browser sends the next request with `Origin: null` (a tainted origin), which the exact
+ *   FXM origin doesn't match, so FXM's media answers get `Access-Control-Allow-Origin: *`: it
+ *   satisfies both Origins, for requests without credentials, which are the only ones the rules
+ *   allow (see below and the README).
  * - open.spotify.com/api/token and /api/server-time send no CORS headers but answer OPTIONS
  *   with 200. api-partner and spclient echo any Origin today. clienttoken.spotify.com answers CORS
  *   for open.spotify.com only, but FXM doesn't use it, so no rule touches it (a stage that needs
@@ -28,6 +29,10 @@
  * Every rule also strips cookies from the request and Set-Cookie and
  * Access-Control-Allow-Credentials from the response, so a page can never act as the user's
  * logged-in account through these rules. The page fetches with `credentials: 'omit'` anyway.
+ * Every rule answers with the exact FXM origin, except googlevideo media, which answers `*` to
+ * stay readable after a redirect. That gives no other site anything: the rule only matches
+ * requests an FXM page started (`initiatorDomains`, which a redirect doesn't change), and a
+ * wildcard never lets a request with credentials read the answer.
  */
 import { originHost, rulesetId } from './origins.ts'
 
@@ -84,6 +89,11 @@ export interface CorsRuleSpec {
   allowHeaders?: readonly string[]
   exposeHeaders?: readonly string[]
   maxAgeSeconds?: number
+  /**
+   * Answers `Access-Control-Allow-Origin: *` instead of the exact FXM origin, so an answer stays
+   * readable after a redirect to another host, when the browser sends `Origin: null`.
+   */
+  anyOrigin?: true
 }
 
 const YOUTUBE_ALLOW_HEADERS = [
@@ -171,10 +181,11 @@ export const CORS_RULE_SPECS: readonly CorsRuleSpec[] = [
   ...innertube('youtube-music', 'music.youtube.com', YOUTUBE_MUSIC, YOUTUBE),
   ...innertube('youtube-api', 'youtubei.googleapis.com', YOUTUBE, YOUTUBE),
   {
-    // Media bytes for fetch(), MediaSource and downloads. <audio src> already plays without the
-    // extension (googlevideo sends Cross-Origin-Resource-Policy: cross-origin). The Origin is
-    // left alone: googlevideo serves any Origin, it only withholds the CORS headers. Responses
-    // after a redirect to another googlevideo host stay unreadable (see above).
+    // Media bytes for fetch(), MediaSource, downloads and <audio crossorigin> (the equalizer).
+    // <audio src> already plays without the extension (googlevideo sends
+    // Cross-Origin-Resource-Policy: cross-origin). The Origin is left alone: googlevideo serves
+    // any Origin, it only withholds the CORS headers. `*` keeps the bytes readable after a
+    // redirect to another googlevideo host, the 302 included (see above).
     name: 'googlevideo-media',
     feature: 'googlevideo',
     hostPermission: 'https://*.googlevideo.com/*',
@@ -182,6 +193,7 @@ export const CORS_RULE_SPECS: readonly CorsRuleSpec[] = [
     resourceTypes: ['xmlhttprequest', 'media'],
     excludedRequestMethods: ['options'],
     exposeHeaders: MEDIA_EXPOSE_HEADERS,
+    anyOrigin: true,
   },
   {
     // Preflights (for example a POST with a protobuf body): googlevideo answers a foreign Origin
@@ -254,7 +266,11 @@ function requestHeaders(spec: CorsRuleSpec): HeaderOperation[] {
 
 function responseHeaders(spec: CorsRuleSpec, origin: string): HeaderOperation[] {
   const operations: HeaderOperation[] = [
-    { header: 'access-control-allow-origin', operation: 'set', value: origin },
+    {
+      header: 'access-control-allow-origin',
+      operation: 'set',
+      value: spec.anyOrigin ? '*' : origin,
+    },
   ]
   const set = (header: string, value: string | undefined) => {
     if (value !== undefined) operations.push({ header, operation: 'set', value })
@@ -288,7 +304,10 @@ function condition(spec: CorsRuleSpec, initiator: string): DnrRule['condition'] 
   }
 }
 
-/** The rules of one FXM origin: every spec scoped to the origin's host, with an exact ACAO. */
+/**
+ * The rules of one FXM origin: every spec scoped to the origin's host, with an exact ACAO (`*`
+ * for the specs with `anyOrigin`).
+ */
 export function buildRules(
   origin: string,
   specs: readonly CorsRuleSpec[] = CORS_RULE_SPECS,

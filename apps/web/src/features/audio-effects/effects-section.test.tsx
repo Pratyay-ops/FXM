@@ -2,7 +2,7 @@ import { testTrack } from '@fxm/player/testing'
 import { act, screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { renderApp } from '../../test/render'
-import { useConnection } from '../connect/connection'
+import { resetConnection, useConnection } from '../connect/connection'
 import { setupTestPlayback } from '../now-playing/testing'
 import { AUDIO_EFFECTS_STORAGE_KEY, useAudioEffectsStore } from './effects-store'
 
@@ -51,6 +51,39 @@ describe('Settings → Sound', () => {
     })
     expect(player.getState().effects.equalizer).toBe('unavailable')
     expect(within(section).getByText(/without FXM Connect/)).toBeInTheDocument()
+  })
+
+  it('asks to update an FXM Connect that couldn’t read the track that plays', async () => {
+    const { player, engine } = setupTestPlayback()
+    renderApp('/settings')
+    const section = await soundSection()
+    act(() => useAudioEffectsStore.getState().setEqualizerEnabled(true))
+    await act(() => player.setQueue([testTrack('Creep')]))
+    act(() => {
+      useConnection.setState({
+        platform: 'web',
+        capabilities: {
+          youtube: 'full',
+          mediaBytes: true,
+          spotify: 'anonymous',
+          fileSystem: false,
+        },
+        connect: { state: 'present', version: '0.2.0', features: ['youtube', 'googlevideo'] },
+      })
+      // The routed element's CORS read failed, as after a googlevideo redirect.
+      engine.emit('effects', {
+        equalizer: 'unavailable',
+        equalizerReason: 'read-failed',
+        loudness: 'off',
+        loudnessGainDb: 0,
+      })
+    })
+    expect(
+      within(section).getByText(
+        /FXM Connect 0\.2\.0 couldn’t read its audio.*Update FXM Connect to 0\.2\.1\./,
+      ),
+    ).toBeInTheDocument()
+    resetConnection()
   })
 
   it('normalizes volume to a level, by track or album', async () => {

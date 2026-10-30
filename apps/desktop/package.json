@@ -1,6 +1,6 @@
 {
   "name": "@fxm/desktop",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "description": "FXM desktop app: the web app in a Tauri 2 shell for macOS, Windows and Linux",
   "license": "Apache-2.0",
@@ -28,7 +28,7 @@
     "@fxm/platform": "workspace:*",
     "@tauri-apps/cli": "^2.12.2",
     "@types/node": "^22.20.5",
-    "happy-dom": "^20.14.6",
+    "happy-dom": "^21.0.1",
     "typescript": "^7.0.2",
     "vite": "^8.3.4",
     "vitest": "^5.0.4"

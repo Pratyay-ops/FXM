@@ -2,7 +2,7 @@ import { formatId, type Track } from '@fxm/core'
 import { describe, expect, it, vi } from 'vitest'
 import { fetchCover, largestArtwork, MAX_COVER_BYTES, sniffImage } from './cover'
 import { exportFileName, MAX_NAME_BYTES } from './naming'
-import { createBrowserDeviceSaver } from './save'
+import { createBrowserDeviceSaver, numberedFileName } from './save'
 import { tagsFromTrack } from './track-tags'
 
 const JPEG = new Uint8Array([
@@ -354,5 +354,125 @@ describe('createBrowserDeviceSaver', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('says whether choosing shows a picker that needs the click', () => {
+    expect(createBrowserDeviceSaver({ window: {} }).asksWhere?.()).toBe(false)
+    const picker = createBrowserDeviceSaver({
+      window: { showSaveFilePicker: async () => Promise.reject(new Error('unused')) },
+    })
+    expect(picker.asksWhere?.()).toBe(true)
+  })
+})
+
+/** A picked folder in memory: its files by name, what was asked of it, and what failed. */
+function fakeFolder(options: { existing?: string[]; failWrite?: boolean } = {}) {
+  const files = new Map<string, Blob>(
+    (options.existing ?? []).map((name) => [name, new Blob(['old'])]),
+  )
+  const events: string[] = []
+  const handle = (name: string) => ({
+    name,
+    getFile: async () => ({ size: files.get(name)?.size ?? 0 }),
+    createWritable: async () => ({
+      write: async (blob: Blob) => {
+        if (options.failWrite) throw new DOMException('No space left', 'QuotaExceededError')
+        files.set(name, blob)
+        events.push(`write ${name}`)
+      },
+      close: async () => {},
+      abort: async () => {
+        events.push(`abort ${name}`)
+      },
+    }),
+  })
+  const folder = {
+    name: 'Music',
+    getFileHandle: async (name: string, options: { create?: boolean } = {}) => {
+      if (!files.has(name)) {
+        if (!options.create) throw new DOMException('Not found', 'NotFoundError')
+        files.set(name, new Blob([]))
+        events.push(`create ${name}`)
+      }
+      return handle(name)
+    },
+    removeEntry: async (name: string) => {
+      files.delete(name)
+      events.push(`remove ${name}`)
+    },
+  }
+  return { files, events, folder }
+}
+
+describe('saving several files into a folder', () => {
+  it('asks for a folder once, with write access, starting in Music', async () => {
+    const { folder } = fakeFolder()
+    const showDirectoryPicker = vi.fn(async () => folder)
+    const saver = createBrowserDeviceSaver({ window: { showDirectoryPicker } })
+    const picked = await saver.chooseFolder?.({ id: 'fxm-downloads' })
+    expect(showDirectoryPicker).toHaveBeenCalledWith({
+      id: 'fxm-downloads',
+      mode: 'readwrite',
+      startIn: 'music',
+    })
+    expect(picked?.name).toBe('Music')
+  })
+
+  it('writes each file under its name, never replacing one that is there', async () => {
+    const { files, events, folder } = fakeFolder({ existing: ['A - B.flac', 'A - B (2).flac'] })
+    const saver = createBrowserDeviceSaver({ window: { showDirectoryPicker: async () => folder } })
+    const picked = await saver.chooseFolder?.()
+    const first = picked?.target({ fileName: 'A - B.flac', mimeType: 'audio/flac' })
+    const second = picked?.target({ fileName: 'C - D.mp3', mimeType: 'audio/mpeg' })
+    // Nothing is created before it is written.
+    expect(events).toEqual([])
+    await first?.write(new Blob(['new']))
+    await second?.write(new Blob(['mp3']))
+    expect(first?.fileName).toBe('A - B (3).flac')
+    expect(second?.fileName).toBe('C - D.mp3')
+    expect(await files.get('A - B.flac')?.text()).toBe('old')
+    expect(await files.get('A - B (3).flac')?.text()).toBe('new')
+    // A target given up after writing keeps its file.
+    await first?.discard()
+    expect(files.has('A - B (3).flac')).toBe(true)
+  })
+
+  it('removes the empty file a failed write created', async () => {
+    const { files, events, folder } = fakeFolder({ failWrite: true })
+    const saver = createBrowserDeviceSaver({ window: { showDirectoryPicker: async () => folder } })
+    const target = (await saver.chooseFolder?.())?.target({
+      fileName: 'A - B.flac',
+      mimeType: 'audio/flac',
+    })
+    await expect(target?.write(new Blob(['x']))).rejects.toThrow('No space left')
+    expect(events).toEqual(['create A - B.flac', 'abort A - B.flac', 'remove A - B.flac'])
+    expect(files.size).toBe(0)
+  })
+
+  it('reports a cancelled folder picker as no folder, and no folder picker as null', async () => {
+    const cancelled = createBrowserDeviceSaver({
+      window: {
+        showDirectoryPicker: async () => {
+          throw new DOMException('The user aborted a request.', 'AbortError')
+        },
+      },
+    })
+    expect(await cancelled.chooseFolder?.()).toBeUndefined()
+    expect(await createBrowserDeviceSaver({ window: {} }).chooseFolder?.()).toBeNull()
+    const refusing = createBrowserDeviceSaver({
+      window: {
+        showDirectoryPicker: async () => {
+          throw new DOMException('Must be handling a user gesture', 'SecurityError')
+        },
+      },
+    })
+    expect(await refusing.chooseFolder?.()).toBeNull()
+  })
+
+  it('numbers a second file of the same name before its extension', () => {
+    expect(numberedFileName('A - B.flac', 1)).toBe('A - B.flac')
+    expect(numberedFileName('A - B.flac', 2)).toBe('A - B (2).flac')
+    expect(numberedFileName('A. B - C.m4a', 3)).toBe('A. B - C (3).m4a')
+    expect(numberedFileName('README', 2)).toBe('README (2)')
   })
 })

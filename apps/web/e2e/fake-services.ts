@@ -1,4 +1,6 @@
 import { readFileSync } from 'node:fs'
+import { createServer } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { type Page, type Request, test } from '@playwright/test'
 import type { FakeNetwork, FakeNetworkFixtures } from '../src/app/services/testing/fake-network'
 
@@ -22,6 +24,150 @@ export const FIXTURES: FakeNetworkFixtures = {
   archiveItems: { nineinchnails_ghosts_I_IV: fixture('archive/fixtures/item-nin-ghosts.json') },
 }
 
+/** The Internet Archive item without its FLAC and Ogg files: its downloads are then MP3s. */
+export function mp3Only(fixtures: FakeNetworkFixtures): FakeNetworkFixtures {
+  const item = structuredClone(fixtures.archiveItems.nineinchnails_ghosts_I_IV) as {
+    files?: { name?: string }[]
+  }
+  item.files = (item.files ?? []).filter((file) => !/\.(?:flac|ogg|zip)$/u.test(file.name ?? ''))
+  return { ...fixtures, archiveItems: { nineinchnails_ghosts_I_IV: item } }
+}
+
+/**
+ * Silent MPEG-1 Layer III frames (128 kbps, 44.1 kHz, stereo): zero side information decodes as
+ * silence in any decoder, so the ffmpeg core really decodes and encodes them.
+ */
+export function silentMp3(frames = 40): Uint8Array {
+  const FRAME_BYTES = 417
+  const bytes = new Uint8Array(frames * FRAME_BYTES)
+  for (let frame = 0; frame < frames; frame++) {
+    bytes.set([0xff, 0xfb, 0x90, 0x00], frame * FRAME_BYTES)
+  }
+  return bytes
+}
+
+/** Where each download stands, from the `fxm-downloads` database: its song and status. */
+export function storedDownloads(
+  page: Page,
+): Promise<{ title: string; status: string; error?: string }[]> {
+  return page.evaluate(
+    () =>
+      new Promise((resolve, reject) => {
+        const open = indexedDB.open('fxm-downloads')
+        open.onerror = () => reject(open.error)
+        open.onsuccess = () => {
+          const db = open.result
+          if (!db.objectStoreNames.contains('downloads')) {
+            db.close()
+            resolve([])
+            return
+          }
+          const read = db.transaction('downloads', 'readonly').objectStore('downloads').getAll()
+          read.onerror = () => reject(read.error)
+          read.onsuccess = () => {
+            db.close()
+            resolve(
+              (read.result as Record<string, unknown>[]).map((record) => ({
+                title: String((record.track as { title?: unknown } | undefined)?.title),
+                status: String(record.status),
+                ...(record.error === undefined
+                  ? {}
+                  : { error: String((record.error as { code?: unknown }).code) }),
+              })),
+            )
+          }
+        }
+      }),
+  )
+}
+
+/** A file the fake pickers of {@link installFakePickers} received: its size and first bytes. */
+export interface PickedFile {
+  readonly size: number
+  readonly head: number[]
+}
+
+/** What {@link installFakePickers} records on the page, read with `page.evaluate`. */
+export interface PickerRecord {
+  /** The files written, by name. */
+  fxmFiles: Record<string, PickedFile>
+  /** What the save picker and the folder picker were asked, in order. */
+  fxmPicks: { picker: 'save' | 'folder'; options: unknown; downloads: number }[]
+}
+
+/**
+ * Gives the page the File System Access API's save and folder pickers, as Chromium on desktop
+ * has them, without their windows: the save picker "picks" the suggested name, the folder picker
+ * a folder called Music, and what FXM writes stays in memory on the page (`PickerRecord`). Each
+ * pick records how many downloads existed at that moment, so a test can tell that FXM asked
+ * before it downloaded anything.
+ */
+export async function installFakePickers(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const record = window as unknown as PickerRecord
+    record.fxmFiles = {}
+    record.fxmPicks = []
+    const files = record.fxmFiles
+    const countDownloads = () =>
+      new Promise<number>((resolve) => {
+        const open = indexedDB.open('fxm-downloads')
+        open.onerror = () => resolve(-1)
+        open.onsuccess = () => {
+          const db = open.result
+          if (!db.objectStoreNames.contains('downloads')) {
+            db.close()
+            resolve(0)
+            return
+          }
+          const count = db.transaction('downloads', 'readonly').objectStore('downloads').count()
+          count.onsuccess = () => {
+            db.close()
+            resolve(count.result)
+          }
+          count.onerror = () => resolve(-1)
+        }
+      })
+    const handle = (name: string) => ({
+      name,
+      getFile: async () => ({ size: files[name]?.size ?? 0 }),
+      remove: async () => {
+        delete files[name]
+      },
+      createWritable: async () => ({
+        write: async (blob: Blob) => {
+          const bytes = new Uint8Array(await blob.arrayBuffer())
+          files[name] = { size: bytes.length, head: Array.from(bytes.subarray(0, 4)) }
+        },
+        close: async () => {},
+        abort: async () => {},
+      }),
+    })
+    Object.assign(window, {
+      showSaveFilePicker: async (options: { suggestedName: string }) => {
+        record.fxmPicks.push({ picker: 'save', options, downloads: await countDownloads() })
+        files[options.suggestedName] = { size: 0, head: [] }
+        return handle(options.suggestedName)
+      },
+      showDirectoryPicker: async (options: unknown) => {
+        record.fxmPicks.push({ picker: 'folder', options, downloads: await countDownloads() })
+        return {
+          name: 'Music',
+          getFileHandle: async (name: string, open: { create?: boolean } = {}) => {
+            if (!(name in files)) {
+              if (!open.create) throw new DOMException(`${name} not found`, 'NotFoundError')
+              files[name] = { size: 0, head: [] }
+            }
+            return handle(name)
+          },
+          removeEntry: async (name: string) => {
+            delete files[name]
+          },
+        }
+      },
+    })
+  })
+}
+
 /** Options for {@link stubNetwork}. */
 export interface StubOptions {
   /**
@@ -41,7 +187,8 @@ export async function stubNetwork(
 ): Promise<void> {
   const app = new URL(test.info().project.use.baseURL ?? 'http://localhost/')
   await page.route(
-    (url) => url.origin !== app.origin,
+    // This machine's other servers (a redirect target, `startRedirectTarget`) answer themselves.
+    (url) => url.origin !== app.origin && url.hostname !== '127.0.0.1',
     async (route) => {
       const request = route.request()
       if (hold?.(request) === true) return
@@ -111,4 +258,62 @@ export async function installFakeConnect(page: Page, { pongDelayMs = 0 } = {}): 
       }, delayMs)
     })
   }, pongDelayMs)
+}
+
+/** A local server that stands in for the googlevideo host a redirect sends a request to. */
+export interface RedirectTarget {
+  /** Its origin, e.g. `http://127.0.0.1:53124`: the fake network's `googlevideoRedirectTo`. */
+  readonly origin: string
+  /** How many requests it answered. */
+  readonly requests: () => number
+  close(): Promise<void>
+}
+
+/**
+ * Starts the host googlevideo's cms_redirect sends media requests to, on this machine: the browser
+ * follows a redirect itself, so the test can't answer the request after it the way the network
+ * stub answers the others. It serves `audio` (with single ranges) with
+ * `Access-Control-Allow-Origin: allowOrigin`: the exact FXM origin, as FXM Connect 0.2.0 sends
+ * it, which the `Origin: null` the browser sends after the redirect doesn't match; or `*`, as
+ * from 0.2.1 on.
+ */
+export async function startRedirectTarget(
+  audio: Uint8Array,
+  allowOrigin: string,
+): Promise<RedirectTarget> {
+  let count = 0
+  const server = createServer((request, response) => {
+    count += 1
+    const headers: Record<string, string> = {
+      'access-control-allow-origin': allowOrigin,
+      'access-control-expose-headers': 'content-length, content-range, accept-ranges',
+      'accept-ranges': 'bytes',
+      'content-type': 'audio/wav',
+    }
+    const range = /^bytes=(\d+)-(\d*)$/u.exec(request.headers.range ?? '')
+    if (range === null) {
+      response.writeHead(200, { ...headers, 'content-length': String(audio.length) })
+      response.end(Buffer.from(audio))
+      return
+    }
+    const first = Math.min(Number(range[1]), audio.length - 1)
+    const last = Math.min(range[2] ? Number(range[2]) : audio.length - 1, audio.length - 1)
+    response.writeHead(206, {
+      ...headers,
+      'content-length': String(last - first + 1),
+      'content-range': `bytes ${first}-${last}/${audio.length}`,
+    })
+    response.end(Buffer.from(audio.subarray(first, last + 1)))
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const { port } = server.address() as AddressInfo
+  return {
+    origin: `http://127.0.0.1:${port}`,
+    requests: () => count,
+    close: () =>
+      new Promise<void>((resolve) => {
+        server.closeAllConnections()
+        server.close(() => resolve())
+      }),
+  }
 }
