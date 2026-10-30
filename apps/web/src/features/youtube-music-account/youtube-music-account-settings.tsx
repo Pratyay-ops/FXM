@@ -97,9 +97,9 @@ export function YouTubeMusicAccountSettings() {
           extension and only normalized music metadata reaches FXM.
         </p>
         <p className="text-sm text-text-muted">
-          This uses YouTube Music's unofficial internal interface and is experimental. It can
-          break when YouTube changes that interface. Sync is manual; no background account polling
-          is performed. To revoke account access, turn off the YouTube Music option in FXM Connect.
+          This uses YouTube Music's unofficial internal interface and is experimental. It can break
+          when YouTube changes that interface. Sync is manual; no background account polling is
+          performed. To revoke account access, turn off the YouTube Music option in FXM Connect.
         </p>
         <div className="flex flex-wrap items-center gap-3">
           <button
