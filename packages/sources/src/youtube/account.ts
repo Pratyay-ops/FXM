@@ -73,6 +73,7 @@ interface MusicItem {
   artists?: readonly { name?: string; channel_id?: string }[]
   authors?: readonly { name?: string; channel_id?: string }[]
   author?: { name?: string; channel_id?: string }
+  endpoint?: unknown
   album?: { id?: string; name?: string }
   duration?: { seconds?: number }
   thumbnail?: { contents?: readonly unknown[] } | readonly unknown[]
@@ -127,7 +128,8 @@ function artworkOf(item: MusicItem): Artwork[] {
 }
 
 function artistRefs(item: MusicItem): ArtistRef[] {
-  return (item.artists ?? []).flatMap((artist) => {
+  const artists = [...(item.artists ?? []), ...(item.author ? [item.author] : [])]
+  return artists.flatMap((artist) => {
     const name = text(artist.name)
     if (!name) return []
     const id = artist.channel_id && youTubeEntityId('ytm', 'artist', artist.channel_id)
