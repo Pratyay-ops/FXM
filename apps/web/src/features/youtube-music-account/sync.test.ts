@@ -195,18 +195,24 @@ describe('parseYouTubeMusicSnapshot', () => {
 
   it('rejects malformed playlist and entity entries before any local write', () => {
     const valid = snapshot()
-    expect(parseYouTubeMusicSnapshot({
-      ...valid,
-      playlists: [{ playlist: { id: 'ytm:playlist:PLabc123' }, tracks: 'not-a-list' }],
-    })).toBeUndefined()
-    expect(parseYouTubeMusicSnapshot({
-      ...valid,
-      savedAlbums: [{ id: 'ytm:track:bad', name: 'Not an album' }],
-    })).toBeUndefined()
-    expect(parseYouTubeMusicSnapshot({
-      ...valid,
-      followedArtists: [{ id: 'ytm:artist:abc', source: 'ytm', name: 'Artist' }],
-    })).toBeUndefined()
+    expect(
+      parseYouTubeMusicSnapshot({
+        ...valid,
+        playlists: [{ playlist: { id: 'ytm:playlist:PLabc123' }, tracks: 'not-a-list' }],
+      }),
+    ).toBeUndefined()
+    expect(
+      parseYouTubeMusicSnapshot({
+        ...valid,
+        savedAlbums: [{ id: 'ytm:track:bad', name: 'Not an album' }],
+      }),
+    ).toBeUndefined()
+    expect(
+      parseYouTubeMusicSnapshot({
+        ...valid,
+        followedArtists: [{ id: 'ytm:artist:abc', source: 'ytm', name: 'Artist' }],
+      }),
+    ).toBeUndefined()
   })
 })
 
