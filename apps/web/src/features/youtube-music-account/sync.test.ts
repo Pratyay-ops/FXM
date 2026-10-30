@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
 import { formatId, type Album, type Artist, type Track } from '@fxm/core'
+import { describe, expect, it } from 'vitest'
 import {
   forgetYouTubeMusicSyncHistory,
   parseYouTubeMusicSnapshot,
@@ -9,7 +9,7 @@ import {
 import type { YouTubeMusicAccountSnapshot } from '@fxm/sources/youtube/account'
 
 const account = '0123456789abcdef01234567'
-const artistId = formatId('ytm', 'artist', 'UC' + 'A'.repeat(22))
+const artistId = formatId('ytm', 'artist', `UC${'A'.repeat(22)}`)
 const track = (id: string, title = id): Track => ({
   id: formatId('ytm', 'track', id.padEnd(11, 'x').slice(0, 11)),
   source: 'ytm',
@@ -40,10 +40,12 @@ const snapshot = (
   account,
   likedTracks: liked,
   savedTracks: saved,
-  playlists: [{
-    playlist: { id: playlistId, source: 'ytm', name: 'Road trip', artwork: [] },
-    tracks: playlistTracks,
-  }],
+  playlists: [
+    {
+      playlist: { id: playlistId, source: 'ytm', name: 'Road trip', artwork: [] },
+      tracks: playlistTracks,
+    },
+  ],
   savedAlbums: [album],
   followedArtists: [artist],
 })
