@@ -51,6 +51,12 @@ export interface WebExtApi {
     }): Promise<void>
   }
   action?: { onClicked: { addListener(listener: () => void): void } }
+  /** Background-only cookie access, available after the user grants the optional permission. */
+  cookies?: {
+    getAll(details: { url: string; storeId?: string }): Promise<
+      { name: string; value: string; domain: string; path: string; secure: boolean; httpOnly: boolean }[]
+    >
+  }
   /** Firefox only asks for `data_collection` consent (see consent.ts). */
   permissions?: {
     contains(permissions: PermissionsRequest): Promise<boolean>
@@ -61,6 +67,8 @@ export interface WebExtApi {
 
 /** The part of a permissions.request() argument that FXM Connect uses. */
 export interface PermissionsRequest {
+  /** Optional extension permissions, requested directly from a user gesture. */
+  permissions?: string[]
   /** Optional data collection categories (Firefox 140 and later, 142 on Android). */
   data_collection?: string[]
 }
