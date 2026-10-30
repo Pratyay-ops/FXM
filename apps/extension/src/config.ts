@@ -32,8 +32,9 @@ export const FEATURES = [
   'spotify-server-time',
 ] as const
 
-/** Feature added to the pong only while "Use my Spotify login from this browser" is on. */
+/** Account features added to the pong only while the corresponding option is enabled. */
 export const SPOTIFY_LOGIN_FEATURE = 'spotify-login'
+export const YOUTUBE_MUSIC_LOGIN_FEATURE = 'youtube-music-login'
 
 /** The FXM origins of a build variant, production first. */
 export function fxmOrigins(dev: boolean): readonly string[] {
