@@ -15,7 +15,7 @@ function libraryPage(items: unknown[] = []) {
   }
 }
 
-const artistId = 'UC' + 'A'.repeat(22)
+const artistId = `UC${'A'.repeat(22)}`
 const track = {
   item_type: 'song',
   id: 'dQw4w9WgXcQ',
@@ -72,7 +72,7 @@ describe('readYouTubeMusicAccount', () => {
       kind: 'song',
       durationMs: 238_000,
       album: { id: 'ytm:album:MPREb_album', name: 'Pablo Honey' },
-      artists: [{ id: 'ytm:artist:' + artistId, name: 'Radiohead' }],
+      artists: [{ id: `ytm:artist:${artistId}`, name: 'Radiohead' }],
     })
     expect(snapshot.savedTracks).toHaveLength(0)
     expect(snapshot.playlists[0]?.playlist.id).toBe('ytm:playlist:PLabc123')
