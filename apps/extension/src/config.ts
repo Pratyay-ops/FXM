@@ -35,6 +35,9 @@ export const FEATURES = [
 /** Feature added to the pong only while "Use my Spotify login from this browser" is on. */
 export const SPOTIFY_LOGIN_FEATURE = 'spotify-login'
 
+/** Feature added to the pong only while the YouTube Music account setting and permissions are on. */
+export const YOUTUBE_MUSIC_LOGIN_FEATURE = 'youtube-music-login'
+
 /** The FXM origins of a build variant, production first. */
 export function fxmOrigins(dev: boolean): readonly string[] {
   return dev ? [...PRODUCTION_ORIGINS, ...DEVELOPMENT_ORIGINS] : [...PRODUCTION_ORIGINS]
