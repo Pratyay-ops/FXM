@@ -119,6 +119,11 @@ describe('app layout', () => {
     expect(document.title).toBe('Paranoid Android — Radiohead, Jane Doe · FXM')
 
     await act(async () => {
+      await player.setQueue([testTrack('Instrumental', { artists: [] })], { autoplay: false })
+    })
+    expect(document.title).toBe('Instrumental · FXM')
+
+    await act(async () => {
       await player.setQueue([], { autoplay: false })
     })
     expect(document.title).toBe('Your library · FXM')
