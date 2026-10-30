@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { formatId, type Album, type Artist, type Track } from '@fxm/core'
 import {
+  forgetYouTubeMusicSyncHistory,
   parseYouTubeMusicSnapshot,
   runYouTubeMusicSync,
   type YouTubeMusicSyncLibrary,
@@ -192,5 +193,24 @@ describe('parseYouTubeMusicSnapshot', () => {
       ...valid,
       followedArtists: [{ id: 'ytm:artist:abc', source: 'ytm', name: 'Artist' }],
     })).toBeUndefined()
+  })
+})
+
+
+describe('forgetYouTubeMusicSyncHistory', () => {
+  it('clears only bookkeeping and leaves imported playlists and follows untouched', async () => {
+    const library = fakeLibrary()
+    await runYouTubeMusicSync(library, snapshot())
+    const before = library.playlists.size
+    const followsBefore = new Set(library.follows)
+    await expect(forgetYouTubeMusicSyncHistory(library)).resolves.toBe(true)
+    expect(library.playlists).toHaveSize(before)
+    expect(library.follows).toEqual(followsBefore)
+    expect([...library.settings.keys()]).toEqual([])
+  })
+
+  it('reports when there is no active account history', async () => {
+    const library = fakeLibrary()
+    await expect(forgetYouTubeMusicSyncHistory(library)).resolves.toBe(false)
   })
 })
