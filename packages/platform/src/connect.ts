@@ -636,11 +636,7 @@ export function createConnectClient(options: ConnectClientOptions = {}): Connect
       return bridge({ type: CONNECT_MESSAGE.spotifyServerTime }, requestOptions)
     },
     async youtubeMusicLibrary(requestOptions = {}) {
-      return bridge(
-        { type: CONNECT_MESSAGE.youtubeMusicLibrary },
-        requestOptions,
-        120_000,
-      )
+      return bridge({ type: CONNECT_MESSAGE.youtubeMusicLibrary }, requestOptions, 120_000)
     },
     dispose() {
       if (disposed) return
