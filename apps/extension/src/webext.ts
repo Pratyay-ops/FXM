@@ -19,6 +19,15 @@ export interface StorageArea {
   set(items: Record<string, unknown>): Promise<void>
 }
 
+/** Cookie fields used by the YouTube Music account reader. */
+export interface BrowserCookie {
+  name: string
+  value: string
+  domain: string
+  httpOnly?: boolean
+  secure?: boolean
+}
+
 /**
  * A runtime.onMessage listener. Calling `sendResponse` later and returning true is the one
  * asynchronous pattern both browsers support.
@@ -57,12 +66,18 @@ export interface WebExtApi {
     request(permissions: PermissionsRequest): Promise<boolean>
     remove(permissions: PermissionsRequest): Promise<unknown>
   }
+  /** Cookie read access is requested only after the user opts in to YouTube Music sync. */
+  cookies?: {
+    getAll(details: { domain?: string; url?: string }): Promise<BrowserCookie[]>
+  }
 }
 
 /** The part of a permissions.request() argument that FXM Connect uses. */
 export interface PermissionsRequest {
   /** Optional data collection categories (Firefox 140 and later, 142 on Android). */
   data_collection?: string[]
+  /** Runtime API permissions such as the optional cookies permission. */
+  permissions?: string[]
 }
 
 /** The extension API of the current context: `browser` (Firefox) or `chrome` (Chromium). */

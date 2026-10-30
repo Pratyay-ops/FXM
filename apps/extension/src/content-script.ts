@@ -7,13 +7,18 @@
  * It holds no settings: the Spotify login toggle is only readable by the background, which the
  * content script asks for every pong (see settings.ts for why).
  */
-import { FEATURES, SPOTIFY_LOGIN_FEATURE } from './config.ts'
+import {
+  FEATURES,
+  SPOTIFY_LOGIN_FEATURE,
+  YOUTUBE_MUSIC_LOGIN_FEATURE,
+} from './config.ts'
 import {
   type BridgeReply,
   type BridgeRequest,
   errorReply,
   isBridgeReply,
   isLoginStatus,
+  isYouTubeMusicLoginStatus,
   MESSAGE,
   type MessageEventLike,
   type PageMessage,
@@ -70,13 +75,22 @@ export function startContentScript(options: ContentScriptOptions): boolean {
 
   /** The pong's features; the background says whether this tab may use the Spotify login. */
   async function features(): Promise<string[]> {
+    const enabled = [...FEATURES]
     try {
       const status = await runtime.sendMessage({ type: MESSAGE.loginStatus })
-      if (isLoginStatus(status) && status.enabled) return [...FEATURES, SPOTIFY_LOGIN_FEATURE]
+      if (isLoginStatus(status) && status.enabled) enabled.push(SPOTIFY_LOGIN_FEATURE)
     } catch {
       // The extension was reloaded under this page; report the static features.
     }
-    return [...FEATURES]
+    try {
+      const status = await runtime.sendMessage({ type: MESSAGE.youtubeMusicLoginStatus })
+      if (isYouTubeMusicLoginStatus(status) && status.enabled) {
+        enabled.push(YOUTUBE_MUSIC_LOGIN_FEATURE)
+      }
+    } catch {
+      // Static features remain available if the extension background was reloaded.
+    }
+    return enabled
   }
 
   async function relay(request: BridgeRequest): Promise<BridgeReply> {

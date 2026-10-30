@@ -82,6 +82,9 @@ export const EXTENSION_PAGES_CSP = [
 /** Permissions besides host access: static header rules and the options toggle. */
 export const PERMISSIONS = ['declarativeNetRequest', 'storage'] as const
 
+/** Cookie access is optional and requested only when the user enables YouTube Music sync. */
+export const OPTIONAL_PERMISSIONS = ['cookies'] as const
+
 export interface ManifestOptions {
   browser: Browser
   version: string
@@ -109,6 +112,7 @@ export interface Manifest {
   options_ui: { page: string; open_in_tab: true }
   content_security_policy: { extension_pages: string }
   permissions: string[]
+  optional_permissions: string[]
   host_permissions: string[]
   declarative_net_request: {
     rule_resources: { id: string; enabled: boolean; path: string }[]
@@ -139,7 +143,7 @@ export function hostPermissions(origins: readonly string[]): string[] {
     ...new Set([
       ...origins.map(originMatchPattern),
       // Domain-scoped YouTube session cookies may be attached to youtube.com itself.
-      'https://youtube.com/*',
+      'https://*.youtube.com/*',
       ...ruleHostPermissions(),
     ]),
   ]
@@ -168,6 +172,7 @@ export function buildManifest({ browser, version, dev }: ManifestOptions): Manif
     options_ui: { page: 'options.html', open_in_tab: true },
     content_security_policy: { extension_pages: EXTENSION_PAGES_CSP },
     permissions: [...PERMISSIONS],
+    optional_permissions: [...OPTIONAL_PERMISSIONS],
     host_permissions: hostPermissions(origins),
     declarative_net_request: {
       rule_resources: buildRulesets(origins).map(({ id, enabled, path }) => ({
