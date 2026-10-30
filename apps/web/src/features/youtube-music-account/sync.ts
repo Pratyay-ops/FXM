@@ -12,6 +12,7 @@ import type { YouTubeMusicAccountSnapshot, YouTubeMusicPlaylist } from '@fxm/sou
 import type { LibraryRepo } from '../../db/repo'
 
 const STATE_PREFIX = 'youtube-music-account.'
+const ACTIVE_ACCOUNT_KEY = 'youtube-music-account.active'
 const MAX_TRACKS_PER_PLAYLIST = 10_000
 
 interface ImportedListState {
@@ -215,7 +216,10 @@ export async function runYouTubeMusicSync(
     albums: [...seenAlbums],
     artists: [...seenArtists],
   }
-  await library.putSettings({ [key]: next as unknown as JsonValue })
+  await library.putSettings({
+    [key]: next as unknown as JsonValue,
+    [ACTIVE_ACCOUNT_KEY]: snapshot.account,
+  })
   return {
     account: snapshot.account,
     likedSongs: likedTracks.length,
@@ -310,4 +314,23 @@ export function parseYouTubeMusicSnapshot(
     savedAlbums: value.savedAlbums as Album[],
     followedArtists: value.followedArtists as Artist[],
   }
+}
+
+
+/**
+ * Forgets only the current account's import bookkeeping. Imported playlists and follows are
+ * ordinary local library data and are deliberately left untouched.
+ *
+ * @returns whether an active YouTube Music sync history existed.
+ */
+export async function forgetYouTubeMusicSyncHistory(
+  library: YouTubeMusicSyncLibrary,
+): Promise<boolean> {
+  const active = await library.getSetting(ACTIVE_ACCOUNT_KEY)
+  if (typeof active !== 'string' || !/^[a-f0-9]{24}$/u.test(active)) return false
+  await library.putSettings({
+    [accountSettingKey(active)]: undefined,
+    [ACTIVE_ACCOUNT_KEY]: undefined,
+  })
+  return true
 }
