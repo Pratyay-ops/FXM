@@ -11,7 +11,7 @@
  * @module
  */
 
-import type { CatalogMode, NetworkCapabilities, Platform, ProviderContext } from '@fxm/core'
+import { FxmError, type CatalogMode, type NetworkCapabilities, type Platform, type ProviderContext } from '@fxm/core'
 import {
   type BudgetSnapshot,
   type ConnectStatus,
@@ -253,6 +253,35 @@ export function forgetConnect(): void {
 /** A provider context from the bound platform, or `undefined` before one is bound. */
 export function connectionContext(mode: CatalogMode): ProviderContext | undefined {
   return binding?.platform.context({ mode, priority: 'interactive' })
+}
+
+/**
+ * Reads the signed-in YouTube Music library through FXM Connect. The extension keeps session
+ * cookies and authentication headers to itself and returns only normalized music metadata.
+ */
+export async function readYouTubeMusicLibrary(signal?: AbortSignal): Promise<unknown> {
+  const connect = binding?.platform.connect
+  if (connect === undefined) {
+    throw new FxmError('Unsupported', 'FXM Connect is not available in this browser')
+  }
+  const status = connect.status ?? (await connect.detect())
+  if (status.state !== 'present') {
+    throw new FxmError('Unsupported', 'Update or enable FXM Connect before syncing YouTube Music')
+  }
+  if (!hasConnectFeature(status, 'youtube-music-login')) {
+    throw new FxmError(
+      'AuthRequired',
+      'Turn on “Use my YouTube Music login from this browser” in FXM Connect’s options',
+    )
+  }
+  const response = await connect.youtubeMusicLibrary({ signal })
+  if (response.status < 200 || response.status >= 300) {
+    throw new FxmError(
+      'Network',
+      `FXM Connect could not read the YouTube Music library (HTTP ${response.status})`,
+    )
+  }
+  return response.json
 }
 
 let started: Promise<void> | undefined

@@ -20,6 +20,7 @@ import { useSourcesSnapshot } from '../search/sources-context'
 import { SpotifySwitchControl, SpotifySwitchHelp } from '../search/spotify-setting'
 import { SponsorBlockCredit, SponsorBlockSetting } from '../sponsorblock/sponsorblock-setting'
 import { SpotifyAccountSettings } from '../spotify-account/spotify-account-settings'
+import { YouTubeMusicAccountSettings } from '../youtube-music-account/youtube-music-account-settings'
 import { SyncSettings } from '../sync/sync-settings'
 import { CatalogModeControl } from './catalog-mode-control'
 import { DownloadsSection } from './downloads-section'
@@ -110,6 +111,8 @@ export function SettingsPage() {
       </SettingsSection>
 
       <SpotifyAccountSettings />
+
+      <YouTubeMusicAccountSettings />
 
       <PluginsSettings />
 
