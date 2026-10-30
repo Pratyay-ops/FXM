@@ -16,6 +16,7 @@ import { buildRulesets } from './rules.ts'
 
 const RELEASE_HOSTS = [
   'https://fxmusic.pages.dev/*',
+  'https://*.youtube.com/*',
   'https://www.youtube.com/*',
   'https://music.youtube.com/*',
   'https://youtubei.googleapis.com/*',
@@ -49,12 +50,13 @@ describe.each(VARIANTS)('manifest for $browser (dev: $dev)', ({ browser, dev }) 
     expect(m.description).not.toMatch(/collects no data/i)
   })
 
-  it('asks only for static header rules and storage', () => {
+  it('keeps cookie API access optional and off until the user opts in', () => {
     expect(m.permissions).toEqual(['declarativeNetRequest', 'storage'])
+    expect(m.optional_permissions).toEqual(['cookies'])
+    expect(m.permissions).not.toContain('cookies')
     const text = JSON.stringify(m)
     for (const forbidden of [
       '<all_urls>',
-      'cookies',
       'tabs',
       'scripting',
       'webRequest',
@@ -65,11 +67,12 @@ describe.each(VARIANTS)('manifest for $browser (dev: $dev)', ({ browser, dev }) 
     }
   })
 
-  it('limits its own pages to their files and open.spotify.com with a strict CSP', () => {
+  it('limits its own pages to the upstream music-service origins with a strict CSP', () => {
     expect(m.content_security_policy).toEqual({
       extension_pages:
         "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; " +
-        "connect-src https://open.spotify.com; base-uri 'none'; form-action 'none'; " +
+        "connect-src https://open.spotify.com https://music.youtube.com https://youtubei.googleapis.com; " +
+        "base-uri 'none'; form-action 'none'; " +
         "frame-ancestors 'none'",
     })
   })
@@ -216,7 +219,7 @@ describe('extension version', () => {
 })
 
 describe('content security policy', () => {
-  it("allows connections to exactly the origin of the bridge's two URLs", () => {
+  it('allows connections to the Spotify relay and YouTube Music API hosts', () => {
     const connect = EXTENSION_PAGES_CSP.split('; ').find((part) => part.startsWith('connect-src'))
     const origins = new Set(
       [SPOTIFY_TOKEN_URL, SPOTIFY_SERVER_TIME_URL].map((u) => new URL(u).origin),
