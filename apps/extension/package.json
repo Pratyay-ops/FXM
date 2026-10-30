@@ -5,6 +5,9 @@
   "description": "FXM Connect: companion browser extension that lets the FXM web app reach music services from the user's own browser",
   "license": "Apache-2.0",
   "type": "module",
+  "dependencies": {
+    "@fxm/sources": "workspace:*"
+  },
   "scripts": {
     "build": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/build.ts",
     "test": "vitest run",
