@@ -5,7 +5,11 @@ import { buttonClasses } from '../../components/ui/button'
 import { getLibrary } from '../../db/repo'
 import { getAppServices } from '../../app/services'
 import { SettingsSection } from '../settings/settings-layout'
-import { parseYouTubeMusicSnapshot, runYouTubeMusicSync } from './sync'
+import {
+  forgetYouTubeMusicSyncHistory,
+  parseYouTubeMusicSnapshot,
+  runYouTubeMusicSync,
+} from './sync'
 
 const OPTIONS_HINT =
   "Open FXM Connect's options from its button in the browser toolbar and enable YouTube Music account access."
@@ -18,6 +22,24 @@ export function YouTubeMusicAccountSettings() {
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState(false)
+
+  const forget = async () => {
+    setBusy(true)
+    setError(false)
+    try {
+      const forgotten = await forgetYouTubeMusicSyncHistory(getLibrary())
+      setMessage(
+        forgotten
+          ? 'Sync history forgotten. Your imported playlists and follows remain in your FXM library.'
+          : 'There is no YouTube Music sync history to forget.',
+      )
+    } catch {
+      setMessage('FXM could not forget the YouTube Music sync history.')
+      setError(true)
+    } finally {
+      setBusy(false)
+    }
+  }
 
   const sync = async () => {
     setBusy(true)
@@ -82,7 +104,7 @@ export function YouTubeMusicAccountSettings() {
         <p className="text-sm text-text-muted">
           This uses YouTube Music's unofficial internal interface and is experimental. It can
           break when YouTube changes that interface. Sync is manual; no background account polling
-          is performed.
+          is performed. To revoke account access, turn off the YouTube Music option in FXM Connect.
         </p>
         <div className="flex flex-wrap items-center gap-3">
           <button
@@ -93,6 +115,14 @@ export function YouTubeMusicAccountSettings() {
           >
             <RefreshCw aria-hidden="true" className={busy ? 'size-4 animate-spin' : 'size-4'} />
             {busy ? 'Syncing…' : 'Sync YouTube Music now'}
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void forget()}
+            className="inline-flex items-center rounded-md px-3 py-2 text-sm font-semibold text-text-muted hover:bg-surface-2 disabled:opacity-50"
+          >
+            Forget sync history
           </button>
           <a
             href="https://music.youtube.com/"
