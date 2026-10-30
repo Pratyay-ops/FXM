@@ -98,7 +98,9 @@ function authorizeToggle(key: keyof Settings, enabled: boolean): Promise<boolean
     key === 'youtubeMusicLogin'
       ? (api.permissions?.request({ permissions: ['cookies'] }) ?? Promise.resolve(false))
       : Promise.resolve(true)
-  return Promise.all([consentRequest, cookieRequest]).then(([consented, cookies]) => consented && cookies)
+  return Promise.all([consentRequest, cookieRequest]).then(
+    ([consented, cookies]) => consented && cookies,
+  )
 }
 
 for (const { input, key, saved } of toggles) {
@@ -140,7 +142,8 @@ async function load(): Promise<void> {
     const current = await settings.read()
     // In Firefox the login is on only with the consent, which the user can withdraw elsewhere.
     const consented = await consent.granted().catch(() => false)
-    const hasCookies = await api.permissions?.contains({ permissions: ['cookies'] }).catch(() => false) ?? false
+    const hasCookies =
+      (await api.permissions?.contains({ permissions: ['cookies'] }).catch(() => false)) ?? false
     for (const { input, key } of toggles) {
       const needsConsent = key === 'spotifyLogin' || key === 'youtubeMusicLogin'
       const hasRequiredPermissions =
