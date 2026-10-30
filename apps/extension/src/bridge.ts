@@ -254,17 +254,19 @@ export function createBridge(options: BridgeOptions): Bridge {
       ...(sender.cookieStoreId === undefined ? {} : { storeId: sender.cookieStoreId }),
     })
     if (cookies === undefined || cookies.length === 0) return undefined
-    // youtubei.js uses SAPISID-based authorization for authenticated Web Remix requests.
-    const hasSession = cookies.some(
-      ({ name }) => name === 'SAPISID' || name === '__Secure-3PAPISID' || name === '__Secure-1PAPISID',
-    )
-    if (!hasSession) return undefined
+    // youtubei.js currently calculates SAPISIDHASH from SAPISID for authenticated Web Remix
+    // requests. Requiring the exact cookie avoids claiming a session is usable when it is not.
+    if (!cookies.some(({ name }) => name === 'SAPISID')) return undefined
     return cookies.map(({ name, value }) => `${name}=${value}`).join('; ')
   }
 
   /** A short, non-reversible identifier used only to keep imports from two browser accounts apart. */
   async function accountFingerprint(cookie: string): Promise<string> {
-    const bytes = new TextEncoder().encode(`fxm-youtube-music:${cookie}`)
+    // SAPISID is the cookie used for the account's SAPISIDHASH. Hash only this stable identity
+    // value, not the complete cookie jar, whose ordering and unrelated cookies can change.
+    const sapisid = /(?:^|;\s*)SAPISID=([^;]+)/u.exec(cookie)?.[1]
+    if (!sapisid) throw new Error('YouTube Music login is unavailable in this browser')
+    const bytes = new TextEncoder().encode(`fxm-youtube-music:${sapisid}`)
     const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))
     return Array.from(digest.slice(0, 12), (byte) => byte.toString(16).padStart(2, '0')).join('')
   }
