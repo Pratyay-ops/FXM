@@ -33,6 +33,8 @@ export interface YouTubeMusicReaderOptions {
   maxPlaylists?: number
   maxAlbums?: number
   maxArtists?: number
+  /** Maximum total InnerTube requests for one foreground sync. */
+  maxRequests?: number
 }
 
 interface MusicAccountClient {
@@ -83,7 +85,8 @@ const DEFAULT_LIMITS = {
   tracks: 10_000,
   playlists: 250,
   albums: 500,
-  artists: 500,
+  artists: 300,
+  requests: 400,
 } as const
 
 function record(value: unknown): Record<string, unknown> | undefined {
@@ -283,28 +286,37 @@ export async function readYouTubeMusicAccount(
   if (typeof cookie !== 'string' || cookie.length < 16 || cookie.length > 32_768) {
     throw new Error('YouTube Music login is unavailable in this browser')
   }
-  const createClient = options.createClient ?? ((value: string) =>
-    Innertube.create({
-      cookie: value,
-      lang: 'en',
-      retrieve_player: false,
-      retrieve_innertube_config: false,
-      // youtubei.js uses the cookie to calculate SAPISIDHASH. Browsers forbid JavaScript from
-      // setting the Cookie request header, so remove that header and let the extension's
-      // credentialed fetch attach the same normal-profile cookie jar.
-      fetch: (input, init) => {
-        const headers = new Headers(init?.headers)
-        headers.delete('Cookie')
-        return globalThis.fetch(input, { ...init, headers, credentials: 'include' })
-      },
-    }))
   const limits = {
     tracks: options.maxTracks ?? DEFAULT_LIMITS.tracks,
     playlists: options.maxPlaylists ?? DEFAULT_LIMITS.playlists,
     albums: options.maxAlbums ?? DEFAULT_LIMITS.albums,
     artists: options.maxArtists ?? DEFAULT_LIMITS.artists,
+    requests: options.maxRequests ?? DEFAULT_LIMITS.requests,
   }
-  const client = await createClient(cookie)
+  let requests = 0
+  const client = options.createClient
+    ? await createClient(cookie)
+    : await (async () => {
+        const fetchWithBudget: typeof globalThis.fetch = async (input, init) => {
+          requests += 1
+          if (requests > limits.requests) {
+            throw new Error('YouTube Music import reached FXM’s request budget; no partial library was imported')
+          }
+          const headers = new Headers(init?.headers)
+          headers.delete('Cookie')
+          return globalThis.fetch(input, { ...init, headers, credentials: 'include' })
+        }
+        return Innertube.create({
+          cookie,
+          lang: 'en',
+          retrieve_player: false,
+          retrieve_innertube_config: false,
+          // The extension background's own fetch attaches the browser cookie jar. youtubei.js
+          // still receives the cookie value to calculate SAPISIDHASH, but the header is not set
+          // from JavaScript (forbidden by Fetch) and is never sent through the page bridge.
+          fetch: fetchWithBudget,
+        })
+      })()
   const library = await client.music.getLibrary()
   const filters = new Map((library.filters ?? []).map((name) => [name.toLowerCase(), name]))
   if (filters.size === 0 && (library.contents?.length ?? 0) === 0) {
