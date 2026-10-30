@@ -175,7 +175,7 @@ function albumOf(value: unknown): Album | undefined {
 function artistOf(value: unknown): Artist | undefined {
   const item = value as MusicItem
   if (!['artist', 'library_artist'].includes(item.item_type ?? '')) return undefined
-  const nativeId = item.id ?? item.author?.channel_id
+  const nativeId = item.id ?? item.author?.channel_id ?? record(item.endpoint)?.payload?.toString?.()
   const id = typeof nativeId === 'string' ? youTubeEntityId('ytm', 'artist', nativeId) : undefined
   const name = text(item.title) ?? text(item.name)
   if (!id || !name) return undefined
@@ -282,7 +282,12 @@ export async function readYouTubeMusicAccount(
   }
   const createClient = options.createClient ?? ((value: string) =>
     Innertube.create({ cookie: value, lang: 'en', retrieve_player: false, retrieve_innertube_config: false }))
-  const limits = { ...DEFAULT_LIMITS, ...options }
+  const limits = {
+    tracks: options.maxTracks ?? DEFAULT_LIMITS.tracks,
+    playlists: options.maxPlaylists ?? DEFAULT_LIMITS.playlists,
+    albums: options.maxAlbums ?? DEFAULT_LIMITS.albums,
+    artists: options.maxArtists ?? DEFAULT_LIMITS.artists,
+  }
   const client = await createClient(cookie)
   const library = await client.music.getLibrary()
   const filters = new Map((library.filters ?? []).map((name) => [name.toLowerCase(), name]))
