@@ -66,7 +66,7 @@ export function packageVersion(pkg: unknown): string {
 /**
  * Content security policy of the options page and the background. MV3's default only restricts
  * scripts; this one also limits styles and images to FXM Connect's own files and lets them
- * connect to open.spotify.com only, the one host the Spotify bridge fetches from.
+ * connect to the exact YouTube Music and Spotify hosts used by the account readers.
  */
 export const EXTENSION_PAGES_CSP = [
   "default-src 'none'",
@@ -178,8 +178,8 @@ export function buildManifest({ browser, version, dev }: ManifestOptions): Manif
             gecko: {
               id: FIREFOX_ADDON_ID,
               strict_min_version: FIREFOX_MIN_VERSION,
-              // Nothing goes to the developer. The opt-in login bridge hands the token of the
-              // user's Spotify login to the FXM page, which Firefox asks consent for (consent.ts).
+              // Account access is opt-in. The background keeps browser credentials private and
+              // sends only normalized music metadata to the FXM page.
               data_collection_permissions: {
                 required: ['none'],
                 optional: [LOGIN_DATA_COLLECTION],
