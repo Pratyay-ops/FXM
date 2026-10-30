@@ -209,11 +209,14 @@ async function collectPages(
 
 function libraryRows(page: unknown): unknown[] {
   const root = record(page)
-  const contents = items(root?.contents)
-  return contents.flatMap((section) => {
-    const node = record(section)
-    return items(node?.contents)
-  })
+  const collection = root?.contents
+  const sections = items(collection)
+  if (sections.length > 0) {
+    return sections.flatMap((section) => items(record(section)?.contents))
+  }
+  // Library continuations wrap their rows in a MusicShelfContinuation/GridContinuation object,
+  // unlike the first Library page, whose contents is an array of shelves.
+  return items(record(collection)?.contents)
 }
 
 function playlistRows(page: unknown): unknown[] {
@@ -303,7 +306,9 @@ export async function readYouTubeMusicLibrary(
   const filters = items(record(library)?.filters).filter((value): value is string => typeof value === 'string')
   const readFiltered = async (kind: string) => {
     const filter = filterFor(filters, kind)
-    if (filter === undefined) return { rows: [], truncated: false }
+    if (filter === undefined) {
+      throw new Error(`YouTube Music did not return the ${kind} library filter`)
+    }
     const filtered = await library.applyFilter(filter)
     return collectPages(filtered, libraryRows, MAX_LIBRARY_ITEMS)
   }
