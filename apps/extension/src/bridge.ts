@@ -1,7 +1,7 @@
 /**
- * The background side of FXM Connect: the optional Spotify session bridge, the login status
- * behind the pong's `spotify-login` feature and, in the dev build, switching between rulesets of
- * origins that share a host.
+ * The background side of FXM Connect: the optional Spotify session bridge, the read-only
+ * YouTube Music account bridge, their independent login status features and, in the dev build,
+ * switching between rulesets of origins that share a host.
  *
  * The bridge makes exactly two requests, both to fixed URLs:
  * - GET https://open.spotify.com/api/token with allow-listed query parameters and the browser's
@@ -10,8 +10,9 @@
  *   consents to handing on authentication information (consent.ts);
  * - GET https://open.spotify.com/api/server-time without credentials, always: it needs no
  *   setting and is served in private tabs too.
- * It returns only the HTTP status and the JSON body. It never reads, stores or returns cookies
- * or response headers.
+ * The YouTube Music reader uses the browser's existing cookies only in this background context.
+ * It returns normalized music metadata and a one-way account fingerprint, never cookie values,
+ * authorization headers or raw InnerTube responses. It does not persist the cookie header.
  *
  * One background serves every tab, including private windows (manifests leave `incognito` at
  * its default, spanning), and its requests carry the cookies of the browser's normal windows.
@@ -19,12 +20,14 @@
  * container tabs. Otherwise a page there would get the account signed in elsewhere.
  */
 
+import { readYouTubeMusicAccount } from '@fxm/sources/youtube/account'
 import type { LoginConsent } from './consent.ts'
 import {
   type BridgeReply,
   type BridgeRequest,
   errorReply,
   type LoginStatus,
+  type YouTubeMusicLoginStatus,
   MESSAGE,
   messageType,
   parseBridgeRequest,
@@ -64,6 +67,9 @@ export interface BridgeOptions {
   now: () => number
   timeoutMs?: number
   maxResponseBytes?: number
+  /** Optional, separately granted browser cookie access; available only in the background. */
+  cookies?: WebExtApi['cookies']
+  permissions?: WebExtApi['permissions']
 }
 
 /** A trusted sender: FXM Connect's content script in the top frame of an FXM page. */
@@ -72,10 +78,11 @@ export interface SenderContext {
   origin: string
   /** The page is in a tab with cookies of its own (see isPrivateTab). */
   privateTab: boolean
+  cookieStoreId?: string
 }
 
 /** Everything the background answers the content script with. */
-export type BackgroundReply = BridgeReply | LoginStatus
+export type BackgroundReply = BridgeReply | LoginStatus | YouTubeMusicLoginStatus
 
 export interface Bridge {
   /** Handles a message from a trusted sender. Resolves to the reply, if any. */
@@ -225,7 +232,67 @@ export function createBridge(options: BridgeOptions): Bridge {
     return sender.privateTab ? 'private-tab' : null
   }
 
+  /** Why the YouTube Music read is refused, or null when the bridge may use browser cookies. */
+  async function youtubeMusicRefusal(
+    sender: SenderContext,
+  ): Promise<'login-disabled' | 'private-tab' | null> {
+    const settings = await options.settings.read()
+    if (!settings.youtubeMusicLogin) return 'login-disabled'
+    // The development build's localhost origin is shared by unrelated local projects.
+    if (isLocalhost(sender.origin)) return 'login-disabled'
+    if (sender.privateTab) return 'private-tab'
+    if (options.consent && !(await options.consent.granted())) return 'login-disabled'
+    if (!(await options.permissions?.contains({ permissions: ['cookies'] }))) return 'login-disabled'
+    if (options.cookies === undefined) return 'login-disabled'
+    return null
+  }
+
+  /** Reads the normal-profile YouTube Music cookies inside the background only. */
+  async function youtubeMusicCookies(sender: SenderContext): Promise<string | undefined> {
+    const cookies = await options.cookies?.getAll({
+      url: 'https://music.youtube.com/',
+      ...(sender.cookieStoreId === undefined ? {} : { storeId: sender.cookieStoreId }),
+    })
+    if (cookies === undefined || cookies.length === 0) return undefined
+    // youtubei.js uses SAPISID-based authorization for authenticated Web Remix requests.
+    const hasSession = cookies.some(
+      ({ name }) => name === 'SAPISID' || name === '__Secure-3PAPISID' || name === '__Secure-1PAPISID',
+    )
+    if (!hasSession) return undefined
+    return cookies.map(({ name, value }) => `${name}=${value}`).join('; ')
+  }
+
+  /** A short, non-reversible identifier used only to keep imports from two browser accounts apart. */
+  async function accountFingerprint(cookie: string): Promise<string> {
+    const bytes = new TextEncoder().encode(`fxm-youtube-music:${cookie}`)
+    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))
+    return Array.from(digest.slice(0, 12), (byte) => byte.toString(16).padStart(2, '0')).join('')
+  }
+
+  async function readYouTubeMusic(request: Extract<BridgeRequest, { type: typeof MESSAGE.youtubeMusicLibrary }>, sender: SenderContext): Promise<BridgeReply> {
+    const refusal = await youtubeMusicRefusal(sender)
+    if (refusal !== null) return errorReply(request.id, refusal)
+    if (!(await acquire())) return errorReply(request.id, 'rate-limited')
+    try {
+      const cookie = await youtubeMusicCookies(sender)
+      if (cookie === undefined) return errorReply(request.id, 'not-signed-in')
+      const snapshot = await readYouTubeMusicAccount(cookie)
+      const account = await accountFingerprint(cookie)
+      const json = { account, ...snapshot }
+      const bytes = new TextEncoder().encode(JSON.stringify(json)).byteLength
+      if (bytes > 12 * 1024 * 1024) return errorReply(request.id, 'too-large')
+      return { type: MESSAGE.response, id: request.id, status: 200, json }
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : ''
+      if (/login|required|sign.?in|authentication/i.test(reason)) {
+        return errorReply(request.id, 'not-signed-in')
+      }
+      return errorReply(request.id, 'network-error')
+    }
+  }
+
   async function serve(request: BridgeRequest, sender: SenderContext): Promise<BridgeReply> {
+    if (request.type === MESSAGE.youtubeMusicLibrary) return readYouTubeMusic(request, sender)
     if (request.type === MESSAGE.spotifyToken) {
       const refusal = await loginRefusal(sender)
       if (refusal !== null) return errorReply(request.id, refusal)
@@ -247,6 +314,10 @@ export function createBridge(options: BridgeOptions): Bridge {
       const refusal = await loginRefusal(sender).catch(() => 'unreadable')
       return { type: MESSAGE.loginStatus, enabled: refusal === null }
     }
+    if (type === MESSAGE.youtubeMusicLoginStatus) {
+      const refusal = await youtubeMusicRefusal(sender).catch(() => 'unreadable')
+      return { type: MESSAGE.youtubeMusicLoginStatus, enabled: refusal === null }
+    }
     const parsed = parseBridgeRequest(message)
     if (!parsed.ok) return errorReply(parsed.id, parsed.code)
     try {
@@ -262,7 +333,11 @@ export function createBridge(options: BridgeOptions): Bridge {
     const origin = trustedSenderOrigin(sender, options.runtimeId, options.origins)
     if (origin === null) return false
     // handle() only rejects on errors outside a bridge request, such as a failed ruleset switch.
-    handle(message, { origin, privateTab: isPrivateTab(sender.tab) }).then(sendResponse, () =>
+    handle(message, {
+      origin,
+      privateTab: isPrivateTab(sender.tab),
+      ...(sender.tab?.cookieStoreId === undefined ? {} : { cookieStoreId: sender.tab.cookieStoreId }),
+    }).then(sendResponse, () =>
       sendResponse(errorReply(null, 'internal')),
     )
     return true
