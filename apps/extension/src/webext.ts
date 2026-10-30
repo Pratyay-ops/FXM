@@ -53,8 +53,18 @@ export interface WebExtApi {
   action?: { onClicked: { addListener(listener: () => void): void } }
   /** Background-only cookie access, available after the user grants the optional permission. */
   cookies?: {
-    getAll(details: { url: string; storeId?: string }): Promise<
-      { name: string; value: string; domain: string; path: string; secure: boolean; httpOnly: boolean }[]
+    getAll(details: {
+      url: string
+      storeId?: string
+    }): Promise<
+      {
+        name: string
+        value: string
+        domain: string
+        path: string
+        secure: boolean
+        httpOnly: boolean
+      }[]
     >
   }
   /** Firefox only asks for `data_collection` consent (see consent.ts). */
