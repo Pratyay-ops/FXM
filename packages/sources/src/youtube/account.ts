@@ -9,7 +9,7 @@
  * closed when a response is incomplete so an API change is never interpreted as an empty library.
  */
 
-import type { Album, Artist, Artwork, ArtistRef, Track, Playlist } from '@fxm/core'
+import type { Album, Artist, ArtistRef, Artwork, Playlist, Track } from '@fxm/core'
 import { Innertube } from 'youtubei.js'
 import { playlistIdOf, youTubeEntityId } from './ids'
 
@@ -90,7 +90,9 @@ const DEFAULT_LIMITS = {
 } as const
 
 function record(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === 'object' && value !== null ? value as Record<string, unknown> : undefined
+  return typeof value === 'object' && value !== null
+    ? (value as Record<string, unknown>)
+    : undefined
 }
 
 function text(value: unknown): string | undefined {
@@ -114,22 +116,23 @@ function artworkOf(item: MusicItem): Artwork[] {
   return thumbnails.flatMap((value) => {
     const image = record(value)
     const url = typeof image?.url === 'string' ? image.url : undefined
-    if (!url || !url.startsWith('https://')) return []
+    if (!url?.startsWith('https://')) return []
     const artwork: Artwork = { url }
     if (typeof image.width === 'number' && Number.isFinite(image.width)) artwork.width = image.width
-    if (typeof image.height === 'number' && Number.isFinite(image.height)) artwork.height = image.height
+    if (typeof image.height === 'number' && Number.isFinite(image.height)) {
+      artwork.height = image.height
+    }
     return [artwork]
   })
 }
 
 function artistRefs(item: MusicItem): ArtistRef[] {
-  return (item.artists ?? [])
-    .flatMap((artist) => {
-      const name = text(artist.name)
-      if (!name) return []
-      const id = artist.channel_id && youTubeEntityId('ytm', 'artist', artist.channel_id)
-      return [id ? { id, name } : { name }]
-    })
+  return (item.artists ?? []).flatMap((artist) => {
+    const name = text(artist.name)
+    if (!name) return []
+    const id = artist.channel_id && youTubeEntityId('ytm', 'artist', artist.channel_id)
+    return [id ? { id, name } : { name }]
+  })
 }
 
 function trackOf(value: unknown): Track | undefined {
@@ -221,7 +224,7 @@ async function collectLibraryFilter<T>(
   map: (item: unknown) => T | undefined,
   max: number,
 ): Promise<T[]> {
-  let page = await library.applyFilter(filter)
+  const page = await library.applyFilter(filter)
   const result: T[] = []
   const add = (items: readonly unknown[]) => {
     for (const item of items) {
@@ -300,7 +303,9 @@ export async function readYouTubeMusicAccount(
         const fetchWithBudget: typeof globalThis.fetch = async (input, init) => {
           requests += 1
           if (requests > limits.requests) {
-            throw new Error('YouTube Music import reached FXM’s request budget; no partial library was imported')
+            throw new Error(
+              'YouTube Music import reached FXM’s request budget; no partial library was imported',
+            )
           }
           const headers = new Headers(init?.headers)
           headers.delete('Cookie')
@@ -328,13 +333,23 @@ export async function readYouTubeMusicAccount(
   // VLLM (music.getPlaylist('LM')) is the fully paginated Liked Music collection.
   const savedTracks: Track[] = []
   const playlists = filters.has('playlists')
-    ? await collectLibraryFilter(library, filters.get('playlists') as string, playlistOf, limits.playlists)
+    ? await collectLibraryFilter(
+        library,
+        filters.get('playlists') as string,
+        playlistOf,
+        limits.playlists,
+      )
     : []
   const savedAlbums = filters.has('albums')
     ? await collectLibraryFilter(library, filters.get('albums') as string, albumOf, limits.albums)
     : []
   const followedArtists = filters.has('artists')
-    ? await collectLibraryFilter(library, filters.get('artists') as string, artistOf, limits.artists)
+    ? await collectLibraryFilter(
+        library,
+        filters.get('artists') as string,
+        artistOf,
+        limits.artists,
+      )
     : []
 
   const likedTracks = await collectPlaylistTracks(client, 'LM', limits.tracks)
