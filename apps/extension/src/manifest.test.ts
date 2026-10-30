@@ -68,7 +68,7 @@ describe.each(VARIANTS)('manifest for $browser (dev: $dev)', ({ browser, dev }) 
     expect(m.content_security_policy).toEqual({
       extension_pages:
         "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; " +
-        "connect-src https://open.spotify.com https://music.youtube.com https://www.youtube.com https://youtubei.googleapis.com; " +
+        'connect-src https://open.spotify.com https://music.youtube.com https://www.youtube.com https://youtubei.googleapis.com; ' +
         "base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
     })
   })
@@ -158,7 +158,7 @@ describe('Firefox manifest', () => {
     expect(Number.parseFloat(version ?? '0')).toBeGreaterThanOrEqual(113)
   })
 
-  it("declares account-session access as optional authentication information", () => {
+  it('declares account-session access as optional authentication information', () => {
     // The opt-in Spotify and YouTube Music account bridges use browser credentials locally;
     // Firefox asks consent before either account bridge can use them (consent.ts).
     const gecko = manifest('firefox').browser_specific_settings?.gecko
@@ -215,15 +215,17 @@ describe('extension version', () => {
 })
 
 describe('content security policy', () => {
-  it("allows connections to exactly the origin of the bridge's two URLs", () => {
+  it("allows connections to exactly the origins used by the bridge's account readers", () => {
     const connect = EXTENSION_PAGES_CSP.split('; ').find((part) => part.startsWith('connect-src'))
-    const origins = new Set([
-      SPOTIFY_TOKEN_URL,
-      SPOTIFY_SERVER_TIME_URL,
-      'https://music.youtube.com/',
-      'https://www.youtube.com/',
-      'https://youtubei.googleapis.com/',
-    ].map((u) => new URL(u).origin))
+    const origins = new Set(
+      [
+        SPOTIFY_TOKEN_URL,
+        SPOTIFY_SERVER_TIME_URL,
+        'https://music.youtube.com/',
+        'https://www.youtube.com/',
+        'https://youtubei.googleapis.com/',
+      ].map((u) => new URL(u).origin),
+    )
     expect(connect).toBe(`connect-src ${[...origins].join(' ')}`)
   })
 
