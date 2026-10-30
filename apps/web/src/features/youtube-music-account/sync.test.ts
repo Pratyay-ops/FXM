@@ -1,4 +1,5 @@
 import { formatId, type Album, type Artist, type Track } from '@fxm/core'
+import type { YouTubeMusicAccountSnapshot } from '@fxm/sources/youtube/account'
 import { describe, expect, it } from 'vitest'
 import {
   forgetYouTubeMusicSyncHistory,
@@ -6,7 +7,6 @@ import {
   runYouTubeMusicSync,
   type YouTubeMusicSyncLibrary,
 } from './sync'
-import type { YouTubeMusicAccountSnapshot } from '@fxm/sources/youtube/account'
 
 const account = '0123456789abcdef01234567'
 const artistId = formatId('ytm', 'artist', `UC${'A'.repeat(22)}`)
@@ -63,9 +63,16 @@ function fakeLibrary(): YouTubeMusicSyncLibrary & {
     follows,
     settings,
     async getPlaylistList() {
-      return { items: [...playlists].map(([id, value]) => ({
-        id, origin: 'local' as const, name: value.name, artwork: [], addedAt: 0, updatedAt: 0,
-      })) }
+      return {
+        items: [...playlists].map(([id, value]) => ({
+          id,
+          origin: 'local' as const,
+          name: value.name,
+          artwork: [],
+          addedAt: 0,
+          updatedAt: 0,
+        })),
+      }
     },
     async createPlaylist(input) {
       const id = String(input.id)
@@ -144,7 +151,9 @@ describe('runYouTubeMusicSync', () => {
   it('does not re-add a remote track that the user removed from its local copy', async () => {
     const library = fakeLibrary()
     await runYouTubeMusicSync(library, snapshot())
-    const liked = [...library.playlists.entries()].find(([, value]) => value.name === 'Liked songs on YouTube Music')
+    const liked = [...library.playlists.entries()].find(
+      ([, value]) => value.name === 'Liked songs on YouTube Music',
+    )
     expect(liked).toBeDefined()
     liked?.[1].tracks.splice(0, 1)
     await runYouTubeMusicSync(library, snapshot())
@@ -154,7 +163,9 @@ describe('runYouTubeMusicSync', () => {
   it('does not recreate a local playlist after the user deleted it', async () => {
     const library = fakeLibrary()
     await runYouTubeMusicSync(library, snapshot())
-    const playlist = [...library.playlists.entries()].find(([, value]) => value.name === 'Road trip')
+    const playlist = [...library.playlists.entries()].find(
+      ([, value]) => value.name === 'Road trip',
+    )
     expect(playlist).toBeDefined()
     library.playlists.delete(playlist?.[0] ?? '')
     await runYouTubeMusicSync(library, snapshot())
@@ -163,8 +174,9 @@ describe('runYouTubeMusicSync', () => {
 
   it('rejects a malformed account fingerprint before writing', async () => {
     const library = fakeLibrary()
-    await expect(runYouTubeMusicSync(library, { ...snapshot(), account: 'bad' }))
-      .rejects.toThrow('valid account fingerprint')
+    await expect(runYouTubeMusicSync(library, { ...snapshot(), account: 'bad' })).rejects.toThrow(
+      'valid account fingerprint',
+    )
     expect(library.playlists.size).toBe(0)
   })
 })
