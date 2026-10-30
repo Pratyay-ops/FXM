@@ -150,7 +150,10 @@ async function copyList(
   return {
     state: {
       localId,
-      seenTrackIds: mergeIds([...known], unique.map((track) => track.id)),
+      seenTrackIds: mergeIds(
+        [...known],
+        unique.map((track) => track.id),
+      ),
     },
     added,
     created,
@@ -186,8 +189,14 @@ export async function runYouTubeMusicSync(
   )
   const likedTracks = uniqueTracks(snapshot.likedTracks)
   const likedCopy = await copyList(
-    library, snapshot.account, state.liked, 'liked', 'Liked songs on YouTube Music',
-    likedTracks, [], localLists,
+    library,
+    snapshot.account,
+    state.liked,
+    'liked',
+    'Liked songs on YouTube Music',
+    likedTracks,
+    [],
+    localLists,
   )
   const playlistStates: Record<string, ImportedListState> = { ...state.playlists }
   let addedTracks = likedCopy.added
@@ -199,8 +208,14 @@ export async function runYouTubeMusicSync(
     if (!remoteId || seenRemotePlaylists.has(remoteId)) continue
     seenRemotePlaylists.add(remoteId)
     const copied = await copyList(
-      library, snapshot.account, playlistStates[remoteId], remoteId, entry.playlist.name,
-      entry.tracks, entry.playlist.artwork, localLists,
+      library,
+      snapshot.account,
+      playlistStates[remoteId],
+      remoteId,
+      entry.playlist.name,
+      entry.tracks,
+      entry.playlist.artwork,
+      localLists,
     )
     playlistStates[remoteId] = copied.state
     addedTracks += copied.added
