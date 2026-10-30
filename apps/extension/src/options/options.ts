@@ -108,6 +108,13 @@ for (const { input, key, saved } of toggles) {
     const enabled = input.checked
     if (!(await authorizeToggle(key, enabled))) {
       input.checked = false
+      if (key === 'youtubeMusicLogin') {
+        await api.permissions?.remove({ permissions: ['cookies'] }).catch(() => {})
+        const current = await settings.read().catch(() => undefined)
+        if (current && !current.spotifyLogin && !current.youtubeMusicLogin) {
+          await consent.release().catch(() => {})
+        }
+      }
       showStatus(
         key === 'youtubeMusicLogin'
           ? "FXM Connect needs the optional cookies permission and Firefox's authentication-information consent to read YouTube Music."
