@@ -311,6 +311,20 @@ describe('the Spotify session bridge', () => {
     expect(connect.bridgeRequests[0]?.params).toEqual({ reason: 'init' })
   })
 
+  it('relays a YouTube Music library request without credentials or parameters', async () => {
+    const { client, connect } = await present({
+      features: [...FAKE_CONNECT_FEATURES, 'youtube-music-login'],
+      bridge: () => ({ status: 200, json: { accountId: 'UC-test', likedSongs: [] } }),
+    })
+    await expect(client.youtubeMusicLibrary()).resolves.toEqual({
+      status: 200,
+      json: { accountId: 'UC-test', likedSongs: [] },
+    })
+    expect(connect.bridgeRequests).toHaveLength(1)
+    expect(connect.bridgeRequests[0]?.type).toBe(CONNECT_MESSAGE.youtubeMusicLibrary)
+    expect(connect.bridgeRequests[0]?.params).toBeUndefined()
+  })
+
   it('relays the server time, with a fresh ID for every request', async () => {
     const { client, connect } = await present({
       bridge: () => ({ status: 200, json: { serverTime: 1761400000 } }),

@@ -16,7 +16,6 @@ import { buildRulesets } from './rules.ts'
 
 const RELEASE_HOSTS = [
   'https://fxmusic.pages.dev/*',
-  'https://*.youtube.com/*',
   'https://www.youtube.com/*',
   'https://music.youtube.com/*',
   'https://youtubei.googleapis.com/*',

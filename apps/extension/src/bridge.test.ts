@@ -272,7 +272,7 @@ describe('YouTube Music library bridge', () => {
       status: 200,
       json: { accountId: 'UC-test', likedSongs: [], playlists: [] },
     })
-    expect(cookies.getAll).toHaveBeenCalledWith({ domain: 'youtube.com' })
+    expect(cookies.getAll).toHaveBeenCalledWith({ url: 'https://music.youtube.com/' })
     // youtubei.js only needs SAPISID for its SAPISIDHASH authorization. Do not pass any of
     // Google's other sign-in cookies to the reader, and never return a cookie to the page.
     expect(youtubeMusicLibrary).toHaveBeenCalledWith('SAPISID=sap-secret')

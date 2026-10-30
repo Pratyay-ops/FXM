@@ -278,7 +278,7 @@ export function createBridge(options: BridgeOptions): Bridge {
 
     let cookieHeader = ''
     try {
-      const cookies = await options.cookies?.getAll({ domain: 'youtube.com' })
+      const cookies = await options.cookies?.getAll({ url: 'https://music.youtube.com/' })
       cookieHeader = youtubeCookieHeader(cookies ?? [])
       if (cookieHeader === '') return errorReply(id, 'auth-required')
       const json = await options.youtubeMusicLibrary?.(cookieHeader)

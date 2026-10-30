@@ -294,9 +294,9 @@ const BRIDGE_ERRORS: Record<ConnectErrorCode, { code: FxmErrorCode; message: str
     message: 'Sign in to YouTube Music in this browser and enable account access in FXM Connect',
   },
   'rate-limited': { code: 'RateLimited', message: 'Too many FXM Connect bridge requests' },
-  'network-error': { code: 'Network', message: 'FXM Connect could not reach Spotify' },
-  timeout: { code: 'Network', message: 'Spotify did not answer FXM Connect in time' },
-  'too-large': { code: 'Parse', message: 'Spotify sent FXM Connect an oversized response' },
+  'network-error': { code: 'Network', message: 'FXM Connect could not reach the music service' },
+  timeout: { code: 'Network', message: 'The music service did not answer FXM Connect in time' },
+  'too-large': { code: 'Parse', message: 'The music service sent FXM Connect an oversized response' },
   unavailable: {
     code: 'Network',
     message: 'FXM Connect’s background is unavailable; reloading the page may help',

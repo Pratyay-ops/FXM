@@ -142,8 +142,6 @@ export function hostPermissions(origins: readonly string[]): string[] {
   return [
     ...new Set([
       ...origins.map(originMatchPattern),
-      // Domain-scoped YouTube session cookies may be attached to youtube.com itself.
-      'https://*.youtube.com/*',
       ...ruleHostPermissions(),
     ]),
   ]
