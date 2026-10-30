@@ -181,7 +181,8 @@ function albumOf(value: unknown): Album | undefined {
 function artistOf(value: unknown): Artist | undefined {
   const item = value as MusicItem
   if (!['artist', 'library_artist'].includes(item.item_type ?? '')) return undefined
-  const nativeId = item.id ?? item.author?.channel_id ?? record(record(item.endpoint)?.payload)?.browseId
+  const nativeId =
+    item.id ?? item.author?.channel_id ?? record(record(item.endpoint)?.payload)?.browseId
   const id = typeof nativeId === 'string' ? youTubeEntityId('ytm', 'artist', nativeId) : undefined
   const name = text(item.title) ?? text(item.name)
   if (!id || !name) return undefined
