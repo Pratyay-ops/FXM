@@ -204,7 +204,7 @@ describe('forgetYouTubeMusicSyncHistory', () => {
     const before = library.playlists.size
     const followsBefore = new Set(library.follows)
     await expect(forgetYouTubeMusicSyncHistory(library)).resolves.toBe(true)
-    expect(library.playlists).toHaveSize(before)
+    expect(library.playlists.size).toBe(before)
     expect(library.follows).toEqual(followsBefore)
     expect([...library.settings.keys()]).toEqual([])
   })
