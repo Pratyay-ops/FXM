@@ -110,11 +110,14 @@ describe('app layout', () => {
     expect(document.title).toBe('Creep — Radiohead · FXM')
 
     await act(async () => {
-      await player.setQueue([
-        testTrack('Paranoid Android', {
-          artists: [{ name: 'Radiohead' }, { name: 'Jane Doe' }],
-        }),
-      ], { autoplay: false })
+      await player.setQueue(
+        [
+          testTrack('Paranoid Android', {
+            artists: [{ name: 'Radiohead' }, { name: 'Jane Doe' }],
+          }),
+        ],
+        { autoplay: false },
+      )
     })
     expect(document.title).toBe('Paranoid Android — Radiohead, Jane Doe · FXM')
 

@@ -35,10 +35,11 @@ export function useRouteHandle(): RouteHandle | undefined {
 export function useDocumentTitle(handle: RouteHandle | undefined, track?: Track) {
   const title = handle?.title
   const trackTitle = track?.title
-  const artists = track?.artists.map((artist) => artist.name).filter(Boolean).join(', ')
-  const nowPlayingTitle = trackTitle
-    ? [trackTitle, artists].filter(Boolean).join(' — ')
-    : undefined
+  const artists = track?.artists
+    .map((artist) => artist.name)
+    .filter(Boolean)
+    .join(', ')
+  const nowPlayingTitle = trackTitle ? [trackTitle, artists].filter(Boolean).join(' — ') : undefined
 
   useEffect(() => {
     document.title = nowPlayingTitle
