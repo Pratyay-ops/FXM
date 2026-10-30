@@ -1,4 +1,4 @@
-import { APP_NAME } from '@fxm/core'
+import { APP_NAME, type Track } from '@fxm/core'
 import { useEffect } from 'react'
 import { useMatches } from 'react-router'
 
@@ -28,10 +28,23 @@ export function useRouteHandle(): RouteHandle | undefined {
   return undefined
 }
 
-/** Keeps `document.title` in step with the current route ("Search · FXM"). */
-export function useDocumentTitle(handle: RouteHandle | undefined) {
+/**
+ * Keeps the browser tab title in step with the route and the current track. A selected track
+ * takes precedence while it remains in the queue; clearing the queue restores the route title.
+ */
+export function useDocumentTitle(handle: RouteHandle | undefined, track?: Track) {
   const title = handle?.title
+  const trackTitle = track?.title
+  const artists = track?.artists.map((artist) => artist.name).filter(Boolean).join(', ')
+  const nowPlayingTitle = trackTitle
+    ? [trackTitle, artists].filter(Boolean).join(' — ')
+    : undefined
+
   useEffect(() => {
-    document.title = !title || title === 'Home' ? APP_NAME : `${title} · ${APP_NAME}`
-  }, [title])
+    document.title = nowPlayingTitle
+      ? `${nowPlayingTitle} · ${APP_NAME}`
+      : !title || title === 'Home'
+        ? APP_NAME
+        : `${title} · ${APP_NAME}`
+  }, [title, nowPlayingTitle])
 }
