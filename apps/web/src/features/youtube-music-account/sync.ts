@@ -9,12 +9,15 @@ import {
   type Album,
   type Artist,
   type EntityId,
-  type JsonValue,
-  type Track,
   formatId,
+  type JsonValue,
   parseId,
+  type Track,
 } from '@fxm/core'
-import type { YouTubeMusicAccountSnapshot, YouTubeMusicPlaylist } from '@fxm/sources/youtube/account'
+import type {
+  YouTubeMusicAccountSnapshot,
+  YouTubeMusicPlaylist,
+} from '@fxm/sources/youtube/account'
 import type { LibraryRepo } from '../../db/repo'
 
 const STATE_PREFIX = 'youtube-music-account.'
@@ -36,8 +39,13 @@ interface YouTubeMusicSyncState {
 }
 export interface YouTubeMusicSyncLibrary {
   getPlaylistList(): ReturnType<LibraryRepo['getPlaylistList']>
-  createPlaylist(input: Parameters<LibraryRepo['createPlaylist']>[0]): ReturnType<LibraryRepo['createPlaylist']>
-  addTracks(id: EntityId<'playlist'>, tracks: readonly Track[]): ReturnType<LibraryRepo['addTracks']>
+  createPlaylist(
+    input: Parameters<LibraryRepo['createPlaylist']>[0],
+  ): ReturnType<LibraryRepo['createPlaylist']>
+  addTracks(
+    id: EntityId<'playlist'>,
+    tracks: readonly Track[],
+  ): ReturnType<LibraryRepo['addTracks']>
   isFollowing(id: EntityId<'album' | 'artist'>): ReturnType<LibraryRepo['isFollowing']>
   follow(entity: Album | Artist): ReturnType<LibraryRepo['follow']>
   getSetting(key: string): Promise<JsonValue | undefined>
