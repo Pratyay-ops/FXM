@@ -52,6 +52,7 @@ export interface YouTubeMusicArtist {
 }
 
 export interface YouTubeMusicLibrarySnapshot {
+  accountId: string
   displayName?: string
   likedSongs: YouTubeMusicTrack[]
   songs: YouTubeMusicTrack[]
@@ -114,7 +115,8 @@ function items(value: unknown): unknown[] {
 
 function artworkOf(value: unknown): YouTubeMusicArtwork[] {
   const node = record(value)
-  const source = items(node?.thumbnails)
+  const nested = record(node?.thumbnail)
+  const source = items(node?.thumbnails ?? node?.contents ?? nested?.contents ?? nested?.thumbnails)
   return source.flatMap((entry) => {
     const image = record(entry)
     const url = text(image?.url, 2048)
@@ -163,6 +165,7 @@ function idOf(value: RecordLike): string | undefined {
 function trackOf(value: unknown): YouTubeMusicTrack | undefined {
   const row = record(value)
   if (row === undefined) return undefined
+  if (row.item_type !== undefined && row.item_type !== 'song') return undefined
   const videoId = idOf(row)
   const title = text(row.title) ?? text(row.name)
   if (videoId === undefined || title === undefined) return undefined
@@ -183,14 +186,6 @@ function trackOf(value: unknown): YouTubeMusicTrack | undefined {
   }
 }
 
-function sectionItems(page: unknown): unknown[] {
-  const pageRecord = record(page)
-  return items(pageRecord?.contents).flatMap((section) => {
-    const node = record(section)
-    return items(node?.contents)
-  })
-}
-
 async function collectPages(
   first: unknown,
   readItems: (page: unknown) => unknown[],
@@ -200,11 +195,13 @@ async function collectPages(
   let page = first
   for (let index = 0; index < MAX_PAGES; index++) {
     rows.push(...readItems(page))
-    if (rows.length >= limit) return { rows: rows.slice(0, limit), truncated: true }
     const current = record(page)
-    if (current?.has_continuation !== true || typeof current.getContinuation !== 'function') {
-      return { rows, truncated: false }
+    const hasContinuation =
+      current?.has_continuation === true && typeof current.getContinuation === 'function'
+    if (rows.length >= limit) {
+      return { rows: rows.slice(0, limit), truncated: hasContinuation }
     }
+    if (!hasContinuation) return { rows, truncated: false }
     page = await (current.getContinuation as () => Promise<unknown>)()
   }
   return { rows: rows.slice(0, limit), truncated: true }
@@ -286,8 +283,21 @@ export async function readYouTubeMusicLibrary(
     fetch: cookieSafeFetch(fetcher),
   })
 
-  const account = await innertube.account.getInfo()
-  const displayName = text(record(account)?.name) ?? text(record(account)?.title)
+  const accountItems = items(await innertube.account.getInfo(true))
+  const selectedAccount =
+    accountItems.map(record).find((item) => item?.is_selected === true) ??
+    accountItems.map(record).find((item) => item !== undefined)
+  const accountEndpoint = record(selectedAccount?.endpoint)
+  const accountPayload = record(accountEndpoint?.payload)
+  const accountId =
+    text(accountPayload?.browseId, 256) ??
+    text(accountPayload?.channelId, 256) ??
+    text(selectedAccount?.channel_handle, 256) ??
+    text(selectedAccount?.account_name, 256)
+  const displayName = text(selectedAccount?.account_name)
+  if (accountId === undefined) {
+    throw new Error('YouTube Music did not identify the signed-in channel')
+  }
 
   const library = await innertube.music.getLibrary()
   const filters = items(record(library)?.filters).filter((value): value is string => typeof value === 'string')
@@ -326,7 +336,7 @@ export async function readYouTubeMusicLibrary(
     return [{
       browseId,
       title,
-      artists: artistsOf(row.artists),
+      artists: artistsOf(row.artists ?? (row.author === undefined ? [] : [row.author])),
       artwork: artworkOf(row.thumbnail ?? row),
       ...(text(row.year, 32) === undefined ? {} : { year: text(row.year, 32) }),
     }]
@@ -358,6 +368,7 @@ export async function readYouTubeMusicLibrary(
   }
 
   return {
+    accountId,
     ...(displayName === undefined ? {} : { displayName }),
     likedSongs,
     songs,
