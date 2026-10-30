@@ -339,8 +339,6 @@ describe('localhost pages (dev build)', () => {
       code: 'login-disabled',
     })
   })
-})
-
 
 describe('YouTube Music account bridge', () => {
   const request = (id: string | number = 'ytm-1') => ({
