@@ -70,8 +70,8 @@ describe('readYouTubeMusicAccount', () => {
               items: [track],
               has_continuation: false,
               async getContinuation() {
-            return this
-          },
+                return this
+              },
             }
           },
         },
