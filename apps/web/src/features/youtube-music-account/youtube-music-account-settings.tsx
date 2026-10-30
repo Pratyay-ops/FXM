@@ -2,8 +2,8 @@ import { hasConnectFeature } from '@fxm/platform'
 import { AlertCircle, CheckCircle2, ExternalLink, RefreshCw } from 'lucide-react'
 import { useState } from 'react'
 import { buttonClasses } from '../../components/ui/button'
-import { getLibrary } from '../../db/repo'
 import { getAppServices } from '../../app/services'
+import { getLibrary } from '../../db/repo'
 import { SettingsSection } from '../settings/settings-layout'
 import {
   forgetYouTubeMusicSyncHistory,
