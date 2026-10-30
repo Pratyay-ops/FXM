@@ -10,7 +10,7 @@ FXM hosts nothing: no server, no gateway, no proxy. The web app is a static site
 - googlevideo media servers send the audio to anyone, so a plain `<audio src>` plays. They only send `Access-Control-Allow-Origin` to YouTube origins, though, and `fetch()`, downloads, MediaSource and the equalizer (Web Audio, through `<audio crossorigin>`) need it.
 - Spotify's `open.spotify.com/api/token` and `/api/server-time` send no CORS headers. Last.fm's station JSON doesn't either.
 
-FXM Connect fixes this with a fixed list of declarativeNetRequest (DNR) rules that rewrite a few request and response headers, only for requests the FXM pages make, only to these services. All YouTube and Spotify logic stays in the web app, so when YouTube changes something, FXM is fixed by redeploying the static site. The extension needs no update for that. Its only Spotify-specific code is the bridge (below): an always-on, cookie-free server-time relay and the optional login token.
+FXM Connect fixes this with a fixed list of declarativeNetRequest (DNR) rules that rewrite a few request and response headers, only for requests the FXM pages make, only to these services. Catalog, search and playback logic stays in the web app. The optional authenticated YouTube Music account reader runs in the extension background because it must use the browser's existing login cookies without exposing them to page JavaScript. Spotify's optional account bridge also runs in the background.
 
 ## What it does
 
@@ -24,31 +24,32 @@ FXM Connect fixes this with a fixed list of declarativeNetRequest (DNR) rules th
    | `api-partner.spotify.com`, `spclient.wg.spotify.com` | none | ACAO, allowed methods and Spotify headers, `-Max-Age: 600` |
    | `www.last.fm/player/station/*` | none | ACAO |
 
-   On top of that, every rule removes the `Cookie` request header and the `Set-Cookie` and `Access-Control-Allow-Credentials` response headers. The FXM page therefore never sends or changes your cookies for these services, and these rules never make it act as your logged-in account: only the optional Spotify login (item 3) does that, after you turn it on. No rule sets `Access-Control-Allow-Credentials`.
+   On top of that, every rule removes the `Cookie` request header and the `Set-Cookie` and `Access-Control-Allow-Credentials` response headers. The FXM page therefore never sends or changes your cookies for these services. These rules never authenticate the page as your account: account access is handled separately by the opt-in Spotify and YouTube Music background bridges below. No rule sets `Access-Control-Allow-Credentials`.
 
    **Why `*` on googlevideo media (since 0.2.1).** googlevideo may answer a media request with a 302 to another googlevideo host (`cms_redirect=yes`; a company proxy in the path makes it common). After a redirect to another origin the browser sends the next request with `Origin: null` (a tainted origin), and the exact FXM origin doesn't match `null`. Songs still played, since a plain `<audio src>` needs no CORS, but downloads and the equalizer failed. `*` matches both. It gives nothing away: the rule still only matches requests an FXM page started (`initiatorDomains`, which a redirect doesn't change, and only with host access to the exact FXM host), the browser never lets a wildcard answer be read by a request with credentials, and the rule strips cookies and `Access-Control-Allow-Credentials` anyway. The 302 itself gets the header too, so its own CORS check passes. Preflights never follow redirects, so the preflight rule keeps the exact origin.
 
 2. **Presence handshake.** A content script on the FXM pages runs at `document_start`. It sets `data-fxm-connect="<version>"` on `<html>` and answers a ping (see [For the web app](#for-the-web-app)).
 
-3. **Spotify bridge.** The background makes two requests for the FXM page, both to open.spotify.com, and returns only the HTTP status and the JSON body. Together they are limited to about ten a minute. Everything else is rejected.
+3. **Account bridges (optional).** The background has two independent, off-by-default account options. Spotify requests are fixed to open.spotify.com. YouTube Music requests use the existing `youtubei.js` Music client against its fixed, allow-listed InnerTube hosts; the web page can request only one operation ("read my YouTube Music library"), never an arbitrary URL or cookie header. The two account options are independently revocable.
 
    - **Server time, always on.** `GET https://open.spotify.com/api/server-time`, without credentials, whenever an FXM page asks: Spotify's web-player tokens need Spotify's clock. It needs no setting, also serves private windows and isn't tied to any account.
    - **Your Spotify login (optional, off by default).** Cross-site cookies are not sent on the page's own requests, so only the extension can get a token for your Spotify login. If you turn on **Use my Spotify login from this browser** on the options page, the FXM page can ask FXM Connect for one; the web app does so only for its Spotify account sync, which is experimental (tested against a stand-in for Spotify, not yet with real accounts) and off until you connect your account in its Settings. The background then makes one request: `GET https://open.spotify.com/api/token`. It forwards only the query parameters `reason`, `productType`, `totp`, `totpServer` and `totpVer`, each validated, and sends your browser's existing open.spotify.com cookies (`credentials: 'include'`).
 
-   In Firefox, turning the login on also asks for Firefox's consent to share authentication information. The Firefox manifest declares `authenticationInfo` as optional data collection, the options page requests it with `permissions.request()`, and the background serves tokens only while Firefox reports it as granted ([`src/consent.ts`](src/consent.ts)). Withdrawing the consent in `about:addons` turns the login off, and turning the login off gives the consent back. Firefox's prompt says "Share authentication information with extension developer": here the developer's code that gets the token is the FXM web app in the same browser, and no server receives it, as the options page explains.
+   In Firefox, turning either account option on also asks for Firefox's consent to share authentication information. The Firefox manifest declares `authenticationInfo` as optional data collection, the options page requests it with `permissions.request()`, and the background serves account requests only while Firefox reports it as granted ([`src/consent.ts`](src/consent.ts)). Withdrawing the consent in `about:addons` turns both account bridges off. Firefox's prompt says "Share authentication information with extension developer"; no FXM server receives the account credentials.
 
-   The token request always carries the cookies of the browser's normal windows, because one background serves every tab. So it is refused for pages in private (incognito) windows and Firefox container tabs, where you may be signed in to another Spotify account or none.
+   The Spotify token request always carries the cookies of the browser's normal windows, because one background serves every tab. The YouTube Music bridge reads the current normal-profile `music.youtube.com` cookie jar only after its separate opt-in and the optional `cookies` permission are granted. It uses the cookie in memory to create an authenticated InnerTube client, returns only normalized music metadata plus a non-reversible account fingerprint, and never returns or persists cookie values. Both account bridges refuse private/incognito windows and Firefox container tabs.
 
-   The toggle lives in IndexedDB in the extension's own origin, which only the options page and the background can open. It is deliberately not in `storage.local`: content scripts can write that, so code running in a compromised FXM page renderer could switch your Spotify login on by itself. The content script can't even read the toggle; it asks the background whether to announce the `spotify-login` feature.
+   Both toggles live in IndexedDB in the extension's own origin, which only the options page and the background can open. They are deliberately not in `storage.local`: content scripts can write that, so code running in a compromised FXM page renderer could switch account access on by itself. The content script can't read either toggle; it asks the background whether to announce `spotify-login` and `youtube-music-login` separately.
 
-The options page (click the toolbar button, or open the extension's options) shows the version, the allowed FXM pages, the Spotify toggle and a link to FXM.
+The options page (click the toolbar button, or open the extension's options) shows the version, the allowed FXM pages, separate Spotify and YouTube Music account toggles, and a link to FXM.
 
 ## Permissions
 
 | Permission | Why |
 |---|---|
 | `declarativeNetRequest` | Applies the static header rules in `rules.json`. FXM Connect has no `webRequest`, so it can't see or change any traffic beyond what those rules describe. |
-| `storage` | Keeps the bridge's rate-limit counter in `storage.session` (in memory, cleared when the browser closes). The Spotify toggle is in the extension's IndexedDB instead, out of content scripts' reach. |
+| `storage` | Keeps the bridge's rate-limit counter in `storage.session` (in memory, cleared when the browser closes). The account toggles are in the extension's IndexedDB instead, out of content scripts' reach. |
+| `cookies` (optional) | Granted only when the user enables **Use my YouTube Music login from this browser**. Reads the normal-profile YouTube Music session inside the extension background; revoking the toggle removes this optional permission. |
 | `https://fxmusic.pages.dev/*` | Runs the presence content script there. Browsers also require host access to the page that starts a request before DNR may modify its headers. |
 | `https://www.youtube.com/*`, `https://music.youtube.com/*`, `https://youtubei.googleapis.com/*` | YouTube and YouTube Music InnerTube API (search, browse, player data) |
 | `https://*.googlevideo.com/*` | YouTube media bytes |
@@ -56,14 +57,14 @@ The options page (click the toolbar button, or open the extension's options) sho
 | `https://api-partner.spotify.com/*`, `https://spclient.wg.spotify.com/*` | Spotify's GraphQL (pathfinder) and spclient APIs |
 | `https://www.last.fm/*` | Keyless Last.fm recommendation stations (the rule only touches `/player/station/`) |
 
-There is no `<all_urls>`, no `cookies`, `tabs`, `scripting` or `webRequest` permission, and no `externally_connectable`.
+There is no `<all_urls>`, no mandatory `cookies`, `tabs`, `scripting` or `webRequest` permission, and no `externally_connectable`. Cookie access is optional and user-granted only for YouTube Music account sync.
 
 ## Privacy
 
 - **Nothing goes to FXM.** FXM Connect has no analytics, no telemetry and no servers. It stores one setting (in its own IndexedDB) and a rate-limit counter (in `storage.session`) in your browser. If the browser clears the extension's site data, the setting returns to off.
-- **One piece of personal data, only if you opt in.** With the Spotify login on, FXM Connect passes the token of your Spotify login to the FXM page in the same browser, which uses it only for its requests to Spotify. That is the only personal data it handles, so the Firefox manifest declares `data_collection_permissions: { required: ["none"], optional: ["authenticationInfo"] }` and the Edge listing declares authentication information.
-- **No cookies read.** FXM Connect has no `cookies` permission and never reads, stores or forwards cookies. Its rules strip cookies from the FXM page's requests to these services. The one exception is the opt-in Spotify bridge. There the browser itself attaches your open.spotify.com cookies to the single token request, exactly as it does on open.spotify.com, and FXM Connect hands the page only the token response.
-- **No remote code.** Everything that runs ships inside the extension, as readable, unminified files built from this folder. There is no `eval` and no downloaded script. A strict content security policy (`default-src 'none'`) limits the options page and the background to their own scripts, styles and images, and lets them connect to `https://open.spotify.com` only, so the browser itself stops FXM Connect from contacting any other server.
+- **Account access is opt-in.** With Spotify login enabled, FXM Connect passes the Spotify token to the FXM page in the same browser for Spotify account sync. With YouTube Music login enabled, the extension reads the normal-profile YouTube Music cookies in its background, uses them only for authenticated InnerTube reads, and returns normalized music-library metadata—not credentials—to the FXM page. No account credentials or cookie values are sent to an FXM server. Firefox declares `data_collection_permissions: { required: ["none"], optional: ["authenticationInfo"] }`; Edge's store listing declares authentication information.
+- **No cookie values reach the FXM page.** DNR rules strip cookies from ordinary FXM page requests. The Spotify bridge lets the browser attach its existing Spotify cookies to a fixed token request. The YouTube Music bridge requires the optional `cookies` permission and reads the normal-profile `music.youtube.com` cookies only in the extension background. The YTM cookie is used in memory; it is never returned to the page, persisted, logged or sent to an FXM server.
+- **No remote code.** Everything that runs ships inside the extension, as readable, unminified files built from this folder. There is no `eval` and no downloaded script. A strict content security policy (`default-src 'none'`) limits the options page and the background to their own scripts, styles and images, and lets them connect only to the fixed Spotify and YouTube Music/InnerTube hosts required by the account readers.
 - **Only FXM pages.** The content script and the bridge check the exact origin and that a message comes from the page itself. Other sites get nothing, and the rules ignore requests they start.
 
 ## Install
@@ -154,6 +155,7 @@ The pong lists `features`:
 | `lastfm` | Last.fm station CORS rule |
 | `spotify-server-time` | The bridge relays `/api/server-time` |
 | `spotify-login` | The user turned on **Use my Spotify login from this browser** (in Firefox: and consented) and the tab is a normal one, so token requests are served |
+| `youtube-music-login` | The user enabled YouTube Music account access, granted optional cookie permission (and Firefox consent where applicable), and the tab is a normal one |
 
 ### Making requests
 
