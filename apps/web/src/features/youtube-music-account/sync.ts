@@ -29,7 +29,6 @@ import type {
   YouTubeMusicAlbum,
   YouTubeMusicArtist,
   YouTubeMusicLibrarySnapshot,
-  YouTubeMusicPlaylist,
   YouTubeMusicTrack,
 } from './types'
 
@@ -260,6 +259,9 @@ async function syncCopy(options: {
     remoteTracks,
   } = options
   const view = await library.getPlaylistView(localId)
+  if (previous?.dismissed === true) {
+    return { state: previous, created: false, added: 0, dismissed: true }
+  }
   if (view === undefined && previous !== undefined) {
     // The copy existed before but the user removed it. Remember that choice forever.
     return {
@@ -268,9 +270,6 @@ async function syncCopy(options: {
       added: 0,
       dismissed: true,
     }
-  }
-  if (previous?.dismissed === true && view === undefined) {
-    return { state: previous, created: false, added: 0, dismissed: true }
   }
 
   const unique = uniqueTracks(remoteTracks)
