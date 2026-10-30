@@ -92,9 +92,9 @@ export function YouTubeMusicAccountSettings() {
           device's FXM library. FXM never changes your YouTube Music account.
         </p>
         <p className="text-sm text-text-muted">
-          First enable "Use my YouTube Music login from this browser" in FXM Connect's options.
-          The extension requests the optional browser cookies permission; credentials remain inside
-          the extension and only normalized music metadata reaches FXM.
+          First enable "Use my YouTube Music login from this browser" in FXM Connect's options. The
+          extension requests the optional browser cookies permission; credentials remain inside the
+          extension and only normalized music metadata reaches FXM.
         </p>
         <p className="text-sm text-text-muted">
           This uses YouTube Music's unofficial internal interface and is experimental. It can
