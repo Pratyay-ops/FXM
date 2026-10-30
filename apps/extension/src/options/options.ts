@@ -5,7 +5,12 @@
 // its options.html: the release build drops them (data-dev, scripts/options-page.ts).
 import { DEV_BUILD, ORIGINS } from '../build-info.ts'
 import { loginConsent } from '../consent.ts'
-import { indexedDbSettings, SETTINGS_CHANNEL, type Settings } from '../settings.ts'
+import {
+  DEFAULT_SETTINGS,
+  indexedDbSettings,
+  SETTINGS_CHANNEL,
+  type Settings,
+} from '../settings.ts'
 import { webExtApi } from '../webext.ts'
 
 const api = webExtApi()
@@ -29,6 +34,7 @@ function showStatus(text: string, error = false): void {
 
 byId('version', HTMLElement).textContent = api.runtime.getManifest().version
 byId('spotify-consent-help', HTMLElement).hidden = !consent.needed
+byId('youtube-music-consent-help', HTMLElement).hidden = !consent.needed
 
 const list = byId('origins', HTMLUListElement)
 for (const origin of ORIGINS) {
@@ -76,15 +82,36 @@ const toggles: Toggle[] = [
         ? 'Saved. FXM can now use your Spotify login from this browser.'
         : 'Saved. FXM can no longer use your Spotify login.',
   },
+  {
+    input: byId('youtube-music-login', HTMLInputElement),
+    key: 'youtubeMusicLogin',
+    saved: (on) =>
+      on
+        ? 'Saved. FXM Connect can now read your YouTube Music library in this browser.'
+        : 'Saved. FXM Connect can no longer read your YouTube Music library.',
+  },
   ...(DEV_BUILD ? developmentParts() : []),
 ]
 
 /** Firefox asks for consent before the login goes on. True where no consent is needed. */
 async function consentFor(key: keyof Settings, enabled: boolean): Promise<boolean> {
-  if (key !== 'spotifyLogin' || !enabled) return true
+  if (!enabled) return true
   try {
-    // Called before anything is awaited: Firefox only asks during the click that started it.
-    return await consent.request()
+    if (key === 'youtubeMusicLogin') {
+      // Cookies are an optional API permission, requested only in response to this user action.
+      // Combine it with Firefox's authenticationInfo consent in the same permission request.
+      return (
+        (await api.permissions?.request({
+          permissions: ['cookies'],
+          ...(consent.needed ? { data_collection: ['authenticationInfo'] } : {}),
+        })) === true
+      )
+    }
+    if (key === 'spotifyLogin') {
+      // Called directly from the click handler: Firefox only asks during the action that started it.
+      return await consent.request()
+    }
+    return true
   } catch {
     return false
   }
@@ -95,7 +122,12 @@ for (const { input, key, saved } of toggles) {
     const enabled = input.checked
     if (!(await consentFor(key, enabled))) {
       input.checked = false
-      showStatus("Firefox didn't get your consent, so FXM can't use your Spotify login.", true)
+      showStatus(
+        key === 'youtubeMusicLogin'
+          ? "FXM Connect didn't get the required permission, so it can't read your YouTube Music library."
+          : "Firefox didn't get your consent, so FXM can't use your Spotify login.",
+        true,
+      )
       return
     }
     try {
@@ -107,7 +139,15 @@ for (const { input, key, saved } of toggles) {
       showStatus('Could not save the setting. Please try again.', true)
       return
     }
-    if (key === 'spotifyLogin' && !enabled) await consent.release().catch(() => {})
+    if (key === 'youtubeMusicLogin' && !enabled) {
+      await api.permissions?.remove({ permissions: ['cookies'] }).catch(() => {})
+    }
+    if (!enabled && (key === 'spotifyLogin' || key === 'youtubeMusicLogin')) {
+      const latest = await settings.read().catch(() => DEFAULT_SETTINGS)
+      if (!latest.spotifyLogin && !latest.youtubeMusicLogin) {
+        await consent.release().catch(() => {})
+      }
+    }
   })
 }
 
@@ -116,8 +156,14 @@ async function load(): Promise<void> {
     const current = await settings.read()
     // In Firefox the login is on only with the consent, which the user can withdraw elsewhere.
     const consented = await consent.granted().catch(() => false)
+    const cookiesGranted = await api.permissions
+      ?.contains({ permissions: ['cookies'] })
+      .catch(() => false)
     for (const { input, key } of toggles) {
-      input.checked = current[key] && (key !== 'spotifyLogin' || consented)
+      input.checked =
+        current[key] &&
+        ((key !== 'spotifyLogin' && key !== 'youtubeMusicLogin') || consented) &&
+        (key !== 'youtubeMusicLogin' || cookiesGranted === true)
     }
   } catch {
     showStatus('Could not read the settings.', true)

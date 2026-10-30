@@ -23,11 +23,10 @@
       </header>
 
       <p class="lead">
-        FXM Connect only lets the FXM web app reach music services (YouTube, Spotify and
-        Last.fm) from your own browser. It adds the headers those services need to answer FXM,
-        fetches Spotify's public server time for it and, only if you turn on the Spotify setting
-        below, gets a Spotify token for your own Spotify login. It has no analytics or tracking
-        and runs no remote code.
+        FXM Connect lets the FXM web app reach music services from your own browser. Account
+        access is separate for Spotify and YouTube Music, off by default, and only enabled when
+        you explicitly opt in below. Cookies and account credentials stay inside the extension;
+        only music metadata is returned to FXM. It has no analytics or tracking.
       </p>
 
       <p id="dev-warning" class="warning" data-dev hidden>
@@ -36,6 +35,33 @@
         login off for localhost, or use a separate browser profile for development. Never
         publish this build.
       </p>
+
+      <section aria-labelledby="youtube-music-title">
+        <h2 id="youtube-music-title">YouTube Music</h2>
+        <div class="setting">
+          <input
+            type="checkbox"
+            id="youtube-music-login"
+            aria-describedby="youtube-music-login-help"
+            disabled
+          />
+          <label for="youtube-music-login">Use my YouTube Music login from this browser</label>
+        </div>
+        <p id="youtube-music-login-help" class="help">
+          Off by default. When on, FXM Connect can read the YouTube cookies needed to access the
+          YouTube Music library you are signed in to in this browser. FXM Connect uses them only
+          in its own background to request your music library and sends FXM only normalized music
+          metadata. It never sends your cookies or account credentials to the FXM page or a
+          server. The account reader uses YouTube's unofficial InnerTube interface, which may
+          change and can stop working. FXM only reads your music library; it does not change your
+          YouTube Music account.
+        </p>
+        <p id="youtube-music-consent-help" class="help" hidden>
+          Firefox may ask you to allow FXM Connect to handle authentication information when you
+          enable account access. The extension uses the browser session locally to retrieve music
+          metadata; no FXM server receives your cookies or credentials.
+        </p>
+      </section>
 
       <section aria-labelledby="spotify-title">
         <h2 id="spotify-title">Spotify</h2>

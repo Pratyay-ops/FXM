@@ -135,7 +135,14 @@ export interface Manifest {
  * <hash>.fxmusic.pages.dev.
  */
 export function hostPermissions(origins: readonly string[]): string[] {
-  return [...new Set([...origins.map(originMatchPattern), ...ruleHostPermissions()])]
+  return [
+    ...new Set([
+      ...origins.map(originMatchPattern),
+      // Domain-scoped YouTube session cookies may be attached to youtube.com itself.
+      'https://youtube.com/*',
+      ...ruleHostPermissions(),
+    ]),
+  ]
 }
 
 function icons(sizes: readonly number[]): Record<string, string> {
