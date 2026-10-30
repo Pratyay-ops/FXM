@@ -1,4 +1,4 @@
-import { formatId, type Album, type Artist, type Track } from '@fxm/core'
+import { type Album, type Artist, formatId, type Track } from '@fxm/core'
 import type { YouTubeMusicAccountSnapshot } from '@fxm/sources/youtube/account'
 import { describe, expect, it } from 'vitest'
 import {
