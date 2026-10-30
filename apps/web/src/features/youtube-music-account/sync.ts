@@ -6,7 +6,13 @@
  * Import bookkeeping is stored under a device-local setting (not the sync. prefix).
  */
 import {
-  type Album, type Artist, type EntityId, type JsonValue, type Track, formatId, parseId,
+  type Album,
+  type Artist,
+  type EntityId,
+  type JsonValue,
+  type Track,
+  formatId,
+  parseId,
 } from '@fxm/core'
 import type { YouTubeMusicAccountSnapshot, YouTubeMusicPlaylist } from '@fxm/sources/youtube/account'
 import type { LibraryRepo } from '../../db/repo'
@@ -99,7 +105,7 @@ function accountSettingKey(account: string): string {
   return STATE_PREFIX + account
 }
 function localListId(account: string, remoteKey: string): EntityId<'playlist'> {
-  return formatId('local', 'playlist', 'youtube-music-' + account + '-' + remoteKey)
+  return formatId('local', 'playlist', `youtube-music-${account}-${remoteKey}`)
 }
 function mergeIds(before: readonly string[], incoming: readonly string[]): string[] {
   return [...new Set([...before, ...incoming])]
