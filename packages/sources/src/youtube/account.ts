@@ -109,7 +109,7 @@ function artworkOf(item: MusicItem): Artwork[] {
   const thumbnails = Array.isArray(raw)
     ? raw
     : Array.isArray(record(raw)?.contents)
-      ? record(raw)?.contents as readonly unknown[]
+      ? (record(raw)?.contents as readonly unknown[])
       : Array.isArray(item.artwork)
         ? item.artwork
         : []
@@ -181,10 +181,7 @@ function albumOf(value: unknown): Album | undefined {
 function artistOf(value: unknown): Artist | undefined {
   const item = value as MusicItem
   if (!['artist', 'library_artist'].includes(item.item_type ?? '')) return undefined
-  const nativeId =
-    item.id ??
-    item.author?.channel_id ??
-    record(record(item.endpoint)?.payload)?.browseId
+  const nativeId = item.id ?? item.author?.channel_id ?? record(record(item.endpoint)?.payload)?.browseId
   const id = typeof nativeId === 'string' ? youTubeEntityId('ytm', 'artist', nativeId) : undefined
   const name = text(item.title) ?? text(item.name)
   if (!id || !name) return undefined
