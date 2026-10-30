@@ -13,7 +13,7 @@ import {
 import { fxmOrigins } from './config.ts'
 import { MESSAGE } from './messages.ts'
 import type { SettingsStore } from './settings.ts'
-import type { MessageSender, StorageArea, WebExtApi } from './webext.ts'
+import type { BrowserCookie, MessageSender, StorageArea, WebExtApi } from './webext.ts'
 
 const FXM = 'https://fxmusic.pages.dev'
 const PAGE: SenderContext = { origin: FXM, privateTab: false }
@@ -42,7 +42,11 @@ function jsonFetch(body: unknown = TOKEN_JSON, status = 200) {
 
 interface SetupOptions {
   login?: boolean
-  /** Firefox's consent for the login (consent.ts); left out, as in Chromium. */
+  youtubeLogin?: boolean
+  youtubeCookiePermission?: boolean
+  youtubeCookies?: BrowserCookie[]
+  youtubeMusicLibrary?: (cookieHeader: string) => Promise<unknown>
+  /** Firefox's consent for account access (consent.ts); left out, as in Chromium. */
   consent?: boolean
   settings?: Pick<SettingsStore, 'read'>
   origins?: readonly string[]
@@ -60,8 +64,41 @@ function setup(options: SetupOptions = {}) {
     read: vi.fn(async () => ({
       spotifyLogin: options.login === true,
       spotifyLoginLocalhost: false,
+      youtubeMusicLogin: options.youtubeLogin === true,
     })),
   }
+  const cookies = {
+    getAll: vi.fn(async () =>
+      options.youtubeCookies ?? [
+        { name: 'SAPISID', value: 'sap-secret', domain: '.youtube.com', secure: true },
+        { name: 'SID', value: 'must-not-read', domain: '.youtube.com', httpOnly: true },
+      ],
+    ),
+  }
+  const permissions = {
+    contains: vi.fn(async (request: { permissions?: string[] }) =>
+      request.permissions?.includes('cookies') === true
+        ? options.youtubeCookiePermission === true
+        : true,
+    ),
+  }
+  const youtubeMusicLibrary =
+    options.youtubeMusicLibrary ?? (async () => ({
+      accountId: 'UC-test',
+      likedSongs: [],
+      songs: [],
+      playlists: [],
+      albums: [],
+      artists: [],
+      truncated: {
+        likedSongs: false,
+        songs: false,
+        playlists: false,
+        albums: false,
+        artists: false,
+        playlistTracks: 0,
+      },
+    }))
   const bridge = createBridge({
     runtimeId: RUNTIME_ID,
     origins: options.origins ?? fxmOrigins(false),
@@ -71,12 +108,15 @@ function setup(options: SetupOptions = {}) {
       : {}),
     session: options.session,
     dnr: options.dnr,
+    permissions,
+    cookies,
+    youtubeMusicLibrary,
     fetch,
     now: () => clock.now,
     ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
     ...(options.maxResponseBytes ? { maxResponseBytes: options.maxResponseBytes } : {}),
   })
-  return { bridge, fetch, clock, settings }
+  return { bridge, fetch, clock, settings, cookies, permissions, youtubeMusicLibrary }
 }
 
 const token = (id: string | number = 'a') => ({ type: MESSAGE.spotifyToken, id, params: PARAMS })
@@ -213,6 +253,89 @@ describe('Spotify token relay', () => {
       code: 'bad-request',
     })
     expect(fetch).not.toHaveBeenCalled()
+  })
+})
+
+
+describe('YouTube Music library bridge', () => {
+  const request = (id = 'music') => ({ type: MESSAGE.youtubeMusicLibrary, id })
+
+  it('reads a YouTube Music library only after the separate opt-in and cookie permission', async () => {
+    const { bridge, cookies, youtubeMusicLibrary } = setup({
+      youtubeLogin: true,
+      youtubeCookiePermission: true,
+    })
+    const reply = await bridge.handle(request(), PAGE)
+    expect(reply).toMatchObject({
+      type: MESSAGE.response,
+      id: 'music',
+      status: 200,
+      json: { accountId: 'UC-test', likedSongs: [], playlists: [] },
+    })
+    expect(cookies.getAll).toHaveBeenCalledWith({ domain: 'youtube.com' })
+    // youtubei.js only needs SAPISID for its SAPISIDHASH authorization. Do not pass any of
+    // Google's other sign-in cookies to the reader, and never return a cookie to the page.
+    expect(youtubeMusicLibrary).toHaveBeenCalledWith('SAPISID=sap-secret')
+    expect(JSON.stringify(reply)).not.toContain('sap-secret')
+    expect(JSON.stringify(reply)).not.toContain('must-not-read')
+  })
+
+  it('does not read cookies when the YouTube Music setting is off', async () => {
+    const { bridge, cookies, youtubeMusicLibrary } = setup({
+      youtubeLogin: false,
+      youtubeCookiePermission: true,
+    })
+    expect(await bridge.handle(request(), PAGE)).toMatchObject({ code: 'login-disabled' })
+    expect(cookies.getAll).not.toHaveBeenCalled()
+    expect(youtubeMusicLibrary).not.toHaveBeenCalled()
+  })
+
+  it('does not read cookies until the optional cookies API permission is granted', async () => {
+    const { bridge, cookies, youtubeMusicLibrary } = setup({
+      youtubeLogin: true,
+      youtubeCookiePermission: false,
+    })
+    expect(await bridge.handle(request(), PAGE)).toMatchObject({ code: 'login-disabled' })
+    expect(cookies.getAll).not.toHaveBeenCalled()
+    expect(youtubeMusicLibrary).not.toHaveBeenCalled()
+  })
+
+  it('reports signed-out YouTube Music when SAPISID is missing', async () => {
+    const { bridge, youtubeMusicLibrary } = setup({
+      youtubeLogin: true,
+      youtubeCookiePermission: true,
+      youtubeCookies: [{ name: 'SID', value: 'not-auth', domain: '.youtube.com' }],
+    })
+    expect(await bridge.handle(request(), PAGE)).toMatchObject({ code: 'auth-required' })
+    expect(youtubeMusicLibrary).not.toHaveBeenCalled()
+  })
+
+  it('refuses private windows and Firefox containers', async () => {
+    const { bridge, cookies } = setup({ youtubeLogin: true, youtubeCookiePermission: true })
+    expect(await bridge.handle(request(), PRIVATE_PAGE)).toMatchObject({ code: 'private-tab' })
+    expect(cookies.getAll).not.toHaveBeenCalled()
+  })
+
+  it('requires Firefox authenticationInfo consent as well as the local opt-in', async () => {
+    const { bridge, cookies, youtubeMusicLibrary } = setup({
+      youtubeLogin: true,
+      youtubeCookiePermission: true,
+      consent: false,
+    })
+    expect(await bridge.handle(request(), PAGE)).toMatchObject({ code: 'login-disabled' })
+    expect(cookies.getAll).not.toHaveBeenCalled()
+    expect(youtubeMusicLibrary).not.toHaveBeenCalled()
+  })
+
+  it('converts authentication failures into an auth-required bridge error', async () => {
+    const { bridge } = setup({
+      youtubeLogin: true,
+      youtubeCookiePermission: true,
+      youtubeMusicLibrary: async () => {
+        throw new Error('YouTube Music is not signed in in this browser')
+      },
+    })
+    expect(await bridge.handle(request(), PAGE)).toMatchObject({ code: 'auth-required' })
   })
 })
 
