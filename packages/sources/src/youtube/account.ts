@@ -284,7 +284,20 @@ export async function readYouTubeMusicAccount(
     throw new Error('YouTube Music login is unavailable in this browser')
   }
   const createClient = options.createClient ?? ((value: string) =>
-    Innertube.create({ cookie: value, lang: 'en', retrieve_player: false, retrieve_innertube_config: false }))
+    Innertube.create({
+      cookie: value,
+      lang: 'en',
+      retrieve_player: false,
+      retrieve_innertube_config: false,
+      // youtubei.js uses the cookie to calculate SAPISIDHASH. Browsers forbid JavaScript from
+      // setting the Cookie request header, so remove that header and let the extension's
+      // credentialed fetch attach the same normal-profile cookie jar.
+      fetch: (input, init) => {
+        const headers = new Headers(init?.headers)
+        headers.delete('Cookie')
+        return globalThis.fetch(input, { ...init, headers, credentials: 'include' })
+      },
+    }))
   const limits = {
     tracks: options.maxTracks ?? DEFAULT_LIMITS.tracks,
     playlists: options.maxPlaylists ?? DEFAULT_LIMITS.playlists,
@@ -298,9 +311,10 @@ export async function readYouTubeMusicAccount(
     throw new Error('YouTube Music did not return a readable account library')
   }
 
-  const savedTracks = filters.has('songs')
-    ? await collectLibraryFilter(library, filters.get('songs') as string, trackOf, limits.tracks)
-    : []
+  // The current Songs library chip is backed by FEmusic_liked_videos, which can return a small
+  // non-paginated preview. Do not mistake that preview for the complete saved-songs library.
+  // VLLM (music.getPlaylist('LM')) is the fully paginated Liked Music collection.
+  const savedTracks: Track[] = []
   const playlists = filters.has('playlists')
     ? await collectLibraryFilter(library, filters.get('playlists') as string, playlistOf, limits.playlists)
     : []
@@ -315,6 +329,9 @@ export async function readYouTubeMusicAccount(
   const playlistCopies: YouTubeMusicPlaylist[] = []
   for (const entry of playlists) {
     const nativeId = String(entry.id).slice('ytm:playlist:'.length)
+    // Liked Music is the special VLLM playlist. It has its own copy and must not also
+    // appear as a user-created playlist.
+    if (nativeId === 'LM') continue
     const tracks = await collectPlaylistTracks(client, nativeId, limits.tracks)
     playlistCopies.push({ playlist: entry, tracks })
   }
