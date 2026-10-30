@@ -32,13 +32,16 @@ function fakePage(origin = FXM, withRoot = true) {
 }
 
 /** A background that answers the login status, and nothing else. */
-function background(loginEnabled = false) {
+function background(loginEnabled = false, youtubeMusicEnabled = false) {
   return {
-    sendMessage: vi.fn(async (message: unknown) =>
-      (message as { type?: unknown }).type === MESSAGE.loginStatus
-        ? { type: MESSAGE.loginStatus, enabled: loginEnabled }
-        : undefined,
-    ),
+    sendMessage: vi.fn(async (message: unknown) => {
+      const type = (message as { type?: unknown }).type
+      if (type === MESSAGE.loginStatus) return { type: MESSAGE.loginStatus, enabled: loginEnabled }
+      if (type === MESSAGE.youtubeMusicLoginStatus) {
+        return { type: MESSAGE.youtubeMusicLoginStatus, enabled: youtubeMusicEnabled }
+      }
+      return undefined
+    }),
   }
 }
 
@@ -106,6 +109,15 @@ describe('ping', () => {
     const [pong] = await replies(page)
     expect(pong).toMatchObject({ features: [...FEATURES, 'spotify-login'] })
     expect(runtime.sendMessage).toHaveBeenCalledWith({ type: MESSAGE.loginStatus })
+  })
+
+  it('announces YouTube Music login independently from Spotify login', async () => {
+    const page = fakePage()
+    const { runtime } = start(page, { runtime: background(false, true) })
+    page.dispatch({ type: MESSAGE.ping })
+    const [pong] = await replies(page)
+    expect(pong).toMatchObject({ features: [...FEATURES, 'youtube-music-login'] })
+    expect(runtime.sendMessage).toHaveBeenCalledWith({ type: MESSAGE.youtubeMusicLoginStatus })
   })
 
   it('still answers when the background is unreachable (extension reloaded under the page)', async () => {
