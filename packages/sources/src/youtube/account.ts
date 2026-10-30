@@ -11,7 +11,7 @@
 
 import type { Album, Artist, Artwork, ArtistRef, Track, Playlist } from '@fxm/core'
 import { Innertube } from 'youtubei.js'
-import { isYouTubeId, playlistIdOf, youTubeEntityId } from './ids'
+import { playlistIdOf, youTubeEntityId } from './ids'
 
 export interface YouTubeMusicPlaylist {
   playlist: Playlist
