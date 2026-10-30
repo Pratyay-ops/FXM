@@ -69,7 +69,9 @@ describe('readYouTubeMusicAccount', () => {
             return {
               items: [track],
               has_continuation: false,
-              async getContinuation() { return this },
+              async getContinuation() {
+            return this
+          },
             }
           },
         },
@@ -104,14 +106,20 @@ describe('readYouTubeMusicAccount', () => {
             filters: [],
             contents: [],
             has_continuation: false,
-            async applyFilter() { return this },
-            async getContinuation() { return this },
+            async applyFilter() {
+              return this
+            },
+            async getContinuation() {
+              return this
+            },
           }),
           getPlaylist: async () => ({
-            items: [],
-            has_continuation: false,
-            async getContinuation() { return this },
-          }),
+          items: [],
+          has_continuation: false,
+          async getContinuation() {
+            return this
+          },
+        }),
         },
       }),
     })).rejects.toThrow('did not return a readable account library')
