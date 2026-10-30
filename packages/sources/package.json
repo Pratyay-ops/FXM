@@ -9,6 +9,7 @@
   "exports": {
     "./youtube/module/build": "./src/youtube/module/build.mjs",
     "./youtube/module/testing": "./src/youtube/module/testing.ts",
+    "./youtube/account": "./src/youtube/account.ts",
     "./*": "./src/*/index.ts"
   },
   "scripts": {
