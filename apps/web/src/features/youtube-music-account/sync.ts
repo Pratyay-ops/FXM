@@ -239,8 +239,69 @@ export function parseYouTubeMusicSnapshot(
   const arrays = ['likedTracks', 'savedTracks', 'playlists', 'savedAlbums', 'followedArtists'] as const
   if (!arrays.every((key) => Array.isArray(value[key]))) return undefined
   const tracksValid = (items: unknown[]) =>
-    items.every((item) => isRecord(item) && typeof item.id === 'string' && parseId(item.id)?.source === 'ytm' && parseId(item.id)?.kind === 'track' && typeof item.title === 'string')
-  if (!tracksValid(value.likedTracks as unknown[]) || !tracksValid(value.savedTracks as unknown[])) return undefined
+    items.every((item) => {
+      if (
+        !isRecord(item) ||
+        typeof item.id !== 'string' ||
+        parseId(item.id)?.source !== 'ytm' ||
+        parseId(item.id)?.kind !== 'track' ||
+        typeof item.title !== 'string' ||
+        item.source !== 'ytm' ||
+        item.kind !== 'song' ||
+        !Array.isArray(item.artists) ||
+        !Array.isArray(item.artwork)
+      ) return false
+      return item.artists.every((artist) =>
+        isRecord(artist) &&
+        typeof artist.name === 'string' &&
+        (artist.id === undefined ||
+          (typeof artist.id === 'string' &&
+            parseId(artist.id)?.source === 'ytm' &&
+            parseId(artist.id)?.kind === 'artist')),
+      )
+    })
+  const albumsValid = (items: unknown[]) =>
+    items.every((item) =>
+      isRecord(item) &&
+      typeof item.id === 'string' &&
+      parseId(item.id)?.source === 'ytm' &&
+      parseId(item.id)?.kind === 'album' &&
+      item.source === 'ytm' &&
+      typeof item.name === 'string' &&
+      Array.isArray(item.artists) &&
+      Array.isArray(item.artwork),
+    )
+  const artistsValid = (items: unknown[]) =>
+    items.every((item) =>
+      isRecord(item) &&
+      typeof item.id === 'string' &&
+      parseId(item.id)?.source === 'ytm' &&
+      parseId(item.id)?.kind === 'artist' &&
+      item.source === 'ytm' &&
+      typeof item.name === 'string' &&
+      Array.isArray(item.artwork),
+    )
+  const playlistsValid = (items: unknown[]) =>
+    items.every((entry) => {
+      if (!isRecord(entry) || !isRecord(entry.playlist) || !Array.isArray(entry.tracks)) return false
+      const playlist = entry.playlist
+      return (
+        typeof playlist.id === 'string' &&
+        parseId(playlist.id)?.source === 'ytm' &&
+        parseId(playlist.id)?.kind === 'playlist' &&
+        playlist.source === 'ytm' &&
+        typeof playlist.name === 'string' &&
+        Array.isArray(playlist.artwork) &&
+        tracksValid(entry.tracks)
+      )
+    })
+  if (
+    !tracksValid(value.likedTracks as unknown[]) ||
+    !tracksValid(value.savedTracks as unknown[]) ||
+    !playlistsValid(value.playlists as unknown[]) ||
+    !albumsValid(value.savedAlbums as unknown[]) ||
+    !artistsValid(value.followedArtists as unknown[])
+  ) return undefined
   return {
     account: value.account,
     likedTracks: value.likedTracks as Track[],
