@@ -655,3 +655,4 @@ describe('runtime.onMessage listener', () => {
     )
   })
 })
+})
