@@ -110,11 +110,14 @@ describe('app layout', () => {
     expect(document.title).toBe('Creep — Radiohead · FXM')
 
     await act(async () => {
-      await player.setQueue([
-        testTrack('Paranoid Android', {
-          artists: [{ name: 'Radiohead' }, { name: 'Jane Doe' }],
-        }),
-      ], { autoplay: false })
+      await player.setQueue(
+        [
+          testTrack('Paranoid Android', {
+            artists: [{ name: 'Radiohead' }, { name: 'Jane Doe' }],
+          }),
+        ],
+        { autoplay: false },
+      )
     })
     expect(document.title).toBe('Paranoid Android — Radiohead, Jane Doe · FXM')
 
@@ -126,7 +129,7 @@ describe('app layout', () => {
     await act(async () => {
       await player.setQueue([], { autoplay: false })
     })
-    expect(document.title).toBe('Your library · FXM')
+    expect(document.title).toBe('Library · FXM')
   })
 
   it('shows Now Playing full screen on phones: no mini player, no tab bar', async () => {
