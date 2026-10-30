@@ -244,7 +244,8 @@ async function collectLibraryFilter<T>(
     // that returns a Library instance. Follow it directly for the remaining pages.
     let cursor = next
     while (cursor.has_continuation) {
-      if (++continuationPages > 200) throw new Error('YouTube Music returned too many library pages')
+      if (++continuationPages > 200)
+        throw new Error('YouTube Music returned too many library pages')
       cursor = await cursor.getContinuation()
       add(cursor.contents?.contents ?? [])
     }
