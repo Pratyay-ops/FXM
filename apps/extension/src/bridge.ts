@@ -3,16 +3,17 @@
  * YouTube Music account bridge, their independent login status features and, in the dev build,
  * switching between rulesets of origins that share a host.
  *
- * The bridge makes exactly two requests, both to fixed URLs:
+ * Spotify has two fixed relays:
  * - GET https://open.spotify.com/api/token with allow-listed query parameters and the browser's
- *   own open.spotify.com cookies (`credentials: 'include'`), only while the user has enabled
- *   "Use my Spotify login from this browser" on the options page (settings.ts) and, in Firefox,
- *   consents to handing on authentication information (consent.ts);
- * - GET https://open.spotify.com/api/server-time without credentials, always: it needs no
- *   setting and is served in private tabs too.
- * The YouTube Music reader uses the browser's existing cookies only in this background context.
- * It returns normalized music metadata and a one-way account fingerprint, never cookie values,
- * authorization headers or raw InnerTube responses. It does not persist the cookie header.
+ *   own Spotify cookies, only while the Spotify login setting (and Firefox consent) is enabled;
+ * - GET https://open.spotify.com/api/server-time without credentials, always.
+ *
+ * YouTube Music has one fixed operation: read the current user's library with the bundled
+ * youtubei.js Music client, using cookies obtained from the browser cookie store after the
+ * separate opt-in, optional cookies permission and Firefox consent (where applicable). The page
+ * cannot provide a URL, cookie or arbitrary InnerTube payload. The bridge returns normalized
+ * metadata and a one-way account fingerprint, never cookie values, authorization headers or raw
+ * InnerTube responses. It does not persist the cookie header.
  *
  * One background serves every tab, including private windows (manifests leave `incognito` at
  * its default, spanning), and its requests carry the cookies of the browser's normal windows.
