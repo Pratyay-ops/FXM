@@ -73,7 +73,7 @@ export const EXTENSION_PAGES_CSP = [
   "script-src 'self'",
   "style-src 'self'",
   "img-src 'self'",
-  'connect-src https://open.spotify.com',
+  'connect-src https://open.spotify.com https://music.youtube.com https://youtubei.googleapis.com',
   "base-uri 'none'",
   "form-action 'none'",
   "frame-ancestors 'none'",
