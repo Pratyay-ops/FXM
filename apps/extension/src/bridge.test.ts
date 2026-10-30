@@ -1,4 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
+
+const readYouTubeMusicAccountMock = vi.hoisted(() => vi.fn())
+vi.mock('@fxm/sources/youtube/account', () => ({
+  readYouTubeMusicAccount: readYouTubeMusicAccountMock,
+}))
 import {
   createBridge,
   type FetchLike,
@@ -51,6 +56,9 @@ interface SetupOptions {
   dnr?: WebExtApi['declarativeNetRequest']
   timeoutMs?: number
   maxResponseBytes?: number
+  youtubeMusicLogin?: boolean
+  cookies?: WebExtApi['cookies']
+  permissions?: WebExtApi['permissions']
 }
 
 function setup(options: SetupOptions = {}) {
@@ -60,6 +68,7 @@ function setup(options: SetupOptions = {}) {
     read: vi.fn(async () => ({
       spotifyLogin: options.login === true,
       spotifyLoginLocalhost: false,
+      youtubeMusicLogin: options.youtubeMusicLogin === true,
     })),
   }
   const bridge = createBridge({
@@ -72,6 +81,12 @@ function setup(options: SetupOptions = {}) {
     session: options.session,
     dnr: options.dnr,
     fetch,
+    cookies: options.cookies ?? { getAll: vi.fn(async () => []) },
+    permissions: options.permissions ?? {
+      contains: vi.fn(async () => false),
+      request: vi.fn(async () => false),
+      remove: vi.fn(async () => true),
+    },
     now: () => clock.now,
     ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
     ...(options.maxResponseBytes ? { maxResponseBytes: options.maxResponseBytes } : {}),
@@ -315,6 +330,118 @@ describe('localhost pages (dev build)', () => {
     expect(await devSetup(false, true).bridge.handle(token(), LOCALHOST)).toMatchObject({
       code: 'login-disabled',
     })
+  })
+})
+
+
+describe('YouTube Music account bridge', () => {
+  const request = (id: string | number = 'ytm-1') => ({
+    type: MESSAGE.youtubeMusicLibrary,
+    id,
+  })
+
+  it('is disabled by default and does not inspect browser cookies', async () => {
+    const getAll = vi.fn(async () => [])
+    const { bridge } = setup({ cookies: { getAll }, permissions: { contains: async () => true } })
+    expect(await bridge.handle(request(), PAGE)).toEqual({
+      type: MESSAGE.error,
+      id: 'ytm-1',
+      code: 'login-disabled',
+    })
+    expect(getAll).not.toHaveBeenCalled()
+  })
+
+  it('requires the optional cookies permission and Firefox consent', async () => {
+    const getAll = vi.fn(async () => [])
+    const noPermission = setup({
+      youtubeMusicLogin: true,
+      cookies: { getAll },
+      permissions: { contains: async () => false },
+    })
+    expect(await noPermission.bridge.handle(request(), PAGE)).toMatchObject({
+      type: MESSAGE.error,
+      code: 'login-disabled',
+    })
+    const noConsent = setup({
+      youtubeMusicLogin: true,
+      consent: false,
+      cookies: { getAll },
+      permissions: { contains: async () => true },
+    })
+    expect(await noConsent.bridge.handle(request('consent'), PAGE)).toMatchObject({
+      type: MESSAGE.error,
+      id: 'consent',
+      code: 'login-disabled',
+    })
+    expect(getAll).not.toHaveBeenCalled()
+  })
+
+  it('refuses private and container tabs before reading their cookies', async () => {
+    const getAll = vi.fn(async () => [{ name: 'SAPISID', value: 'not-for-private' }])
+    const { bridge } = setup({
+      youtubeMusicLogin: true,
+      cookies: { getAll },
+      permissions: { contains: async () => true },
+    })
+    expect(await bridge.handle(request(), PRIVATE_PAGE)).toMatchObject({
+      type: MESSAGE.error,
+      code: 'private-tab',
+    })
+    expect(getAll).not.toHaveBeenCalled()
+  })
+
+  it('distinguishes a signed-out YouTube Music session', async () => {
+    const { bridge } = setup({
+      youtubeMusicLogin: true,
+      cookies: { getAll: async () => [{ name: 'PREF', value: 'f6=400' }] },
+      permissions: { contains: async () => true },
+    })
+    expect(await bridge.handle(request('signed-out'), PAGE)).toEqual({
+      type: MESSAGE.error,
+      id: 'signed-out',
+      code: 'not-signed-in',
+    })
+  })
+
+  it('returns normalized music metadata and never returns browser cookies', async () => {
+    readYouTubeMusicAccountMock.mockResolvedValueOnce({
+      likedTracks: [],
+      savedTracks: [],
+      playlists: [],
+      savedAlbums: [],
+      followedArtists: [],
+    })
+    const cookie = {
+      name: 'SAPISID',
+      value: 'private-sapisid-value',
+      domain: '.youtube.com',
+      path: '/',
+      secure: true,
+      httpOnly: true,
+    }
+    const getAll = vi.fn(async () => [cookie])
+    const { bridge } = setup({
+      youtubeMusicLogin: true,
+      cookies: { getAll },
+      permissions: { contains: async () => true },
+    })
+    const reply = await bridge.handle(request('ok'), PAGE)
+    expect(reply).toMatchObject({
+      type: MESSAGE.response,
+      id: 'ok',
+      status: 200,
+      json: {
+        likedTracks: [],
+        savedTracks: [],
+        playlists: [],
+        savedAlbums: [],
+        followedArtists: [],
+      },
+    })
+    expect((reply as { json: { account: string } }).json.account).toMatch(/^[a-f0-9]{24}$/u)
+    expect(JSON.stringify(reply)).not.toContain('private-sapisid-value')
+    expect(readYouTubeMusicAccountMock).toHaveBeenCalledOnce()
+    expect(getAll).toHaveBeenCalledWith({ url: 'https://music.youtube.com/' })
   })
 })
 
