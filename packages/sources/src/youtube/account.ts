@@ -295,7 +295,7 @@ export async function readYouTubeMusicAccount(
   }
   let requests = 0
   const client = options.createClient
-    ? await createClient(cookie)
+    ? await options.createClient(cookie)
     : await (async () => {
         const fetchWithBudget: typeof globalThis.fetch = async (input, init) => {
           requests += 1
