@@ -148,7 +148,10 @@ async function copyList(
     added = result.added
   }
   return {
-    state: { localId, seenTrackIds: mergeIds([...known], unique.map((track) => track.id)) },
+    state: {
+      localId,
+      seenTrackIds: mergeIds([...known], unique.map((track) => track.id)),
+    },
     added,
     created,
   }
