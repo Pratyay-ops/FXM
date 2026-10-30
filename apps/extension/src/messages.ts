@@ -17,6 +17,8 @@ export const MESSAGE = {
   error: 'fxm-connect:error',
   activateOrigin: 'fxm-connect:activate-origin',
   loginStatus: 'fxm-connect:spotify-login-status',
+  youtubeMusicLibrary: 'fxm-connect:youtube-music-library',
+  youtubeMusicLoginStatus: 'fxm-connect:youtube-music-login-status',
 } as const
 
 const PREFIX = 'fxm-connect:'
@@ -29,6 +31,7 @@ export type ErrorCode =
   | 'bad-request'
   | 'unsupported'
   | 'login-disabled'
+  | 'not-signed-in'
   | 'private-tab'
   | 'rate-limited'
   | 'network-error'
@@ -53,6 +56,7 @@ export type SpotifyTokenParams = Partial<Record<SpotifyTokenParam, string>>
 export type BridgeRequest =
   | { type: typeof MESSAGE.spotifyToken; id: RequestId; params: SpotifyTokenParams }
   | { type: typeof MESSAGE.spotifyServerTime; id: RequestId }
+  | { type: typeof MESSAGE.youtubeMusicLibrary; id: RequestId }
 
 /** Reply to `fxm-connect:ping`. */
 export interface Pong {
@@ -87,6 +91,11 @@ export type PageReply = Pong | BridgeReply
  */
 export interface LoginStatus {
   type: typeof MESSAGE.loginStatus
+  enabled: boolean
+}
+
+export interface YouTubeMusicLoginStatus {
+  type: typeof MESSAGE.youtubeMusicLoginStatus
   enabled: boolean
 }
 
@@ -153,6 +162,9 @@ export function parseBridgeRequest(data: unknown): Parsed<BridgeRequest> {
     case MESSAGE.spotifyServerTime:
       if (id === null || !hasOnlyKeys(data, ['type', 'id'])) return fail('bad-request')
       return { ok: true, value: { type: MESSAGE.spotifyServerTime, id } }
+    case MESSAGE.youtubeMusicLibrary:
+      if (id === null || !hasOnlyKeys(data, ['type', 'id'])) return fail('bad-request')
+      return { ok: true, value: { type: MESSAGE.youtubeMusicLibrary, id } }
     default:
       return fail('unsupported')
   }
@@ -199,6 +211,15 @@ export function readPageMessage(
 /** True for a well-formed `spotify-login-status` answer from the background. */
 export function isLoginStatus(value: unknown): value is LoginStatus {
   return isRecord(value) && value.type === MESSAGE.loginStatus && typeof value.enabled === 'boolean'
+}
+
+/** True for a well-formed YouTube Music login status from the background. */
+export function isYouTubeMusicLoginStatus(value: unknown): value is YouTubeMusicLoginStatus {
+  return (
+    isRecord(value) &&
+    value.type === MESSAGE.youtubeMusicLoginStatus &&
+    typeof value.enabled === 'boolean'
+  )
 }
 
 /** True for a well-formed reply from the background to the request with this ID. */
