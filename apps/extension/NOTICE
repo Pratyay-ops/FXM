@@ -4,8 +4,16 @@ https://github.com/Pratyay-ops/FXM
 FXM Connect is part of FXM, a free and open-source music player. It is licensed under the
 Apache License, Version 2.0, whose text is in the LICENSE file next to this one.
 
-FXM Connect bundles no third-party code: its scripts are built from FXM's own source code, in
-apps/extension of the repository, and FXM's own build script draws its icons.
+YouTube Music account access is implemented with youtubei.js 18.1.0:
+https://github.com/LuanRT/YouTube.js
+Copyright (c) 2021 LuanRT. Licensed under the MIT License. The full MIT license text is
+included in THIRD-PARTY-LICENSES/youtubei.js-MIT.txt.
 
-FXM is an independent open-source project, not affiliated with or endorsed by YouTube, Google,
-Spotify or Last.fm.
+youtubei.js depends on @bufbuild/protobuf, fflate and meriyah. Their respective package
+license files are included in THIRD-PARTY-LICENSES/ with the package names and resolved
+versions recorded there.
+
+The account reader uses YouTube's unofficial InnerTube interface. It is an experimental,
+read-only integration and is not affiliated with or endorsed by Google or YouTube.
+
+FXM is an independent open-source project, not affiliated with or endorsed by Spotify or Last.fm.

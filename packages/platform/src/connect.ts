@@ -206,9 +206,9 @@ export const SPOTIFY_TOKEN_PARAM_FORMS: Readonly<Record<keyof SpotifyTokenParams
 
 /** A response FXM Connect relayed: the HTTP status and the parsed JSON body (`null` if not JSON). */
 export interface BridgeResponse {
-  /** The HTTP status of Spotify's response. */
+  /** The HTTP status returned by the upstream service. */
   readonly status: number
-  /** The response body, parsed. Never logged: it holds a token. */
+  /** The response body, parsed. Sensitive account tokens must never cross this interface. */
   readonly json: unknown
 }
 
@@ -283,7 +283,7 @@ const BRIDGE_ERRORS: Record<ConnectErrorCode, { code: FxmErrorCode; message: str
   unsupported: { code: 'Unsupported', message: 'FXM Connect does not know this request' },
   'login-disabled': {
     code: 'AuthRequired',
-    message: 'Turn on "Use my Spotify login from this browser" in FXM Connect’s options',
+    message: 'Turn on the relevant account-access option in FXM Connect’s options',
   },
   'private-tab': {
     code: 'AuthRequired',

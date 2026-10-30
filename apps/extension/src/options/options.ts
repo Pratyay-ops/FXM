@@ -136,6 +136,9 @@ for (const { input, key, saved } of toggles) {
       showStatus(saved(enabled))
     } catch {
       input.checked = !enabled
+      if (key === 'youtubeMusicLogin' && enabled) {
+        await api.permissions?.remove({ permissions: ['cookies'] }).catch(() => {})
+      }
       showStatus('Could not save the setting. Please try again.', true)
       return
     }

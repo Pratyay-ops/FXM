@@ -253,21 +253,9 @@ export function createBridge(options: BridgeOptions): Bridge {
   }
 
   /** Cookie names needed to derive InnerTube's SAPISIDHASH; unrelated cookies are not read. */
-  const YOUTUBE_COOKIE_NAMES = new Set([
-    'SAPISID',
-    '__Secure-1PAPISID',
-    '__Secure-3PAPISID',
-    'APISID',
-    'SID',
-    '__Secure-1PSID',
-    '__Secure-3PSID',
-    'HSID',
-    'SSID',
-    'LOGIN_INFO',
-    'PREF',
-    'VISITOR_INFO1_LIVE',
-    'YSC',
-  ])
+  // The pinned youtubei.js HTTPClient derives SAPISIDHASH from this cookie. Do not read
+  // unrelated Google session cookies (SID, LOGIN_INFO, PREF, etc.).
+  const YOUTUBE_COOKIE_NAMES = new Set(['SAPISID'])
 
   function youtubeCookieHeader(cookies: readonly BrowserCookie[]): string {
     const selected = new Map<string, string>()

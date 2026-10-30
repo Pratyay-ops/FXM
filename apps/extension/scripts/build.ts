@@ -49,8 +49,8 @@ function text(name: string, value: string): ZipEntry {
 /**
  * The files both browsers' builds ship besides the bundled scripts and the manifest: the
  * options page and its stylesheet, the icons, the rulesets, and the repository's LICENSE with
- * FXM Connect's NOTICE, which say under which licence it ships and that it bundles no
- * third-party code.
+ * FXM Connect's NOTICE, which records its licence and the notices for bundled third-party
+ * dependencies.
  */
 export async function staticFiles(dev: boolean): Promise<ZipEntry[]> {
   const html = await readFile(join(PACKAGE_DIR, 'src/options/options.html'), 'utf8')
