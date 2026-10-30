@@ -53,10 +53,7 @@ export interface WebExtApi {
   action?: { onClicked: { addListener(listener: () => void): void } }
   /** Background-only cookie access, available after the user grants the optional permission. */
   cookies?: {
-    getAll(details: {
-      url: string
-      storeId?: string
-    }): Promise<
+    getAll(details: { url: string; storeId?: string }): Promise<
       {
         name: string
         value: string
