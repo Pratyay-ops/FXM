@@ -1,8 +1,8 @@
 import { hasConnectFeature } from '@fxm/platform'
 import { AlertCircle, CheckCircle2, ExternalLink, RefreshCw } from 'lucide-react'
 import { useState } from 'react'
-import { buttonClasses } from '../../components/ui/button'
 import { getAppServices } from '../../app/services'
+import { buttonClasses } from '../../components/ui/button'
 import { getLibrary } from '../../db/repo'
 import { SettingsSection } from '../settings/settings-layout'
 import {
@@ -54,14 +54,14 @@ export function YouTubeMusicAccountSettings() {
       }
       const status = await connect.detect()
       if (!hasConnectFeature(status, 'youtube-music-login')) {
-        throw new Error('YouTube Music account access is not enabled. ' + OPTIONS_HINT)
+        throw new Error(`YouTube Music account access is not enabled. ${OPTIONS_HINT}`)
       }
       const response = await connect.youtubeMusicLibrary()
       if (response.status !== 200) {
         throw new Error(
           response.status === 401 || response.status === 403
             ? 'YouTube Music did not accept the browser session. Sign in to music.youtube.com and try again.'
-            : 'YouTube Music could not be read (HTTP ' + response.status + '). Try again later.',
+            : `YouTube Music could not be read (HTTP ${response.status}). Try again later.`,
         )
       }
       const snapshot = parseYouTubeMusicSnapshot(response.json)
@@ -72,12 +72,7 @@ export function YouTubeMusicAccountSettings() {
       }
       const result = await runYouTubeMusicSync(getLibrary(), snapshot)
       setMessage(
-        'Synced ' + result.likedSongs.toLocaleString('en-GB') + ' liked songs and ' +
-        result.playlists.toLocaleString('en-GB') + ' playlists, ' +
-        result.savedAlbums.toLocaleString('en-GB') + ' albums and ' +
-        result.followedArtists.toLocaleString('en-GB') + ' artists. ' +
-        'Added ' + result.addedTracks.toLocaleString('en-GB') + ' tracks and ' +
-        result.addedFollows.toLocaleString('en-GB') + ' follows.',
+        `Synced ${result.likedSongs.toLocaleString('en-GB')} liked songs and ${result.playlists.toLocaleString('en-GB')} playlists, ${result.savedAlbums.toLocaleString('en-GB')} albums and ${result.followedArtists.toLocaleString('en-GB')} artists. Added ${result.addedTracks.toLocaleString('en-GB')} tracks and ${result.addedFollows.toLocaleString('en-GB')} follows.`,
       )
     } catch (reason) {
       const message =
