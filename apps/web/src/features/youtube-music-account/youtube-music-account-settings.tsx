@@ -50,8 +50,7 @@ export function YouTubeMusicAccountSettings() {
       }
       const result = await runYouTubeMusicSync(getLibrary(), snapshot)
       setMessage(
-        'Synced ' + result.likedSongs.toLocaleString('en-GB') + ' liked songs, ' +
-        result.savedSongs.toLocaleString('en-GB') + ' saved songs, ' +
+        'Synced ' + result.likedSongs.toLocaleString('en-GB') + ' liked songs and ' +
         result.playlists.toLocaleString('en-GB') + ' playlists, ' +
         result.savedAlbums.toLocaleString('en-GB') + ' albums and ' +
         result.followedArtists.toLocaleString('en-GB') + ' artists. ' +
@@ -72,8 +71,8 @@ export function YouTubeMusicAccountSettings() {
     <SettingsSection title="YouTube Music account">
       <div className="space-y-3 p-4 sm:p-5">
         <p className="text-sm text-text-muted">
-          Manually copy Liked Music, saved songs, your playlists, saved albums and followed artists
-          into this device's FXM library. FXM never changes your YouTube Music account.
+          Manually copy Liked Music, your playlists, saved albums and followed artists into this
+          device's FXM library. FXM never changes your YouTube Music account.
         </p>
         <p className="text-sm text-text-muted">
           First enable "Use my YouTube Music login from this browser" in FXM Connect's options.
