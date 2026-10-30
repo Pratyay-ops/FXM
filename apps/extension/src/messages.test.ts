@@ -204,10 +204,16 @@ describe('isLoginStatus', () => {
 
 describe('isYouTubeMusicLoginStatus', () => {
   it('accepts only its own status shape', () => {
-    expect(isYouTubeMusicLoginStatus({ type: MESSAGE.youtubeMusicLoginStatus, enabled: true })).toBe(true)
-    expect(isYouTubeMusicLoginStatus({ type: MESSAGE.youtubeMusicLoginStatus, enabled: false })).toBe(true)
+    expect(
+      isYouTubeMusicLoginStatus({ type: MESSAGE.youtubeMusicLoginStatus, enabled: true }),
+    ).toBe(true)
+    expect(
+      isYouTubeMusicLoginStatus({ type: MESSAGE.youtubeMusicLoginStatus, enabled: false }),
+    ).toBe(true)
     expect(isYouTubeMusicLoginStatus({ type: MESSAGE.loginStatus, enabled: true })).toBe(false)
-    expect(isYouTubeMusicLoginStatus({ type: MESSAGE.youtubeMusicLoginStatus, enabled: 'yes' })).toBe(false)
+    expect(
+      isYouTubeMusicLoginStatus({ type: MESSAGE.youtubeMusicLoginStatus, enabled: 'yes' }),
+    ).toBe(false)
   })
 })
 
