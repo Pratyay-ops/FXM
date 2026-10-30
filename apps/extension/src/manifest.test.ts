@@ -49,28 +49,27 @@ describe.each(VARIANTS)('manifest for $browser (dev: $dev)', ({ browser, dev }) 
     expect(m.description).not.toMatch(/collects no data/i)
   })
 
-  it('asks only for static header rules and storage', () => {
+  it('keeps cookie access optional and asks only for static header rules at install time', () => {
     expect(m.permissions).toEqual(['declarativeNetRequest', 'storage'])
-    const text = JSON.stringify(m)
+    expect(m.optional_permissions).toEqual(['cookies'])
     for (const forbidden of [
       '<all_urls>',
-      'cookies',
       'tabs',
       'scripting',
       'webRequest',
       'externally_connectable',
       'web_accessible_resources',
     ]) {
-      expect(text).not.toContain(`"${forbidden}"`)
+      expect(JSON.stringify(m)).not.toContain(`"${forbidden}"`)
     }
   })
 
-  it('limits its own pages to their files and open.spotify.com with a strict CSP', () => {
+  it('limits its own pages to their files and the fixed music-service hosts with a strict CSP', () => {
     expect(m.content_security_policy).toEqual({
       extension_pages:
         "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; " +
-        "connect-src https://open.spotify.com; base-uri 'none'; form-action 'none'; " +
-        "frame-ancestors 'none'",
+        "connect-src https://open.spotify.com https://music.youtube.com https://www.youtube.com https://youtubei.googleapis.com; " +
+        "base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
     })
   })
 
@@ -159,9 +158,9 @@ describe('Firefox manifest', () => {
     expect(Number.parseFloat(version ?? '0')).toBeGreaterThanOrEqual(113)
   })
 
-  it("declares the login bridge's token as optional authentication information, nothing else", () => {
-    // Nothing goes to the developer. The opt-in bridge hands the Spotify login's token to the
-    // FXM page; Firefox asks consent for it when the user turns the bridge on (consent.ts).
+  it("declares account-session access as optional authentication information", () => {
+    // The opt-in Spotify and YouTube Music account bridges use browser credentials locally;
+    // Firefox asks consent before either account bridge can use them (consent.ts).
     const gecko = manifest('firefox').browser_specific_settings?.gecko
     expect(gecko?.data_collection_permissions.required).toEqual(['none'])
     expect(gecko?.data_collection_permissions.optional).toEqual(['authenticationInfo'])
@@ -218,9 +217,13 @@ describe('extension version', () => {
 describe('content security policy', () => {
   it("allows connections to exactly the origin of the bridge's two URLs", () => {
     const connect = EXTENSION_PAGES_CSP.split('; ').find((part) => part.startsWith('connect-src'))
-    const origins = new Set(
-      [SPOTIFY_TOKEN_URL, SPOTIFY_SERVER_TIME_URL].map((u) => new URL(u).origin),
-    )
+    const origins = new Set([
+      SPOTIFY_TOKEN_URL,
+      SPOTIFY_SERVER_TIME_URL,
+      'https://music.youtube.com/',
+      'https://www.youtube.com/',
+      'https://youtubei.googleapis.com/',
+    ].map((u) => new URL(u).origin))
     expect(connect).toBe(`connect-src ${[...origins].join(' ')}`)
   })
 
@@ -228,6 +231,6 @@ describe('content security policy', () => {
     const directives = EXTENSION_PAGES_CSP.split('; ')
     expect(directives).toContain("script-src 'self'")
     expect(directives).toContain("default-src 'none'")
-    expect(EXTENSION_PAGES_CSP).not.toMatch(/unsafe|https?:\/\/(?!open\.spotify\.com)|\*/)
+    expect(EXTENSION_PAGES_CSP).not.toMatch(/unsafe|\*/) 
   })
 })
