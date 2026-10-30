@@ -290,6 +290,7 @@ describe("Spotify login status (the pong's spotify-login feature)", () => {
       read: vi.fn(async () => ({
         spotifyLogin: values.shift() === true,
         spotifyLoginLocalhost: false,
+        youtubeMusicLogin: false,
       })),
     }
     const { bridge, fetch } = setup({ settings })
@@ -304,7 +305,13 @@ describe('localhost pages (dev build)', () => {
   const devSetup = (spotifyLogin: boolean, spotifyLoginLocalhost: boolean) =>
     setup({
       origins: fxmOrigins(true),
-      settings: { read: vi.fn(async () => ({ spotifyLogin, spotifyLoginLocalhost })) },
+      settings: {
+        read: vi.fn(async () => ({
+          spotifyLogin,
+          spotifyLoginLocalhost,
+          youtubeMusicLogin: false,
+        })),
+      },
     })
 
   it('need their own opt-in before they get the Spotify login', async () => {
