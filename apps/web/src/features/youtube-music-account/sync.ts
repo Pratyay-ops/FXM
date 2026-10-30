@@ -23,7 +23,6 @@ interface YouTubeMusicSyncState {
   readonly schema: 1
   readonly account: string
   readonly liked?: ImportedListState
-  readonly saved?: ImportedListState
   readonly playlists: Readonly<Record<string, ImportedListState>>
   readonly albums: readonly string[]
   readonly artists: readonly string[]
@@ -82,7 +81,6 @@ function readState(value: unknown, account: string): YouTubeMusicSyncState {
     schema: 1,
     account,
     ...(parseListState(value.liked) === undefined ? {} : { liked: parseListState(value.liked) }),
-    ...(parseListState(value.saved) === undefined ? {} : { saved: parseListState(value.saved) }),
     playlists,
     albums: stringList(value.albums),
     artists: stringList(value.artists),
@@ -169,18 +167,13 @@ export async function runYouTubeMusicSync(
     present.items.filter((item) => item.origin === 'local').map((item) => item.id as string),
   )
   const likedTracks = uniqueTracks(snapshot.likedTracks)
-  const savedTracks = uniqueTracks(snapshot.savedTracks)
   const likedCopy = await copyList(
     library, snapshot.account, state.liked, 'liked', 'Liked songs on YouTube Music',
     likedTracks, [], localLists,
   )
-  const savedCopy = await copyList(
-    library, snapshot.account, state.saved, 'saved', 'Saved songs on YouTube Music',
-    savedTracks, [], localLists,
-  )
   const playlistStates: Record<string, ImportedListState> = { ...state.playlists }
-  let addedTracks = likedCopy.added + savedCopy.added
-  let createdPlaylists = likedCopy.created + savedCopy.created
+  let addedTracks = likedCopy.added
+  let createdPlaylists = likedCopy.created
   const seenRemotePlaylists = new Set<string>()
   for (const entry of snapshot.playlists) {
     const parts = parseId(entry.playlist.id)
@@ -218,7 +211,6 @@ export async function runYouTubeMusicSync(
     schema: 1,
     account: snapshot.account,
     liked: likedCopy.state,
-    saved: savedCopy.state,
     playlists: playlistStates,
     albums: [...seenAlbums],
     artists: [...seenArtists],
@@ -227,7 +219,7 @@ export async function runYouTubeMusicSync(
   return {
     account: snapshot.account,
     likedSongs: likedTracks.length,
-    savedSongs: savedTracks.length,
+    savedSongs: 0,
     playlists: seenRemotePlaylists.size,
     savedAlbums: snapshot.savedAlbums.length,
     followedArtists: snapshot.followedArtists.length,
