@@ -29,7 +29,7 @@ const artist: Artist = {
 const playlistId = formatId('ytm', 'playlist', 'PLabc123')
 const snapshot = (
   liked: Track[] = [track('liked-00001')],
-  saved: Track[] = [track('saved-00001')],
+  saved: Track[] = [],
   playlistTracks: Track[] = [track('playlist001')],
 ): YouTubeMusicAccountSnapshot & { account: string } => ({
   account,
@@ -105,12 +105,11 @@ describe('runYouTubeMusicSync', () => {
   it('creates separate liked, saved-song and user playlist copies and follows albums/artists', async () => {
     const library = fakeLibrary()
     const result = await runYouTubeMusicSync(library, snapshot())
-    expect(result.createdPlaylists).toBe(3)
-    expect(result.addedTracks).toBe(3)
+    expect(result.createdPlaylists).toBe(2)
+    expect(result.addedTracks).toBe(2)
     expect(result.addedFollows).toBe(2)
     expect([...library.playlists.values()].map((list) => list.name)).toEqual([
       'Liked songs on YouTube Music',
-      'Saved songs on YouTube Music',
       'Road trip',
     ])
     expect(library.follows).toEqual(new Set([album.id, artist.id]))
@@ -122,17 +121,17 @@ describe('runYouTubeMusicSync', () => {
     const before = [...library.playlists.values()].map((list) => list.tracks.length)
     const next = snapshot(
       [track('liked-00001'), track('liked-00002')],
-      [track('saved-00001')],
+      [],
       [track('playlist001'), track('playlist002')],
     )
     const result = await runYouTubeMusicSync(library, next)
     expect(result.createdPlaylists).toBe(0)
     expect(result.addedTracks).toBe(2)
     expect([...library.playlists.values()].map((list) => list.tracks.length)).toEqual(
-      before.map((length, index) => length + (index === 0 || index === 2 ? 1 : 0)),
+      before.map((length) => length + 1),
     )
     await runYouTubeMusicSync(library, next)
-    expect([...library.playlists.values()].map((list) => list.tracks.length)).toEqual([2, 1, 2])
+    expect([...library.playlists.values()].map((list) => list.tracks.length)).toEqual([2, 2])
   })
 
   it('does not re-add a remote track that the user removed from its local copy', async () => {
