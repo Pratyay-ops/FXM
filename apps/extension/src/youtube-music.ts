@@ -8,9 +8,9 @@
 import { Innertube } from 'youtubei.js'
 
 const LIKED_MUSIC_PLAYLIST_ID = 'LM'
-const MAX_LIBRARY_ITEMS = 500
-const MAX_PLAYLIST_TRACKS = 2000
-const MAX_PLAYLISTS = 150
+const MAX_LIBRARY_ITEMS = 250
+const MAX_PLAYLIST_TRACKS = 300
+const MAX_PLAYLISTS = 30
 const MAX_PAGES = 40
 
 export interface YouTubeMusicArtwork {
@@ -77,9 +77,16 @@ function record(value: unknown): RecordLike | undefined {
 }
 
 function text(value: unknown, max = 500): string | undefined {
-  return typeof value === 'string' && value.trim() !== '' && value.length <= max
-    ? value.trim()
-    : undefined
+  if (typeof value === 'string') {
+    const clean = value.trim()
+    return clean !== '' && clean.length <= max ? clean : undefined
+  }
+  const node = record(value)
+  if (node !== undefined) {
+    const nested = text(node.text ?? node.simpleText ?? node.name, max)
+    if (nested !== undefined) return nested
+  }
+  return undefined
 }
 
 function number(value: unknown): number | undefined {
@@ -140,7 +147,9 @@ function idOf(value: RecordLike): string | undefined {
     text(value.id, 256) ??
     text(value.video_id, 256) ??
     text(value.videoId, 256) ??
-    text(value.browse_id, 256)
+    text(value.browse_id, 256) ??
+    text(value.playlist_id, 256) ??
+    text(value.playlistId, 256)
   if (direct !== undefined) return direct
   const endpoint = record(value.endpoint) ?? record(value.navigation_endpoint)
   const payload = record(endpoint?.payload)
@@ -225,6 +234,24 @@ function filterFor(filters: readonly string[], kind: string): string | undefined
   return filters.find((filter) => filter.toLocaleLowerCase('en').includes(kind))
 }
 
+/**
+ * The browser forbids JavaScript from setting the Cookie request header. youtubei.js uses the
+ * supplied cookie only to derive SAPISIDHASH; that Authorization header is retained, while the
+ * raw Cookie header is removed before the browser sends the request.
+ */
+export function cookieSafeFetch(fetcher: typeof fetch = fetch): typeof fetch {
+  return async (input, init) => {
+    const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined))
+    headers.delete('cookie')
+    return fetcher(input, {
+      ...init,
+      headers,
+      credentials: 'omit',
+      cache: 'no-store',
+    })
+  }
+}
+
 function normalizePlaylist(value: unknown, tracks: YouTubeMusicTrack[]): YouTubeMusicPlaylist | undefined {
   const row = record(value)
   if (row === undefined) return undefined
@@ -256,13 +283,7 @@ export async function readYouTubeMusicLibrary(
   const innertube = await Innertube.create({
     cookie,
     retrieve_player: false,
-    fetch: (input, init) =>
-      fetcher(input, {
-        ...init,
-        credentials: 'include',
-        cache: 'no-store',
-        redirect: 'error',
-      }),
+    fetch: cookieSafeFetch(fetcher),
   })
 
   const account = await innertube.account.getInfo()

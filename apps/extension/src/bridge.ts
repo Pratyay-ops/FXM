@@ -34,7 +34,13 @@ import {
 import { isLocalhost, rulesetSwitch } from './origins.ts'
 import { RateLimiter } from './rate-limit.ts'
 import type { SettingsStore } from './settings.ts'
-import type { MessageListener, MessageSender, StorageArea, WebExtApi } from './webext.ts'
+import type {
+  BrowserCookie,
+  MessageListener,
+  MessageSender,
+  StorageArea,
+  WebExtApi,
+} from './webext.ts'
 
 export const SPOTIFY_TOKEN_URL = 'https://open.spotify.com/api/token'
 export const SPOTIFY_SERVER_TIME_URL = 'https://open.spotify.com/api/server-time'
@@ -60,6 +66,10 @@ export interface BridgeOptions {
   /** storage.session, where the rate limiter's window survives the background being stopped. */
   session?: StorageArea | undefined
   dnr?: WebExtApi['declarativeNetRequest']
+  permissions?: WebExtApi['permissions']
+  cookies?: WebExtApi['cookies']
+  /** Called only in the background, with a short-lived cookie header that is never returned. */
+  youtubeMusicLibrary?: (cookieHeader: string) => Promise<unknown>
   fetch: FetchLike
   now: () => number
   timeoutMs?: number
@@ -225,6 +235,85 @@ export function createBridge(options: BridgeOptions): Bridge {
     return sender.privateTab ? 'private-tab' : null
   }
 
+  /** Why YouTube Music account reads are refused, or null when this tab may use them. */
+  async function youtubeMusicRefusal(
+    sender: SenderContext,
+  ): Promise<'login-disabled' | 'private-tab' | null> {
+    if (sender.privateTab) return 'private-tab'
+    const settings = await options.settings.read()
+    if (!settings.youtubeMusicLogin) return 'login-disabled'
+    if (options.cookies === undefined || options.youtubeMusicLibrary === undefined) {
+      return 'login-disabled'
+    }
+    if (!(await options.permissions?.contains({ permissions: ['cookies'] }))) {
+      return 'login-disabled'
+    }
+    if (options.consent && !(await options.consent.granted())) return 'login-disabled'
+    return null
+  }
+
+  /** Cookie names needed to derive InnerTube's SAPISIDHASH; unrelated cookies are not read. */
+  const YOUTUBE_COOKIE_NAMES = new Set([
+    'SAPISID',
+    '__Secure-1PAPISID',
+    '__Secure-3PAPISID',
+    'APISID',
+    'SID',
+    '__Secure-1PSID',
+    '__Secure-3PSID',
+    'HSID',
+    'SSID',
+    'LOGIN_INFO',
+    'PREF',
+    'VISITOR_INFO1_LIVE',
+    'YSC',
+  ])
+
+  function youtubeCookieHeader(cookies: readonly BrowserCookie[]): string {
+    const selected = new Map<string, string>()
+    for (const cookie of cookies) {
+      if (!YOUTUBE_COOKIE_NAMES.has(cookie.name) || cookie.value === '') continue
+      selected.set(cookie.name, cookie.value)
+    }
+    // youtubei.js derives SAPISIDHASH from SAPISID. Without it the library cannot authenticate.
+    if (!selected.has('SAPISID')) return ''
+    return [...selected].map(([name, value]) => `${name}=${value}`).join('; ')
+  }
+
+  async function youtubeMusicLibrary(
+    id: RequestId,
+    sender: SenderContext,
+  ): Promise<BridgeReply> {
+    const refusal = await youtubeMusicRefusal(sender)
+    if (refusal !== null) return errorReply(id, refusal)
+    if (!(await acquire())) return errorReply(id, 'rate-limited')
+
+    let cookieHeader = ''
+    try {
+      const cookies = await options.cookies?.getAll({ domain: 'youtube.com' })
+      cookieHeader = youtubeCookieHeader(cookies ?? [])
+      if (cookieHeader === '') return errorReply(id, 'auth-required')
+      const json = await options.youtubeMusicLibrary?.(cookieHeader)
+      if (json === undefined) return errorReply(id, 'unavailable')
+      // A single bridge reply is deliberately bounded; library snapshots carry their own
+      // truncation flags and can be synced again after the user changes the selection.
+      const bytes = new TextEncoder().encode(JSON.stringify(json)).byteLength
+      if (bytes > 5 * 1024 * 1024) return errorReply(id, 'too-large')
+      return { type: MESSAGE.response, id, status: 200, json }
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        /not signed in|sign.?in|auth(?:entication)? required|login required/i.test(error.message)
+      ) {
+        return errorReply(id, 'auth-required')
+      }
+      return errorReply(id, 'network-error')
+    } finally {
+      // Do not retain the account cookie string after this one read.
+      cookieHeader = ''
+    }
+  }
+
   async function serve(request: BridgeRequest, sender: SenderContext): Promise<BridgeReply> {
     if (request.type === MESSAGE.spotifyToken) {
       const refusal = await loginRefusal(sender)
@@ -232,8 +321,11 @@ export function createBridge(options: BridgeOptions): Bridge {
       if (!(await acquire())) return errorReply(request.id, 'rate-limited')
       return relay(request.id, spotifyTokenUrl(request.params), 'include')
     }
-    if (!(await acquire())) return errorReply(request.id, 'rate-limited')
-    return relay(request.id, SPOTIFY_SERVER_TIME_URL, 'omit')
+    if (request.type === MESSAGE.spotifyServerTime) {
+      if (!(await acquire())) return errorReply(request.id, 'rate-limited')
+      return relay(request.id, SPOTIFY_SERVER_TIME_URL, 'omit')
+    }
+    return youtubeMusicLibrary(request.id, sender)
   }
 
   async function handle(message: unknown, sender: SenderContext): Promise<BackgroundReply | null> {
@@ -246,6 +338,10 @@ export function createBridge(options: BridgeOptions): Bridge {
     if (type === MESSAGE.loginStatus) {
       const refusal = await loginRefusal(sender).catch(() => 'unreadable')
       return { type: MESSAGE.loginStatus, enabled: refusal === null }
+    }
+    if (type === MESSAGE.youtubeMusicLoginStatus) {
+      const refusal = await youtubeMusicRefusal(sender).catch(() => 'unreadable')
+      return { type: MESSAGE.youtubeMusicLoginStatus, enabled: refusal === null }
     }
     const parsed = parseBridgeRequest(message)
     if (!parsed.ok) return errorReply(parsed.id, parsed.code)
