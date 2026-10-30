@@ -181,7 +181,6 @@ describe('runYouTubeMusicSync', () => {
   })
 })
 
-
 describe('parseYouTubeMusicSnapshot', () => {
   it('accepts the supported, normalized library shape', () => {
     expect(parseYouTubeMusicSnapshot(snapshot())).toMatchObject({
@@ -215,7 +214,6 @@ describe('parseYouTubeMusicSnapshot', () => {
     ).toBeUndefined()
   })
 })
-
 
 describe('forgetYouTubeMusicSyncHistory', () => {
   it('clears only bookkeeping and leaves imported playlists and follows untouched', async () => {
