@@ -30,10 +30,10 @@ import {
   type LoginStatus,
   MESSAGE,
   messageType,
-  type YouTubeMusicLoginStatus,
   parseBridgeRequest,
   type RequestId,
   type SpotifyTokenParams,
+  type YouTubeMusicLoginStatus,
 } from './messages.ts'
 import { isLocalhost, rulesetSwitch } from './origins.ts'
 import { RateLimiter } from './rate-limit.ts'
