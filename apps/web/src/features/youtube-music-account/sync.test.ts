@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { formatId, type Album, type Artist, type Track } from '@fxm/core'
-import { runYouTubeMusicSync, type YouTubeMusicSyncLibrary } from './sync'
+import {
+  parseYouTubeMusicSnapshot,
+  runYouTubeMusicSync,
+  type YouTubeMusicSyncLibrary,
+} from './sync'
 import type { YouTubeMusicAccountSnapshot } from '@fxm/sources/youtube/account'
 
 const account = '0123456789abcdef01234567'
@@ -159,5 +163,34 @@ describe('runYouTubeMusicSync', () => {
     await expect(runYouTubeMusicSync(library, { ...snapshot(), account: 'bad' }))
       .rejects.toThrow('valid account fingerprint')
     expect(library.playlists.size).toBe(0)
+  })
+})
+
+
+describe('parseYouTubeMusicSnapshot', () => {
+  it('accepts the supported, normalized library shape', () => {
+    expect(parseYouTubeMusicSnapshot(snapshot())).toMatchObject({
+      account,
+      likedTracks: [{ title: 'liked-00001' }],
+      playlists: [{ playlist: { name: 'Road trip' } }],
+      savedAlbums: [{ name: 'Album' }],
+      followedArtists: [{ name: 'Artist' }],
+    })
+  })
+
+  it('rejects malformed playlist and entity entries before any local write', () => {
+    const valid = snapshot()
+    expect(parseYouTubeMusicSnapshot({
+      ...valid,
+      playlists: [{ playlist: { id: 'ytm:playlist:PLabc123' }, tracks: 'not-a-list' }],
+    })).toBeUndefined()
+    expect(parseYouTubeMusicSnapshot({
+      ...valid,
+      savedAlbums: [{ id: 'ytm:track:bad', name: 'Not an album' }],
+    })).toBeUndefined()
+    expect(parseYouTubeMusicSnapshot({
+      ...valid,
+      followedArtists: [{ id: 'ytm:artist:abc', source: 'ytm', name: 'Artist' }],
+    })).toBeUndefined()
   })
 })
