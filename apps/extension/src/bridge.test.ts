@@ -4,6 +4,7 @@ const readYouTubeMusicAccountMock = vi.hoisted(() => vi.fn())
 vi.mock('@fxm/sources/youtube/account', () => ({
   readYouTubeMusicAccount: readYouTubeMusicAccountMock,
 }))
+
 import {
   createBridge,
   type FetchLike,
