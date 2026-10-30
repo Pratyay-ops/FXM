@@ -233,6 +233,6 @@ describe('content security policy', () => {
     const directives = EXTENSION_PAGES_CSP.split('; ')
     expect(directives).toContain("script-src 'self'")
     expect(directives).toContain("default-src 'none'")
-    expect(EXTENSION_PAGES_CSP).not.toMatch(/unsafe|\*/) 
+    expect(EXTENSION_PAGES_CSP).not.toMatch(/unsafe|\*/)
   })
 })
