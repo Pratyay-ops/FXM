@@ -68,8 +68,8 @@ export interface BridgeOptions {
   timeoutMs?: number
   maxResponseBytes?: number
   /** Optional, separately granted browser cookie access; available only in the background. */
-  cookies?: WebExtApi['cookies']
-  permissions?: WebExtApi['permissions']
+  cookies?: Pick<NonNullable<WebExtApi['cookies']>, 'getAll'>
+  permissions?: Pick<NonNullable<WebExtApi['permissions']>, 'contains'>
 }
 
 /** A trusted sender: FXM Connect's content script in the top frame of an FXM page. */
