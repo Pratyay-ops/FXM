@@ -58,8 +58,8 @@ interface SetupOptions {
   timeoutMs?: number
   maxResponseBytes?: number
   youtubeMusicLogin?: boolean
-  cookies?: WebExtApi['cookies']
-  permissions?: WebExtApi['permissions']
+  cookies?: Pick<NonNullable<WebExtApi['cookies']>, 'getAll'>
+  permissions?: Pick<NonNullable<WebExtApi['permissions']>, 'contains'>
 }
 
 function setup(options: SetupOptions = {}) {

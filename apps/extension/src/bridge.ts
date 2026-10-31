@@ -69,7 +69,7 @@ export interface BridgeOptions {
   timeoutMs?: number
   maxResponseBytes?: number
   /** Optional, separately granted browser cookie access; available only in the background. */
-  cookies?: Pick<NonNullable<WebExtApi['cookies']>, 'getAll'>
+  cookies?: Pick<NonNullable<WebExtApi['cookies']>, 'getAll'> | undefined
   permissions?: Pick<NonNullable<WebExtApi['permissions']>, 'contains'> | undefined
 }
 
