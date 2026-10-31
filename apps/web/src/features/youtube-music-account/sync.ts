@@ -314,23 +314,24 @@ export function parseYouTubeMusicSnapshot(
     items.every(
       (item) =>
         isRecord(item) &&
-      typeof item.id === 'string' &&
-      parseId(item.id)?.source === 'ytm' &&
-      parseId(item.id)?.kind === 'album' &&
-      item.source === 'ytm' &&
-      typeof item.name === 'string' &&
-      Array.isArray(item.artists) &&
-      Array.isArray(item.artwork),
+        typeof item.id === 'string' &&
+        parseId(item.id)?.source === 'ytm' &&
+        parseId(item.id)?.kind === 'album' &&
+        item.source === 'ytm' &&
+        typeof item.name === 'string' &&
+        Array.isArray(item.artists) &&
+        Array.isArray(item.artwork),
     )
   const artistsValid = (items: unknown[]) =>
-    items.every((item) =>
-      isRecord(item) &&
-      typeof item.id === 'string' &&
-      parseId(item.id)?.source === 'ytm' &&
-      parseId(item.id)?.kind === 'artist' &&
-      item.source === 'ytm' &&
-      typeof item.name === 'string' &&
-      Array.isArray(item.artwork),
+    items.every(
+      (item) =>
+        isRecord(item) &&
+        typeof item.id === 'string' &&
+        parseId(item.id)?.source === 'ytm' &&
+        parseId(item.id)?.kind === 'artist' &&
+        item.source === 'ytm' &&
+        typeof item.name === 'string' &&
+        Array.isArray(item.artwork),
     )
   const playlistsValid = (items: unknown[]) =>
     items.every((entry) => {
