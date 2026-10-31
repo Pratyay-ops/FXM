@@ -89,6 +89,7 @@ export const CONNECT_MESSAGE = {
   pong: 'fxm-connect:pong',
   spotifyToken: 'fxm-connect:spotify-token',
   spotifyServerTime: 'fxm-connect:spotify-server-time',
+  youtubeMusicLibrary: 'fxm-connect:youtube-music-library',
   response: 'fxm-connect:response',
   error: 'fxm-connect:error',
 } as const
@@ -102,6 +103,7 @@ export const CONNECT_MESSAGE = {
  * - `lastfm`: the CORS rule for Last.fm's station JSON
  * - `spotify-server-time`: the bridge relays Spotify's `/api/server-time`
  * - `spotify-login`: the user turned on the bridge's Spotify login and this tab may use it
+ * - `youtube-music-login`: the user granted FXM Connect access to the YouTube Music library
  */
 export type ConnectFeature =
   | 'youtube'
@@ -110,6 +112,7 @@ export type ConnectFeature =
   | 'lastfm'
   | 'spotify-server-time'
   | 'spotify-login'
+  | 'youtube-music-login'
 
 /**
  * Whether FXM Connect works on this page:
@@ -246,6 +249,8 @@ export interface ConnectClient {
   spotifyToken(params: SpotifyTokenParams, options?: BridgeRequestOptions): Promise<BridgeResponse>
   /** Asks the bridge for `open.spotify.com/api/server-time`, without credentials. */
   spotifyServerTime(options?: BridgeRequestOptions): Promise<BridgeResponse>
+  /** Reads the authenticated YouTube Music library in the extension background. */
+  youtubeMusicLibrary(options?: BridgeRequestOptions): Promise<BridgeResponse>
   /** Stops listening and watching. Pending requests reject with an `Unsupported` `FxmError`. */
   dispose(): void
 }
@@ -255,6 +260,7 @@ export const CONNECT_ERROR_CODES = [
   'bad-request',
   'unsupported',
   'login-disabled',
+  'not-signed-in',
   'private-tab',
   'rate-limited',
   'network-error',
@@ -275,9 +281,13 @@ const BRIDGE_ERRORS: Record<ConnectErrorCode, { code: FxmErrorCode; message: str
     code: 'AuthRequired',
     message: 'Turn on "Use my Spotify login from this browser" in FXM Connect’s options',
   },
+  'not-signed-in': {
+    code: 'AuthRequired',
+    message: 'Sign in to YouTube Music in this browser, then try again',
+  },
   'private-tab': {
     code: 'AuthRequired',
-    message: 'The Spotify login is not available in private windows and container tabs',
+    message: 'Account access is not available in private windows or container tabs',
   },
   'rate-limited': { code: 'RateLimited', message: 'Too many FXM Connect bridge requests' },
   'network-error': { code: 'Network', message: 'FXM Connect could not reach Spotify' },
@@ -557,6 +567,7 @@ export function createConnectClient(options: ConnectClientOptions = {}): Connect
   async function bridge(
     message: Record<string, unknown>,
     requestOptions: BridgeRequestOptions,
+    timeoutMs = bridgeTimeoutMs,
   ): Promise<BridgeResponse> {
     const { signal } = requestOptions
     signal?.throwIfAborted()
@@ -571,7 +582,7 @@ export function createConnectClient(options: ConnectClientOptions = {}): Connect
       const onAbort = () => settle(signal?.reason)
       const timer = clock.setTimeout(
         () => settle(new FxmError('Network', 'FXM Connect did not answer in time')),
-        bridgeTimeoutMs,
+        timeoutMs,
       )
       function settle(reply: unknown): void {
         clock.clearTimeout(timer)
@@ -623,6 +634,9 @@ export function createConnectClient(options: ConnectClientOptions = {}): Connect
     },
     async spotifyServerTime(requestOptions = {}) {
       return bridge({ type: CONNECT_MESSAGE.spotifyServerTime }, requestOptions)
+    },
+    async youtubeMusicLibrary(requestOptions = {}) {
+      return bridge({ type: CONNECT_MESSAGE.youtubeMusicLibrary }, requestOptions, 120_000)
     },
     dispose() {
       if (disposed) return

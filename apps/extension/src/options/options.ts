@@ -1,8 +1,6 @@
-// Options page: version, allowed FXM origins and the Spotify login toggles. The toggles live in
-// IndexedDB in the extension's own origin, out of content scripts' reach (see settings.ts). In
-// Firefox, turning the login on also asks for Firefox's consent (see consent.ts). The
-// development build's own parts (its badge and warning, and the localhost toggle) are only in
-// its options.html: the release build drops them (data-dev, scripts/options-page.ts).
+// Options page: version, allowed FXM origins and the optional Spotify / YouTube Music account
+// bridges. Settings live in extension-owned IndexedDB; cookie access is separately granted only
+// when the user enables YouTube Music. Firefox asks for authentication-information consent.
 import { DEV_BUILD, ORIGINS } from '../build-info.ts'
 import { loginConsent } from '../consent.ts'
 import { indexedDbSettings, SETTINGS_CHANNEL, type Settings } from '../settings.ts'
@@ -76,26 +74,53 @@ const toggles: Toggle[] = [
         ? 'Saved. FXM can now use your Spotify login from this browser.'
         : 'Saved. FXM can no longer use your Spotify login.',
   },
+  {
+    input: byId('youtube-music-login', HTMLInputElement),
+    key: 'youtubeMusicLogin',
+    saved: (on) =>
+      on
+        ? 'Saved. FXM can now read your YouTube Music library from this browser.'
+        : 'Saved. FXM can no longer read your YouTube Music library.',
+  },
   ...(DEV_BUILD ? developmentParts() : []),
 ]
 
-/** Firefox asks for consent before the login goes on. True where no consent is needed. */
-async function consentFor(key: keyof Settings, enabled: boolean): Promise<boolean> {
-  if (key !== 'spotifyLogin' || !enabled) return true
-  try {
-    // Called before anything is awaited: Firefox only asks during the click that started it.
-    return await consent.request()
-  } catch {
-    return false
-  }
+/**
+ * Starts every required permission prompt synchronously inside the checkbox gesture. The YouTube
+ * Music cookie permission is optional and separately revocable; Firefox's authenticationInfo
+ * consent is shared by the two account bridges and is released only when both are off.
+ */
+function authorizeToggle(key: keyof Settings, enabled: boolean): Promise<boolean> {
+  if (!enabled) return Promise.resolve(true)
+  const needsConsent = key === 'spotifyLogin' || key === 'youtubeMusicLogin'
+  const consentRequest = needsConsent ? consent.request() : Promise.resolve(true)
+  const cookieRequest =
+    key === 'youtubeMusicLogin'
+      ? (api.permissions?.request({ permissions: ['cookies'] }) ?? Promise.resolve(false))
+      : Promise.resolve(true)
+  return Promise.all([consentRequest, cookieRequest]).then(
+    ([consented, cookies]) => consented && cookies,
+  )
 }
 
 for (const { input, key, saved } of toggles) {
   input.addEventListener('change', async () => {
     const enabled = input.checked
-    if (!(await consentFor(key, enabled))) {
+    if (!(await authorizeToggle(key, enabled))) {
       input.checked = false
-      showStatus("Firefox didn't get your consent, so FXM can't use your Spotify login.", true)
+      if (key === 'youtubeMusicLogin') {
+        await api.permissions?.remove({ permissions: ['cookies'] }).catch(() => {})
+        const current = await settings.read().catch(() => undefined)
+        if (current && !current.spotifyLogin && !current.youtubeMusicLogin) {
+          await consent.release().catch(() => {})
+        }
+      }
+      showStatus(
+        key === 'youtubeMusicLogin'
+          ? "FXM Connect needs the optional cookies permission and Firefox's authentication-information consent to read YouTube Music."
+          : "Firefox didn't get your consent, so FXM can't use your Spotify login.",
+        true,
+      )
       return
     }
     try {
@@ -107,7 +132,15 @@ for (const { input, key, saved } of toggles) {
       showStatus('Could not save the setting. Please try again.', true)
       return
     }
-    if (key === 'spotifyLogin' && !enabled) await consent.release().catch(() => {})
+    if (key === 'youtubeMusicLogin' && !enabled) {
+      await api.permissions?.remove({ permissions: ['cookies'] }).catch(() => {})
+    }
+    if (key === 'spotifyLogin' || key === 'youtubeMusicLogin') {
+      const current = await settings.read().catch(() => undefined)
+      if (current && !current.spotifyLogin && !current.youtubeMusicLogin) {
+        await consent.release().catch(() => {})
+      }
+    }
   })
 }
 
@@ -116,8 +149,13 @@ async function load(): Promise<void> {
     const current = await settings.read()
     // In Firefox the login is on only with the consent, which the user can withdraw elsewhere.
     const consented = await consent.granted().catch(() => false)
+    const hasCookies =
+      (await api.permissions?.contains({ permissions: ['cookies'] }).catch(() => false)) ?? false
     for (const { input, key } of toggles) {
-      input.checked = current[key] && (key !== 'spotifyLogin' || consented)
+      const needsConsent = key === 'spotifyLogin' || key === 'youtubeMusicLogin'
+      const hasRequiredPermissions =
+        (key !== 'youtubeMusicLogin' || hasCookies) && (!needsConsent || consented)
+      input.checked = current[key] && hasRequiredPermissions
     }
   } catch {
     showStatus('Could not read the settings.', true)

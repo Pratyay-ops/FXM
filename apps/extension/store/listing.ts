@@ -55,8 +55,8 @@ export const EDGE_SINGLE_PURPOSE =
   'FXM Connect lets the FXM web app at https://fxmusic.pages.dev reach the music services it ' +
   "plays from (YouTube, YouTube Music, Spotify and Last.fm) from the user's own browser. Fixed " +
   "rules adjust the CORS headers of the web app's own requests to those services. FXM Connect " +
-  "also relays Spotify's public server time without cookies, and an optional bridge, off by " +
-  "default, gets a Spotify token for the user's own Spotify login."
+  "also relays Spotify's public server time without cookies. Independent optional, off-by-default " +
+  "account bridges can read a Spotify login or a YouTube Music library in the user's browser."
 
 /** Why FXM Connect needs each permission and host permission of its manifest. */
 export const PERMISSION_JUSTIFICATIONS: Readonly<Record<string, string>> = {
@@ -67,9 +67,14 @@ export const PERMISSION_JUSTIFICATIONS: Readonly<Record<string, string>> = {
     "https://fxmusic.pages.dev. FXM Connect has no webRequest permission, so it can't see " +
     'any other traffic.',
   storage:
-    "Keeps the rate-limit counter of the background's two Spotify requests (the public server " +
-    'time and the optional login token) in storage.session, which lives in memory and is ' +
-    'cleared when the browser closes.',
+    "Keeps the rate-limit counter of the background's fixed Spotify and YouTube Music account " +
+    'bridge operations in storage.session, which lives in memory and is cleared when the browser closes.',
+  cookies:
+    "Optional permission requested only after the user turns on YouTube Music login in FXM Connect's " +
+    'options. The background reads the normal-profile music.youtube.com cookies to authenticate ' +
+    'read-only YouTube Music library requests. Cookie values are used in memory, never returned ' +
+    'to the FXM page, persisted, logged or sent to an FXM server. The option can be turned off ' +
+    'at any time, which removes this optional permission.',
   'https://fxmusic.pages.dev/*':
     'Runs the presence content script on the FXM web app, and lets the header rules apply to ' +
     "the requests the web app starts: browsers change a request's headers only when the " +
@@ -78,9 +83,10 @@ export const PERMISSION_JUSTIFICATIONS: Readonly<Record<string, string>> = {
     "YouTube's API (search, video details): the rules set YouTube's Origin and add CORS " +
     'headers, so the FXM web app can read the answers.',
   'https://music.youtube.com/*':
-    "YouTube Music's API (search, song details, and radio for the web app's home feed and " +
-    "autoplay): the rules set YouTube Music's Origin and add CORS headers, so the FXM web app " +
-    'can read the answers.',
+    "YouTube Music's API (search, song details, radio, and the optional authenticated library " +
+    "read in FXM Connect's background): the rules set YouTube Music's Origin and add CORS headers, " +
+    'so the FXM web app can read its own answers. Account reads require the separate opt-in and ' +
+    'optional cookies permission; cookies stay inside the extension background.',
   'https://youtubei.googleapis.com/*':
     "The same YouTube API on Google's API host: the rules set a YouTube Origin and add CORS " +
     'headers.',
@@ -110,9 +116,12 @@ export const PERMISSION_JUSTIFICATIONS: Readonly<Record<string, string>> = {
  */
 export const EDGE_DATA_USAGE =
   'Tick "Authentication information" and no other data type. FXM Connect sends nothing to the ' +
-  'developer. Its optional Spotify login bridge, off by default, passes the access token of ' +
-  "the user's own Spotify login from open.spotify.com to the FXM web app in the same browser, " +
-  'which uses it only for its requests to Spotify; where Partner Center asks why, say that. ' +
+  'developer. Its optional Spotify login bridge passes the Spotify token to the FXM page in the ' +
+  'same browser. Its separately optional YouTube Music bridge reads music.youtube.com cookies ' +
+  'in the extension background for authenticated, read-only library requests, and returns only ' +
+  'normalized music metadata to the FXM page; cookie values are never returned to the page, ' +
+  'persisted, logged or sent to an FXM server. Both account options are off by default and can ' +
+  'be turned off; the YouTube Music option also requires optional browser cookies permission. ' +
   'Tick the certifications.'
 
 const LISTING_DIR = new URL('listing/', import.meta.url)

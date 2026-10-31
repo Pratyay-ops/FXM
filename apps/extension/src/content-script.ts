@@ -7,13 +7,14 @@
  * It holds no settings: the Spotify login toggle is only readable by the background, which the
  * content script asks for every pong (see settings.ts for why).
  */
-import { FEATURES, SPOTIFY_LOGIN_FEATURE } from './config.ts'
+import { FEATURES, SPOTIFY_LOGIN_FEATURE, YOUTUBE_MUSIC_LOGIN_FEATURE } from './config.ts'
 import {
   type BridgeReply,
   type BridgeRequest,
   errorReply,
   isBridgeReply,
   isLoginStatus,
+  isYouTubeMusicLoginStatus,
   MESSAGE,
   type MessageEventLike,
   type PageMessage,
@@ -68,15 +69,22 @@ export function startContentScript(options: ContentScriptOptions): boolean {
     ? runtime.sendMessage({ type: MESSAGE.activateOrigin }).catch(() => {})
     : Promise.resolve()
 
-  /** The pong's features; the background says whether this tab may use the Spotify login. */
+  /** The account features; each option is checked independently by the background. */
   async function features(): Promise<string[]> {
+    const features: string[] = [...FEATURES]
     try {
-      const status = await runtime.sendMessage({ type: MESSAGE.loginStatus })
-      if (isLoginStatus(status) && status.enabled) return [...FEATURES, SPOTIFY_LOGIN_FEATURE]
+      const [spotify, youtubeMusic] = await Promise.all([
+        runtime.sendMessage({ type: MESSAGE.loginStatus }),
+        runtime.sendMessage({ type: MESSAGE.youtubeMusicLoginStatus }),
+      ])
+      if (isLoginStatus(spotify) && spotify.enabled) features.push(SPOTIFY_LOGIN_FEATURE)
+      if (isYouTubeMusicLoginStatus(youtubeMusic) && youtubeMusic.enabled) {
+        features.push(YOUTUBE_MUSIC_LOGIN_FEATURE)
+      }
     } catch {
-      // The extension was reloaded under this page; report the static features.
+      // The extension was reloaded under this page; report only the static features.
     }
-    return [...FEATURES]
+    return features
   }
 
   async function relay(request: BridgeRequest): Promise<BridgeReply> {

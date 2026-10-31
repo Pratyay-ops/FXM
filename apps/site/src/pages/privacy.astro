@@ -24,7 +24,7 @@ const services: Service[] = [
   {
     name: 'YouTube',
     url: 'https://www.youtube.com',
-    use: `YouTube Music and YouTube: search, song and video details, audio, the playlists you import, recommendations for your home feed${soon(AVAILABLE.homeFeed)} (YouTube Music radio, started from the artists you pick and the songs you play), and the songs autoplay adds when your queue runs low${soon(AVAILABLE.radio)}. ${privacyLiteCheck(AVAILABLE.lite)} Only while one of FXM's experimental ways of playing YouTube songs is switched on (they ship switched off), also Google's BotGuard service, to get the token YouTube asks for before it plays a song.`,
+    use: `YouTube Music and YouTube: search, song and video details, audio, the playlists you import, recommendations for your home feed${soon(AVAILABLE.homeFeed)} (YouTube Music radio, started from the artists you pick and the songs you play), and the songs autoplay adds when your queue runs low${soon(AVAILABLE.radio)}. ${privacyLiteCheck(AVAILABLE.lite)} Only while one of FXM's experimental ways of playing YouTube songs is switched on (they ship switched off), also Google's BotGuard service, to get the token YouTube asks for before it plays a song. If you separately opt in to YouTube Music account sync in FXM Connect, the extension reads your normal browser profile's music.youtube.com cookies inside its background, uses them in memory for authenticated YouTube Music library reads, and returns only normalized metadata to the FXM page. The cookies are sent to YouTube as part of those requests; they are not exposed to the FXM page, stored by FXM, or sent to an FXM server. The supported import is Liked Music, playlists, saved albums and followed artists; it does not include watch history, general YouTube likes or a separate complete Songs list.`,
   },
   {
     name: 'Spotify',
@@ -85,7 +85,7 @@ const services: Service[] = [
   },
 ]
 
-const cookies = `FXM doesn't set cookies or use them to follow you. If you connect your Spotify account${accountSync}, FXM uses your Spotify login as described in`
+const cookies = `FXM doesn't set cookies or use them to follow you. If you connect your Spotify account${accountSync}, or opt in to YouTube Music account sync in FXM Connect, your browser uses the relevant service cookies for those requests as described in`
 const downloads = AVAILABLE.downloads
   ? 'So are your downloads.'
   : 'Downloads will be stored there too, once they arrive.'
@@ -105,7 +105,7 @@ const plugins =
   description="FXM has no analytics, no accounts and no servers, and sets no cookies. Your library stays on your device unless you turn on sync or scrobbling, and your searches and plays go straight to the services that answer them. Here is which services, and why."
   heading="Privacy"
   lead="FXM is built so that there is nothing to collect: no analytics, no accounts, no cookies set by FXM and no FXM servers. Your library, history and settings stay on your device unless you turn on sync or scrobbling, and what you search for and play goes straight from your device to the services that answer it."
-  updated="2026-10-26"
+  updated="2026-10-31"
 >
   <h2>The short version</h2>
   <ul>
@@ -209,6 +209,26 @@ const plugins =
     off.
   </p>
 
+  <h2 id="youtube-music-login">Your YouTube Music library</h2>
+  <p>
+    YouTube Music account sync is optional and experimental. In FXM Connect's options, turn on
+    <strong>Use my YouTube Music login from this browser</strong>. FXM Connect then asks for the
+    optional browser <code>cookies</code> permission. It reads cookies for
+    <code>music.youtube.com</code>
+    only in the extension background, and uses them in memory to authenticate its YouTube Music
+    reads. The cookies are sent to YouTube with those requests, but are never returned to FXM's
+    page, persisted by FXM, logged, or sent to an FXM server. The page receives normalized music
+    metadata only.
+  </p>
+  <p>
+    The import is read-only and currently covers Liked Music, your library playlists, saved albums
+    and followed artists. It does not import watch history, ordinary YouTube likes or Shorts, and
+    YouTube Music does not currently expose a reliable complete separate Songs list through this
+    interface. The interface used by FXM is unofficial and can change. Turning the option off
+    revokes the optional cookie permission and stops further reads; already imported local copies
+    remain in your FXM library.
+  </p>
+
   <h2 id="fxm-connect">FXM Connect</h2>
   <p>
     FXM Connect is the small browser extension that lets the web app reach YouTube, Spotify and
@@ -232,6 +252,12 @@ const plugins =
       Its Spotify login option is off by default;
       <a href="#spotify-login">Your Spotify login</a>
       explains what it does when you turn it on.
+    </li>
+    <li>
+      Its YouTube Music login option is separately off by default and needs the optional
+      <code>cookies</code>
+      permission. <a href="#youtube-music-login">Your YouTube Music library</a> explains what it
+      reads and where the cookies stay.
     </li>
   </ul>
   <p>

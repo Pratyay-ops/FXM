@@ -23,17 +23,16 @@
       </header>
 
       <p class="lead">
-        FXM Connect only lets the FXM web app reach music services (YouTube, Spotify and
-        Last.fm) from your own browser. It adds the headers those services need to answer FXM,
-        fetches Spotify's public server time for it and, only if you turn on the Spotify setting
-        below, gets a Spotify token for your own Spotify login. It has no analytics or tracking
-        and runs no remote code.
+        FXM Connect lets the FXM web app reach music services (YouTube, Spotify and Last.fm)
+        from your own browser. It adds the headers those services need to answer FXM and, only
+        when you opt in below, reads your Spotify login or your YouTube Music library. It has no
+        analytics or tracking and runs no remote code.
       </p>
 
       <p id="dev-warning" class="warning" data-dev hidden>
         <strong>Development build.</strong> It treats any app served on the localhost origins
-        listed below as FXM, including other projects and their dependencies. Keep the Spotify
-        login off for localhost, or use a separate browser profile for development. Never
+        listed below as FXM, including other projects and their dependencies. Keep both account
+        access options off while using localhost, or use a separate browser profile. Never
         publish this build.
       </p>
 
@@ -60,11 +59,10 @@
           accounts that break them; no such case has been reported for this kind of use.
         </p>
         <p id="spotify-consent-help" class="help" hidden>
-          When you turn this on, Firefox asks you to let FXM Connect "share authentication
-          information with extension developer", because the token is your Spotify login. Here
-          that means the FXM web app in this browser, which uses the token only for its requests
-          to Spotify; no FXM server receives it. If you withdraw the consent in Firefox's add-on
-          settings, FXM can no longer use your login.
+          Firefox asks for the optional authentication-information consent before either account
+          bridge can be used. FXM Connect keeps browser credentials inside the extension; no FXM
+          server receives your cookies or account credentials. You can withdraw this consent in
+          Firefox's add-on settings at any time.
         </p>
         <div id="localhost-login" data-dev hidden>
           <div class="setting">
@@ -85,6 +83,29 @@
           </p>
         </div>
         <p id="status" class="status" role="status" aria-live="polite"></p>
+      </section>
+
+
+      <section aria-labelledby="youtube-music-title">
+        <h2 id="youtube-music-title">YouTube Music</h2>
+        <div class="setting">
+          <input
+            type="checkbox"
+            id="youtube-music-login"
+            aria-describedby="youtube-music-login-help spotify-consent-help"
+            disabled
+          />
+          <label for="youtube-music-login">Use my YouTube Music login from this browser</label>
+        </div>
+        <p id="youtube-music-login-help" class="help">
+          Off by default. When enabled, FXM Connect uses the cookies already held by your browser
+          for music.youtube.com to read your Liked Music, playlists, saved albums and
+          followed artists. A complete saved-songs list is not currently exposed reliably. It asks for the optional browser cookies permission. Cookie values
+          stay inside FXM Connect and are never sent to the FXM page or a server; only normalized
+          music metadata is returned to the local app. The import is read-only and experimental:
+          YouTube Music's internal interface is unofficial and can change. Turning this off
+          revokes the optional cookies permission.
+        </p>
       </section>
 
       <section aria-labelledby="origins-title">

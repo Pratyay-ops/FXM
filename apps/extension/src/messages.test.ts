@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   isBridgeReply,
   isLoginStatus,
+  isYouTubeMusicLoginStatus,
   MESSAGE,
   type MessageEventLike,
   messageType,
@@ -64,6 +65,11 @@ describe('readPageMessage: requests', () => {
 
   it('accepts a server-time request', () => {
     const message = { type: MESSAGE.spotifyServerTime, id: 7 }
+    expect(readPageMessage(event(message), expected)).toEqual({ kind: 'bridge', request: message })
+  })
+
+  it('accepts a parameter-free YouTube Music library request', () => {
+    const message = { type: MESSAGE.youtubeMusicLibrary, id: 'ytm-1' }
     expect(readPageMessage(event(message), expected)).toEqual({ kind: 'bridge', request: message })
   })
 
@@ -138,6 +144,13 @@ describe('parseBridgeRequest', () => {
     expect(
       parseBridgeRequest({ type: MESSAGE.spotifyServerTime, id: 1, credentials: 'include' }),
     ).toMatchObject({ ok: false, code: 'bad-request' })
+    expect(
+      parseBridgeRequest({ type: MESSAGE.youtubeMusicLibrary, id: 1, cookie: 'secret' }),
+    ).toMatchObject({ ok: false, code: 'bad-request' })
+    expect(parseBridgeRequest({ type: MESSAGE.youtubeMusicLibrary, id: 1 })).toEqual({
+      ok: true,
+      value: { type: MESSAGE.youtubeMusicLibrary, id: 1 },
+    })
   })
 
   it('requires params on token requests', () => {
@@ -186,6 +199,21 @@ describe('isLoginStatus', () => {
     ]) {
       expect(isLoginStatus(value)).toBe(false)
     }
+  })
+})
+
+describe('isYouTubeMusicLoginStatus', () => {
+  it('accepts only its own status shape', () => {
+    expect(
+      isYouTubeMusicLoginStatus({ type: MESSAGE.youtubeMusicLoginStatus, enabled: true }),
+    ).toBe(true)
+    expect(
+      isYouTubeMusicLoginStatus({ type: MESSAGE.youtubeMusicLoginStatus, enabled: false }),
+    ).toBe(true)
+    expect(isYouTubeMusicLoginStatus({ type: MESSAGE.loginStatus, enabled: true })).toBe(false)
+    expect(
+      isYouTubeMusicLoginStatus({ type: MESSAGE.youtubeMusicLoginStatus, enabled: 'yes' }),
+    ).toBe(false)
   })
 })
 

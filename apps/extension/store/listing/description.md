@@ -4,7 +4,7 @@ Browsers stop a web page from reading answers from other sites unless those site
 
 **What it changes**
 
-Its rules apply only to requests that FXM's own pages (https://fxmusic.pages.dev) make to the services below. Every rule removes cookies from those requests and their answers, so these rules never make the web app act as your logged-in account. Only the optional Spotify login bridge below does that, and only after you turn it on. Only FXM's page may read the answers.
+Its rules apply only to requests that FXM's own pages (https://fxmusic.pages.dev) make to the services below. Every rule removes cookies from those requests and their answers, so these rules never make the web app act as your logged-in account. Only the optional Spotify login and YouTube Music library bridges below do that, and only after you separately turn them on. Only FXM's page may read the answers.
 
 - YouTube and YouTube Music (search, song details and audio, and the radio the web app's home feed and autoplay are made from): requests to their API get YouTube's own address in the Origin and Referer headers, and the answers get the headers that let FXM's page read them. Audio answers get the same headers, so the web app can read the audio it plays, for example to check that a stream is complete.
 - Spotify (search and details, and radio and recommendations for the web app's home feed and autoplay, from the same endpoints as Spotify's own web player): requests to the endpoints that hand out the web player's tokens and server time get Spotify's own address in the Origin and Referer headers. Their answers, and those of Spotify's web-player API, get the headers that let FXM's page read them.
@@ -18,13 +18,19 @@ The web app's Spotify account sync, which uses the bridge, is experimental and o
 
 Spotify's terms don't permit automated access like FXM's, and they let Spotify suspend accounts that break them; no such case has been reported for this kind of use. With the bridge on, Spotify knows that the web app's requests come from your account. That is why the bridge stays off until you switch it on, and you can switch it off at any time. Without it, FXM uses Spotify's anonymous web-player token, which isn't tied to any account.
 
+**YouTube Music library (optional, off by default)**
+
+If you turn on "Use my YouTube Music login from this browser" in FXM Connect's options, FXM Connect asks for the optional browser `cookies` permission. The extension reads your normal browser profile's cookies for music.youtube.com inside its background only and uses them in memory to authenticate YouTube Music library requests. Your browser sends those cookies to YouTube with the requests, but the cookie values are never returned to the FXM web page, persisted by FXM, logged or sent to an FXM server. FXM receives normalized music metadata only.
+
+The import is read-only and currently includes Liked Music, your library playlists, saved albums and followed artists. It does not include watch history, ordinary YouTube likes, Shorts or a separate complete Songs list. The YouTube Music interface used is unofficial and can change. The option is separate from Spotify login, off by default and can be turned off at any time; turning it off revokes the optional cookies permission. In Firefox, the existing optional authentication-information consent is also required and can be withdrawn in Firefox's add-on settings.
+
 **Privacy**
 
 - Nothing goes to FXM: no analytics, no telemetry and no FXM servers.
-- The only personal data FXM Connect handles is your Spotify token, and only with the login bridge on: it passes the token to the web app in your browser, which uses it only for its requests to Spotify.
+- Account access is opt-in. With Spotify login enabled, FXM Connect passes the Spotify token to the FXM page in the same browser. With YouTube Music login enabled, it reads the normal-profile music.youtube.com cookie jar in the extension background, uses it in memory for authenticated YouTube Music reads, and returns normalized metadata only. Cookies are sent to YouTube as those requests require, but are never returned to the FXM page, persisted, logged or sent to an FXM server.
 - No remote code: everything that runs ships inside the extension, as readable, unminified files built from FXM's public source code.
 - Only FXM's pages can use it. Other sites get nothing, and the rules ignore their requests.
-- Permissions: declarativeNetRequest for the fixed header rules, storage for the rate limit of its Spotify requests, and access to FXM's site and to the services above.
+- Permissions: declarativeNetRequest for the fixed header rules, storage for bridge rate limiting, optional cookies permission for YouTube Music library access, and access to FXM's site and to the services above.
 
 FXM is an independent open-source project, not affiliated with or endorsed by YouTube, Google, Spotify or Last.fm.
 

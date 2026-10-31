@@ -21,6 +21,7 @@ import { SpotifySwitchControl, SpotifySwitchHelp } from '../search/spotify-setti
 import { SponsorBlockCredit, SponsorBlockSetting } from '../sponsorblock/sponsorblock-setting'
 import { SpotifyAccountSettings } from '../spotify-account/spotify-account-settings'
 import { SyncSettings } from '../sync/sync-settings'
+import { YouTubeMusicAccountSettings } from '../youtube-music-account/youtube-music-account-settings'
 import { CatalogModeControl } from './catalog-mode-control'
 import { DownloadsSection } from './downloads-section'
 import { AutoMatchSetting } from './matching-setting'
@@ -110,6 +111,8 @@ export function SettingsPage() {
       </SettingsSection>
 
       <SpotifyAccountSettings />
+
+      <YouTubeMusicAccountSettings />
 
       <PluginsSettings />
 

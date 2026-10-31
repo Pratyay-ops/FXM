@@ -16,13 +16,16 @@ const bridge = createBridge({
   consent: loginConsent(api),
   session: api.storage.session,
   dnr: api.declarativeNetRequest,
+  cookies: api.cookies,
+  permissions: api.permissions,
   fetch: (url, init) => fetch(url, init),
   now: () => Date.now(),
 })
 
 api.runtime.onMessage.addListener(bridge.listener)
 
-// The toolbar button opens the options page, where the Spotify login toggle lives.
+// The toolbar button opens the options page, where the separate Spotify and YouTube Music
+// account-access toggles live.
 api.action?.onClicked.addListener(() => {
   api.runtime.openOptionsPage().catch(() => {})
 })
