@@ -37,14 +37,14 @@ export interface YouTubeMusicReaderOptions {
   maxRequests?: number
 }
 
-interface MusicAccountClient {
+export interface MusicAccountClient {
   music: {
     getLibrary(): Promise<MusicLibraryPage>
     getPlaylist(id: string): Promise<MusicPlaylistPage>
   }
 }
 
-interface MusicLibraryPage {
+export interface MusicLibraryPage {
   filters?: string[]
   contents?: readonly unknown[]
   has_continuation: boolean
@@ -52,13 +52,13 @@ interface MusicLibraryPage {
   getContinuation(): Promise<MusicLibraryContinuation>
 }
 
-interface MusicLibraryContinuation {
+export interface MusicLibraryContinuation {
   contents?: { contents?: readonly unknown[] }
   has_continuation: boolean
   getContinuation(): Promise<MusicLibraryContinuation>
 }
 
-interface MusicPlaylistPage {
+export interface MusicPlaylistPage {
   header?: unknown
   items: readonly unknown[]
   has_continuation: boolean

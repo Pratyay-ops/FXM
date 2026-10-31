@@ -1,7 +1,22 @@
 import { describe, expect, it } from 'vitest'
-import { readYouTubeMusicAccount } from './account'
+import {
+  type MusicLibraryContinuation,
+  type MusicLibraryPage,
+  type MusicPlaylistPage,
+  readYouTubeMusicAccount,
+} from './account'
 
-function libraryPage(items: unknown[] = []) {
+function libraryContinuation(): MusicLibraryContinuation {
+  return {
+    contents: { contents: [] },
+    has_continuation: false,
+    async getContinuation() {
+      return libraryContinuation()
+    },
+  }
+}
+
+function libraryPage(items: unknown[] = []): MusicLibraryPage {
   return {
     filters: ['Songs', 'Playlists', 'Albums', 'Artists'],
     contents: [{ contents: items }],
@@ -10,13 +25,21 @@ function libraryPage(items: unknown[] = []) {
       return pages[filter] ?? libraryPage()
     },
     async getContinuation() {
-      return {
-        contents: { contents: [] },
-        has_continuation: false,
-        async getContinuation() {
-          return this
-        },
-      }
+      return libraryContinuation()
+    },
+  }
+}
+
+function emptyLibraryPage(): MusicLibraryPage {
+  return {
+    filters: [],
+    contents: [],
+    has_continuation: false,
+    async applyFilter() {
+      return libraryPage()
+    },
+    async getContinuation() {
+      return libraryContinuation()
     },
   }
 }
@@ -31,7 +54,7 @@ const track = {
   duration: { seconds: 238 },
   thumbnail: { contents: [{ url: 'https://example.com/cover.jpg', width: 500, height: 500 }] },
 }
-const pages: Record<string, ReturnType<typeof libraryPage>> = {
+const pages: Record<string, MusicLibraryPage> = {
   Songs: libraryPage([track]),
   Playlists: libraryPage([
     {
@@ -103,21 +126,11 @@ describe('readYouTubeMusicAccount', () => {
       readYouTubeMusicAccount('cookie=value-that-is-long-enough', {
         createClient: async () => ({
           music: {
-            getLibrary: async () => ({
-              filters: [],
-              contents: [],
-              has_continuation: false,
-              async applyFilter() {
-                return this
-              },
-              async getContinuation() {
-                return this
-              },
-            }),
+            getLibrary: async () => emptyLibraryPage(),
             getPlaylist: async () => ({
               items: [],
               has_continuation: false,
-              async getContinuation() {
+              async getContinuation(): Promise<MusicPlaylistPage> {
                 return this
               },
             }),
