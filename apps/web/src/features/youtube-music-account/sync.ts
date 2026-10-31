@@ -274,12 +274,7 @@ export function parseYouTubeMusicSnapshot(
   ) {
     return undefined
   }
-  const arrays = [
-    'likedTracks',
-    'playlists',
-    'savedAlbums',
-    'followedArtists',
-  ] as const
+  const arrays = ['likedTracks', 'playlists', 'savedAlbums', 'followedArtists'] as const
   if (!arrays.every((key) => Array.isArray(value[key]))) return undefined
   const tracksValid = (items: unknown[]) =>
     items.every((item) => {
