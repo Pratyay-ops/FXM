@@ -71,7 +71,7 @@ export function startContentScript(options: ContentScriptOptions): boolean {
 
   /** The account features; each option is checked independently by the background. */
   async function features(): Promise<string[]> {
-    const features = [...FEATURES]
+    const features: string[] = [...FEATURES]
     try {
       const [spotify, youtubeMusic] = await Promise.all([
         runtime.sendMessage({ type: MESSAGE.loginStatus }),

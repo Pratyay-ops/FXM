@@ -70,7 +70,7 @@ export interface BridgeOptions {
   maxResponseBytes?: number
   /** Optional, separately granted browser cookie access; available only in the background. */
   cookies?: Pick<NonNullable<WebExtApi['cookies']>, 'getAll'>
-  permissions?: Pick<NonNullable<WebExtApi['permissions']>, 'contains'>
+  permissions?: Pick<NonNullable<WebExtApi['permissions']>, 'contains'> | undefined
 }
 
 /** A trusted sender: FXM Connect's content script in the top frame of an FXM page. */

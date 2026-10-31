@@ -80,7 +80,8 @@ export function installFakeConnect(
     }
     if (
       data.type !== CONNECT_MESSAGE.spotifyToken &&
-      data.type !== CONNECT_MESSAGE.spotifyServerTime
+      data.type !== CONNECT_MESSAGE.spotifyServerTime &&
+      data.type !== CONNECT_MESSAGE.youtubeMusicLibrary
     ) {
       return
     }
