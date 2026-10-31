@@ -85,8 +85,6 @@ function setup(options: SetupOptions = {}) {
     cookies: options.cookies ?? { getAll: vi.fn(async () => []) },
     permissions: options.permissions ?? {
       contains: vi.fn(async () => false),
-      request: vi.fn(async () => false),
-      remove: vi.fn(async () => true),
     },
     now: () => clock.now,
     ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
