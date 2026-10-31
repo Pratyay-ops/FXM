@@ -214,10 +214,11 @@ const plugins =
     YouTube Music account sync is optional and experimental. In FXM Connect's options, turn on
     <strong>Use my YouTube Music login from this browser</strong>. FXM Connect then asks for the
     optional browser <code>cookies</code> permission. It reads cookies for
-    <code>music.youtube.com</code> only in the extension background, and uses them in memory to
-    authenticate its YouTube Music reads. The cookies are sent to YouTube with those requests,
-    but are never returned to FXM's page, persisted by FXM, logged, or sent to an FXM server.
-    The page receives normalized music metadata only.
+    <code>music.youtube.com</code>
+    only in the extension background, and uses them in memory to authenticate its YouTube Music
+    reads. The cookies are sent to YouTube with those requests, but are never returned to FXM's
+    page, persisted by FXM, logged, or sent to an FXM server. The page receives normalized music
+    metadata only.
   </p>
   <p>
     The import is read-only and currently covers Liked Music, your library playlists, saved albums
@@ -254,8 +255,9 @@ const plugins =
     </li>
     <li>
       Its YouTube Music login option is separately off by default and needs the optional
-      <code>cookies</code> permission. <a href="#youtube-music-login">Your YouTube Music library</a>
-      explains what it reads and where the cookies stay.
+      <code>cookies</code>
+      permission. <a href="#youtube-music-login">Your YouTube Music library</a> explains what it
+      reads and where the cookies stay.
     </li>
   </ul>
   <p>

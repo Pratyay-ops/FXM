@@ -71,10 +71,10 @@ export const PERMISSION_JUSTIFICATIONS: Readonly<Record<string, string>> = {
     'bridge operations in storage.session, which lives in memory and is cleared when the browser closes.',
   cookies:
     "Optional permission requested only after the user turns on YouTube Music login in FXM Connect's " +
-    "options. The background reads the normal-profile music.youtube.com cookies to authenticate " +
-    "read-only YouTube Music library requests. Cookie values are used in memory, never returned " +
-    "to the FXM page, persisted, logged or sent to an FXM server. The option can be turned off " +
-    "at any time, which removes this optional permission.",
+    'options. The background reads the normal-profile music.youtube.com cookies to authenticate ' +
+    'read-only YouTube Music library requests. Cookie values are used in memory, never returned ' +
+    'to the FXM page, persisted, logged or sent to an FXM server. The option can be turned off ' +
+    'at any time, which removes this optional permission.',
   'https://fxmusic.pages.dev/*':
     'Runs the presence content script on the FXM web app, and lets the header rules apply to ' +
     "the requests the web app starts: browsers change a request's headers only when the " +
