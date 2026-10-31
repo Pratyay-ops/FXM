@@ -20,7 +20,6 @@ export interface YouTubeMusicPlaylist {
 
 export interface YouTubeMusicAccountSnapshot {
   likedTracks: Track[]
-  savedTracks: Track[]
   playlists: YouTubeMusicPlaylist[]
   savedAlbums: Album[]
   followedArtists: Artist[]
@@ -344,10 +343,9 @@ export async function readYouTubeMusicAccount(
     throw new Error('YouTube Music did not return a readable account library')
   }
 
-  // The current Songs library chip is backed by FEmusic_liked_videos, which can return a small
-  // non-paginated preview. Do not mistake that preview for the complete saved-songs library.
-  // VLLM (music.getPlaylist('LM')) is the fully paginated Liked Music collection.
-  const savedTracks: Track[] = []
+  // The current Songs library chip is backed by FEmusic_liked_videos and may only be a preview.
+  // Do not mistake that preview for a complete saved-songs library. VLLM is the fully paginated
+  // Liked Music collection and is the only song library imported in this release.
   const playlists = filters.has('playlists')
     ? await collectLibraryFilter(
         library,
@@ -381,7 +379,6 @@ export async function readYouTubeMusicAccount(
 
   return {
     likedTracks,
-    savedTracks,
     playlists: playlistCopies,
     savedAlbums,
     followedArtists,

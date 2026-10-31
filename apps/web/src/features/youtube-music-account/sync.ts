@@ -54,7 +54,6 @@ export interface YouTubeMusicSyncLibrary {
 export interface YouTubeMusicSyncResult {
   readonly account: string
   readonly likedSongs: number
-  readonly savedSongs: number
   readonly playlists: number
   readonly savedAlbums: number
   readonly followedArtists: number
@@ -174,7 +173,6 @@ export async function runYouTubeMusicSync(
   }
   if (
     !Array.isArray(snapshot.likedTracks) ||
-    !Array.isArray(snapshot.savedTracks) ||
     !Array.isArray(snapshot.playlists) ||
     !Array.isArray(snapshot.savedAlbums) ||
     !Array.isArray(snapshot.followedArtists)
@@ -256,7 +254,6 @@ export async function runYouTubeMusicSync(
   return {
     account: snapshot.account,
     likedSongs: likedTracks.length,
-    savedSongs: 0,
     playlists: seenRemotePlaylists.size,
     savedAlbums: snapshot.savedAlbums.length,
     followedArtists: snapshot.followedArtists.length,
@@ -279,7 +276,6 @@ export function parseYouTubeMusicSnapshot(
   }
   const arrays = [
     'likedTracks',
-    'savedTracks',
     'playlists',
     'savedAlbums',
     'followedArtists',
@@ -351,7 +347,6 @@ export function parseYouTubeMusicSnapshot(
     })
   if (
     !tracksValid(value.likedTracks as unknown[]) ||
-    !tracksValid(value.savedTracks as unknown[]) ||
     !playlistsValid(value.playlists as unknown[]) ||
     !albumsValid(value.savedAlbums as unknown[]) ||
     !artistsValid(value.followedArtists as unknown[])
@@ -361,7 +356,6 @@ export function parseYouTubeMusicSnapshot(
   return {
     account: value.account,
     likedTracks: value.likedTracks as Track[],
-    savedTracks: value.savedTracks as Track[],
     playlists: value.playlists as YouTubeMusicPlaylist[],
     savedAlbums: value.savedAlbums as Album[],
     followedArtists: value.followedArtists as Artist[],

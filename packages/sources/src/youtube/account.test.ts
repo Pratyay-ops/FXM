@@ -82,7 +82,7 @@ const pages: Record<string, MusicLibraryPage> = {
 }
 
 describe('readYouTubeMusicAccount', () => {
-  it('normalizes liked music, saved songs, playlists, albums and followed artists', async () => {
+  it('normalizes liked music, playlists, albums and followed artists', async () => {
     const snapshot = await readYouTubeMusicAccount('cookie=value-that-is-long-enough', {
       createClient: async () => ({
         music: {
@@ -111,7 +111,6 @@ describe('readYouTubeMusicAccount', () => {
       album: { id: 'ytm:album:MPREb_album', name: 'Pablo Honey' },
       artists: [{ id: `ytm:artist:${artistId}`, name: 'Radiohead' }],
     })
-    expect(snapshot.savedTracks).toHaveLength(0)
     expect(snapshot.playlists[0]?.playlist.id).toBe('ytm:playlist:PLabc123')
     expect(snapshot.savedAlbums[0]?.name).toBe('Pablo Honey')
     expect(snapshot.followedArtists[0]?.name).toBe('Radiohead')
