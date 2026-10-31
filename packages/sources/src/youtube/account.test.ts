@@ -67,15 +67,15 @@ const pages: Record<string, MusicLibraryPage> = {
   Albums: libraryPage([
     {
       item_type: 'album',
-      id: 'MPREb_album',
+      id: 'FEmusic_library_privately_owned_release_private-album',
       title: 'Pablo Honey',
       artists: [{ name: 'Radiohead', channel_id: artistId }],
     },
   ]),
   Artists: libraryPage([
     {
-      item_type: 'artist',
-      id: artistId,
+      item_type: 'library_artist',
+      endpoint: { payload: { browseId: 'FEmusic_library_privately_owned_artist_private-artist' } },
       title: 'Radiohead',
     },
   ]),
@@ -112,8 +112,14 @@ describe('readYouTubeMusicAccount', () => {
       artists: [{ id: `ytm:artist:${artistId}`, name: 'Radiohead' }],
     })
     expect(snapshot.playlists[0]?.playlist.id).toBe('ytm:playlist:PLabc123')
-    expect(snapshot.savedAlbums[0]?.name).toBe('Pablo Honey')
-    expect(snapshot.followedArtists[0]?.name).toBe('Radiohead')
+    expect(snapshot.savedAlbums[0]).toMatchObject({
+      id: 'ytm:album:FEmusic_library_privately_owned_release_private-album',
+      name: 'Pablo Honey',
+    })
+    expect(snapshot.followedArtists[0]).toMatchObject({
+      id: 'ytm:artist:FEmusic_library_privately_owned_artist_private-artist',
+      name: 'Radiohead',
+    })
   })
 
   it('refuses an absent cookie rather than returning an empty library', async () => {

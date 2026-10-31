@@ -16,10 +16,10 @@ export type YouTubeSource = 'ytm' | 'yt'
 export const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/u
 
 /** A channelId: `UC` and 22 characters of base64url. */
-export const CHANNEL_ID = /^UC[A-Za-z0-9_-]{22}$/u
+export const CHANNEL_ID = /^(?:UC[A-Za-z0-9_-]{22}|FEmusic_library_privately_owned_artist[A-Za-z0-9_-]{0,128})$/u
 
 /** An album's browseId. */
-export const ALBUM_ID = /^MPREb_[A-Za-z0-9_-]{1,64}$/u
+export const ALBUM_ID = /^(?:MPREb_[A-Za-z0-9_-]{1,64}|FEmusic_library_privately_owned_release[A-Za-z0-9_-]{0,128})$/u
 
 /** A playlistId, e.g. `PL…`, `OLAK5uy_…` (an album's audio playlist) or `RDCLAK5uy_…`. */
 export const PLAYLIST_ID = /^[A-Za-z0-9_-]{2,128}$/u
