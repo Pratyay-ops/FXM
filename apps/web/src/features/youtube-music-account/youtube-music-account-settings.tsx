@@ -134,7 +134,11 @@ export function YouTubeMusicAccountSettings() {
           <p
             role="status"
             aria-live="polite"
-            className={error ? 'flex items-start gap-2 text-sm text-danger' : 'flex items-start gap-2 text-sm text-text-muted'}
+            className={
+              error
+                ? 'flex items-start gap-2 text-sm text-danger'
+                : 'flex items-start gap-2 text-sm text-text-muted'
+            }
           >
             {error ? (
               <AlertCircle aria-hidden="true" className="mt-0.5 size-4 shrink-0" />

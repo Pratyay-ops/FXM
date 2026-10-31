@@ -204,7 +204,8 @@ export async function runYouTubeMusicSync(
   const seenRemotePlaylists = new Set<string>()
   for (const entry of snapshot.playlists) {
     const parts = parseId(entry.playlist.id)
-    const remoteId = parts?.source === 'ytm' && parts.kind === 'playlist' ? parts.nativeId : undefined
+    const remoteId =
+      parts?.source === 'ytm' && parts.kind === 'playlist' ? parts.nativeId : undefined
     if (!remoteId || seenRemotePlaylists.has(remoteId)) continue
     seenRemotePlaylists.add(remoteId)
     const copied = await copyList(
@@ -269,10 +270,20 @@ export async function runYouTubeMusicSync(
 export function parseYouTubeMusicSnapshot(
   value: unknown,
 ): (YouTubeMusicAccountSnapshot & { account: string }) | undefined {
-  if (!isRecord(value) || typeof value.account !== 'string' || !/^[a-f0-9]{24}$/u.test(value.account)) {
+  if (
+    !isRecord(value) ||
+    typeof value.account !== 'string' ||
+    !/^[a-f0-9]{24}$/u.test(value.account)
+  ) {
     return undefined
   }
-  const arrays = ['likedTracks', 'savedTracks', 'playlists', 'savedAlbums', 'followedArtists'] as const
+  const arrays = [
+    'likedTracks',
+    'savedTracks',
+    'playlists',
+    'savedAlbums',
+    'followedArtists',
+  ] as const
   if (!arrays.every((key) => Array.isArray(value[key]))) return undefined
   const tracksValid = (items: unknown[]) =>
     items.every((item) => {
@@ -286,19 +297,23 @@ export function parseYouTubeMusicSnapshot(
         item.kind !== 'song' ||
         !Array.isArray(item.artists) ||
         !Array.isArray(item.artwork)
-      ) return false
-      return item.artists.every((artist) =>
-        isRecord(artist) &&
-        typeof artist.name === 'string' &&
-        (artist.id === undefined ||
-          (typeof artist.id === 'string' &&
-            parseId(artist.id)?.source === 'ytm' &&
-            parseId(artist.id)?.kind === 'artist')),
+      ) {
+        return false
+      }
+      return item.artists.every(
+        (artist) =>
+          isRecord(artist) &&
+          typeof artist.name === 'string' &&
+          (artist.id === undefined ||
+            (typeof artist.id === 'string' &&
+              parseId(artist.id)?.source === 'ytm' &&
+              parseId(artist.id)?.kind === 'artist')),
       )
     })
   const albumsValid = (items: unknown[]) =>
-    items.every((item) =>
-      isRecord(item) &&
+    items.every(
+      (item) =>
+        isRecord(item) &&
       typeof item.id === 'string' &&
       parseId(item.id)?.source === 'ytm' &&
       parseId(item.id)?.kind === 'album' &&
@@ -319,7 +334,9 @@ export function parseYouTubeMusicSnapshot(
     )
   const playlistsValid = (items: unknown[]) =>
     items.every((entry) => {
-      if (!isRecord(entry) || !isRecord(entry.playlist) || !Array.isArray(entry.tracks)) return false
+      if (!isRecord(entry) || !isRecord(entry.playlist) || !Array.isArray(entry.tracks)) {
+        return false
+      }
       const playlist = entry.playlist
       return (
         typeof playlist.id === 'string' &&
@@ -337,7 +354,9 @@ export function parseYouTubeMusicSnapshot(
     !playlistsValid(value.playlists as unknown[]) ||
     !albumsValid(value.savedAlbums as unknown[]) ||
     !artistsValid(value.followedArtists as unknown[])
-  ) return undefined
+  ) {
+    return undefined
+  }
   return {
     account: value.account,
     likedTracks: value.likedTracks as Track[],
@@ -347,7 +366,6 @@ export function parseYouTubeMusicSnapshot(
     followedArtists: value.followedArtists as Artist[],
   }
 }
-
 
 /**
  * Forgets only the current account's import bookkeeping. Imported playlists and follows are
