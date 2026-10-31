@@ -91,10 +91,11 @@ function readState(value: unknown, account: string): YouTubeMusicSyncState {
       if (parsed !== undefined && /^[A-Za-z0-9_-]{1,128}$/u.test(key)) playlists[key] = parsed
     }
   }
+  const liked = parseListState(value.liked)
   return {
     schema: 1,
     account,
-    ...(parseListState(value.liked) === undefined ? {} : { liked: parseListState(value.liked) }),
+    ...(liked === undefined ? {} : { liked }),
     playlists,
     albums: stringList(value.albums),
     artists: stringList(value.artists),

@@ -1,4 +1,4 @@
-import { type Album, type Artist, formatId, type Track } from '@fxm/core'
+import { type Album, type Artist, type EntityId, formatId, type Track } from '@fxm/core'
 import type { YouTubeMusicAccountSnapshot } from '@fxm/sources/youtube/account'
 import { describe, expect, it } from 'vitest'
 import {
@@ -63,7 +63,7 @@ function fakeLibrary(): YouTubeMusicSyncLibrary & {
     async getPlaylistList() {
       return {
         items: [...playlists].map(([id, value]) => ({
-          id,
+          id: id as EntityId<'playlist'>,
           origin: 'local' as const,
           name: value.name,
           artwork: [],
@@ -103,12 +103,6 @@ function fakeLibrary(): YouTubeMusicSyncLibrary & {
         if (value === undefined) settings.delete(key)
         else settings.set(key, value)
       }
-    },
-    // Only the sync path uses getPlaylistList/createPlaylist/addTracks and settings/follows.
-    async getPlaylistView(id) {
-      const list = playlists.get(String(id))
-      if (!list) return undefined
-      return { playlist: { id, trackIds: list.tracks.map((item) => item.id) } as never, rows: [] }
     },
   }
 }
