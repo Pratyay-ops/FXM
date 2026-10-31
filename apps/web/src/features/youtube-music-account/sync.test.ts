@@ -34,12 +34,10 @@ const artist: Artist = {
 const playlistId = formatId('ytm', 'playlist', 'PLabc123')
 const snapshot = (
   liked: Track[] = [track('liked-00001')],
-  saved: Track[] = [],
   playlistTracks: Track[] = [track('playlist001')],
 ): YouTubeMusicAccountSnapshot & { account: string } => ({
   account,
   likedTracks: liked,
-  savedTracks: saved,
   playlists: [
     {
       playlist: { id: playlistId, source: 'ytm', name: 'Road trip', artwork: [] },
@@ -116,7 +114,7 @@ function fakeLibrary(): YouTubeMusicSyncLibrary & {
 }
 
 describe('runYouTubeMusicSync', () => {
-  it('creates separate liked, saved-song and user playlist copies and follows albums/artists', async () => {
+  it('creates separate liked and user playlist copies and follows albums/artists', async () => {
     const library = fakeLibrary()
     const result = await runYouTubeMusicSync(library, snapshot())
     expect(result.createdPlaylists).toBe(2)
@@ -135,7 +133,6 @@ describe('runYouTubeMusicSync', () => {
     const before = [...library.playlists.values()].map((list) => list.tracks.length)
     const next = snapshot(
       [track('liked-00001'), track('liked-00002')],
-      [],
       [track('playlist001'), track('playlist002')],
     )
     const result = await runYouTubeMusicSync(library, next)

@@ -413,7 +413,6 @@ describe('YouTube Music account bridge', () => {
   it('returns normalized music metadata and never returns browser cookies', async () => {
     readYouTubeMusicAccountMock.mockResolvedValueOnce({
       likedTracks: [],
-      savedTracks: [],
       playlists: [],
       savedAlbums: [],
       followedArtists: [],
@@ -439,7 +438,6 @@ describe('YouTube Music account bridge', () => {
       status: 200,
       json: {
         likedTracks: [],
-        savedTracks: [],
         playlists: [],
         savedAlbums: [],
         followedArtists: [],
