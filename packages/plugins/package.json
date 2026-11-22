@@ -20,7 +20,7 @@
     "@noble/hashes": "^2.4.0"
   },
   "devDependencies": {
-    "playwright-core": "^1.64.0",
-    "rolldown": "^1.2.13"
+    "playwright-core": "^1.65.0",
+    "rolldown": "^1.3.0"
   }
 }
